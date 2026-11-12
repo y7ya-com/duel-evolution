@@ -2,7 +2,7 @@
 // Logs (this browser's records), Server Duel Logs (main's duel archive, GET /api/de/replays), Duel Log Collection;
 // the operation menu's Play / Add to Collection / Download; the search; the replay's controls.
 import { describe, expect, it } from 'vitest';
-import { duellogQuery, duellogUi, duellogUrl, duellogWindow, fetchDuellog, replayWindow, DUELLOG_TEXT, wrapLines, type CollectedLog, type DuellogRow, type DuellogSearch } from '../src/ui/htmlui/duellog';
+import { duellogQuery, duellogUi, duellogUrl, duellogWindow, duellogServerPicker, DUELLOG_SERVERS, fetchDuellog, replayWindow, DUELLOG_TEXT, wrapLines, type CollectedLog, type DuellogRow, type DuellogSearch } from '../src/ui/htmlui/duellog';
 import { Ids } from '../src/ui/htmlui/snapshot';
 
 const DAY = 86400, T0 = 1_700_000_000;
@@ -42,14 +42,16 @@ describe('Duel Log over the duel archive', () => {
     const ui = duellogUi(); const t = deps();
     let top = duellogWindow(new Ids(), ui, t.d);
     expect(top.win.cls).toBe('CWindowModelDuellogTop');
-    expect(['latest', 'server', 'collection', 'yoc'].map(s => ctl(top, `plate:${s}`)!.label)).toEqual(['Latest Duel Logs', 'Server Duel Logs', 'Duel Log Collection', 'YOC FINAL TOURNAMENT DUEL LOGS']);
-    expect(ctl(top, 'help')!.items).toEqual([]);
-    top.handlers.get(ctl(top, 'plate:latest')!.id)!.pointer!(true);
-    top = duellogWindow(new Ids(), ui, t.d);
-    expect((ctl(top, 'help')!.items as string[]).join(' ')).toContain('A Duel Log is saved automatically');
+    expect(['latest', 'server', 'collection', 'yoc'].map(s => ctl(top, `label:${s}`)!.text)).toEqual(['Latest Duel Logs', 'Server Duel Logs', 'Duel Log Collection', 'YOC FINAL TOURNAMENT DUEL LOGS']);
+    expect(top.win.back).toBe('data/common/window/log_win_01_c01.png');
+    // each plate carries its help (the box shows it while the pointer is on the plate: option-dlg.ts)
+    expect(String(ctl(top, 'plate:latest')!.help)).toContain('A Duel Log is saved automatically'); expect(ctl(top, '説明')!.helpSlot).toBe(true);
     expect(wrapLines(DUELLOG_TEXT.serverHelp, 50).every(l => l.length <= 50)).toBe(true);
     click(top, 'close'); expect(t.closed()).toBe(1);
-    click(top, 'plate:server'); expect([ui.view, ui.source]).toEqual(['list', 'server']); expect(t.loads).toHaveLength(1);
+    // Server Duel Logs asks for the server first (live's language list), then lists
+    click(top, 'plate:server'); expect(ui.view).toBe('server');
+    const servers = duellogServerPicker(new Ids(), ui, t.d)!; expect(servers.win.controls.filter(c => /^server:/.test(c.name)).map(c => c.label)).toEqual([...DUELLOG_SERVERS]);
+    click(servers, 'server:1'); expect([ui.view, ui.source]).toEqual(['list', 'server']); expect(t.loads).toHaveLength(1);
   });
   it("Server Duel Logs: the archive rows; a row's menu: Play only for a record kept in this browser, Download, Add to Collection", () => {
     const ui = duellogUi(); ui.view = 'list'; ui.source = 'server'; ui.all = all; const t = deps();
@@ -59,8 +61,8 @@ describe('Duel Log over the duel archive', () => {
     expect(list.win.cls).toBe('CWindowModelDuellogList');
     expect(ctl(list, 'title')!.text).toBe('Server Duel Logs');
     expect((ctl(list, 'list')!.items as string[])[0]).toContain(`Alice vs ${first.opponent}`);
-    expect((ctl(list, 'list')!.items as string[])).toHaveLength(20);
-    list.handlers.get(ctl(list, 'list')!.id)!.click!([500, 158 + 56 + 4]); expect([ui.selected, ui.op]).toEqual([0, true]);
+    expect((ctl(list, 'list')!.items as string[])).toHaveLength(10);
+    list.handlers.get(ctl(list, 'list')!.id)!.click!([500, 229 + 75 + 4]); expect([ui.selected, ui.op]).toEqual([0, true]);
     list = duellogWindow(new Ids(), ui, t.d);
     click(list, 'op:download'); expect(t.opened.at(-1)).toEqual([`/api/de/replays/${first.id}`, true]);
     ui.op = true; list = duellogWindow(new Ids(), ui, t.d);

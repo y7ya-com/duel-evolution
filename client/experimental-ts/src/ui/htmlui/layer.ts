@@ -24,8 +24,9 @@ import { chatBubblesFrame } from '@htmlui/chat-bubbles.js';
 import { pictures } from './pictures';
 import { npcBalloonScreen, npcInfoScreen } from './npc-talk';
 import { fileListScreen } from './deck-files';
+import { optionDlgScreen } from './option-dlg';
 import { syncWindow, covers } from '@htmlui/controls/basic.js';
-import { duelWindow } from '@htmlui/controls/skin.js';
+import { duelWindow, duelButton } from '@htmlui/controls/skin.js';
 import { applyPointer, areaAt } from './snapshot';
 import { TouchTaps } from './touch-tap';
 import { VEIL_EVENT } from './scene-loading';
@@ -37,9 +38,9 @@ const MODULES: HtmlUiScreen[] = [select, lobby, chat, social, deck, trade, packs
 // no screen runs in pass mode: the deck editor is owned, its cards and buttons DOM over main's windows (deck-dom.ts);
 // Change Avatar is owned, its plates, page arrows and Confirm / Back each take input on their own element
 const RELAID = new Set(['CWindowModelDuel', 'CWindowModelDuelFind', 'CWindowModelDuelWait']);   // duelsetup.js LAYOUT
-// what the engine draws on main around main's screens (the trade's pictures), the NPC talk's balloon and plate
-// the deck screen's file lists: live's engine draws them itself (deck-files.ts), not main's deck module
-const EXTRA: Record<string, HtmlUiScreen> = { CEnginePictures: pictures, CNpcTalkBalloon: npcBalloonScreen, CNpcTalkInfo: npcInfoScreen, CWindowModelFileList: fileListScreen };
+// what the engine draws on main around main's screens (the trade's pictures), the NPC talk's balloon and plate, the
+// title's OPTIONS window (COptionDlg), the deck screen's file lists (live's engine draws them itself: deck-files.ts)
+const EXTRA: Record<string, HtmlUiScreen> = { CEnginePictures: pictures, CNpcTalkBalloon: npcBalloonScreen, CNpcTalkInfo: npcInfoScreen, COptionDlg: optionDlgScreen, CWindowModelFileList: fileListScreen, CWindowModelDuellogTop: optionDlgScreen, CWindowModelDuellogList: optionDlgScreen, CWindowModelDuellogServerSelect: optionDlgScreen };
 // the windows whose module rebuilds its buttons on every change (screens/trade.js; duel.js redraws a control
 // whose snapshot changes, so its hover and pressed looks replace the button under the pointer: janken, Yes / No, the
 // lists): clicked on release
@@ -51,7 +52,12 @@ const REBUILT = { test: (cls: string) => /^(CWindowModelTrade$|CWindowTaskCardAr
 // focusable and click their control), and a plain visible button for a clickable control no renderer draws, so a
 // window the rewrite adds before its screen is never a dead box
 const GENERIC: HtmlUiScreen = { classes: [], mode: 'owned', mount: () => new Map(),
-  update: (win, _prev, root, api, st) => { const s = st as Map<number, unknown>; syncWindow(root, win, s, { ...api, owned: true }); frameDuel(win as HtmlWindow, root); fallback(win as HtmlWindow, root, api); },
+  update: (win, _prev, root, api, st) => { const s = st as Map<number, unknown>, w = win as HtmlWindow;
+    // a duel-style window's buttons in main's duel look (skin.js duelButton, as social.js / dialog.js draw them), not
+    // the generic renderer's cream switch
+    const duel = w.controls.some(c => !c.parent && c.cls === 'CWindowTaskFrameDuel');
+    syncWindow(root, duel ? { ...w, controls: w.controls.filter(c => c.cls !== 'CWindowTaskButtonDuel') } : w, s, { ...api, owned: true });
+    frameDuel(w, root); duelButtons(duel ? w : null, root, api); fallback(w, root, api); },
   unmount: (root, st) => { root.replaceChildren(); (st as Map<number, unknown>).clear(); } };
 // basic.js draws no window frame: a window the rewrite adds with a FrameDuel (DUEL OPTIONS, Audio, the Duel Log, ...)
 // gets main's duel frame (skin.js duelWindow, as social.js / dialog.js draw theirs) under its controls, the window's size
@@ -63,6 +69,24 @@ function frameDuel(win: HtmlWindow, root: HTMLElement): void {
   if (cur?.key !== key) { cur?.el.remove(); const el = duelWindow(root, { w: win.w, h: win.h }) as HTMLElement; FRAMES.set(root, { el, key }); }
   const el = FRAMES.get(root)!.el;
   if (root.firstChild !== el) root.prepend(el);
+}
+const DUEL_BUTTONS = new WeakMap<HTMLElement, Map<number, { el: HTMLButtonElement; sig: string }>>();
+function duelButtons(win: HtmlWindow | null, root: HTMLElement, api: HtmlUiApi): void {
+  const els = DUEL_BUTTONS.get(root) ?? new Map<number, { el: HTMLButtonElement; sig: string }>(); DUEL_BUTTONS.set(root, els);
+  const seen = new Set<number>();
+  for (const c of win?.controls ?? []) {
+    if (c.parent || c.cls !== 'CWindowTaskButtonDuel') continue;
+    seen.add(c.id);
+    const sig = [c.x, c.y, c.w, c.h, c.label, c.state, c.shown].join('|'); let n = els.get(c.id);
+    if (n?.sig !== sig) {
+      n?.el.remove();
+      const el = duelButton(root, { x: c.x, y: c.y, w: c.w, h: c.h, label: String(c.label ?? ''), state: c.state === 'disabled' || !c.enabled ? 'disabled' : null }), id = c.id;
+      el.addEventListener('click', () => { void api.click(id); }); if (!c.shown) el.hidden = true;
+      n = { el, sig }; els.set(c.id, n);
+    }
+    if (n.el.parentNode !== root) root.append(n.el);
+  }
+  for (const [id, n] of els) if (!seen.has(id)) { n.el.remove(); els.delete(id); }
 }
 const FALLBACK = new WeakMap<HTMLElement, Map<number, HTMLButtonElement>>();
 function fallback(win: HtmlWindow, root: HTMLElement, api: HtmlUiApi): void {
@@ -100,7 +124,9 @@ export class HtmlUiLayer {
   private screens = new Map<string, HtmlUiScreen>();
   // an invisible box kept over the stage: the "canvas" main's page-level modules place themselves over
   private box: HTMLElement;
-  private bd: { frame(snap: { backdrop?: { shown: boolean } } | null): void } | null = null;
+  private bd: { frame(snap: { backdrop?: { shown: boolean }; fader?: { k: number[] } } | null): void } | null = null;
+  /** The backdrop's brightness (1: as drawn). */
+  private dim = 1;
   private wantBackdrop = false; private scene = 0; private last: HtmlSnapshot | null = null; private tick: ReturnType<typeof setInterval> | null = null;
   private observer: ResizeObserver | null = null;
   private readonly api: HtmlUiApi;
@@ -211,8 +237,8 @@ export class HtmlUiLayer {
   }
 
   /** The windows to show now (back to front) and whether the scene has the 2008 backdrop (backdrop.js). */
-  show(specs: WindowSpec[], withBackdrop: boolean, scene = 0): void {
-    this.scene = scene;
+  show(specs: WindowSpec[], withBackdrop: boolean, scene = 0, dim = 1): void {
+    this.scene = scene; this.dim = dim;
     this.specs = specs;
     this.handlers = new Map(specs.flatMap(s => [...s.handlers]));
     if (!this.handlers.has(this.hover)) this.hover = 0;
@@ -261,8 +287,10 @@ export class HtmlUiLayer {
     if (!this.bd) { this.bd = backdrop(this.box); this.place(); }
     const layer = document.getElementById('mu-titlebg');
     if (layer) layer.style.display = this.wantBackdrop ? '' : 'none';
-    if (this.wantBackdrop) this.bd.frame({ backdrop: { shown: true } });
+    if (this.wantBackdrop) this.bd.frame(this.backdropFrame());
   }
+  // the backdrop dimmed with the scene it stands for (backdrop.js reads the engine's fader: the title under OPTIONS)
+  private backdropFrame() { const k = this.dim; return { backdrop: { shown: true }, ...(k < 1 ? { fader: { k: [k, k, k] } } : {}) }; }
 
   /** Re-place over the stage now (a visual-viewport scroll moves the stage without resizing it: ui/phone.ts). */
   relayout(): void { this.place(); }
@@ -275,7 +303,7 @@ export class HtmlUiLayer {
     Object.assign(this.box.style, { position: 'fixed', zIndex: '-1', pointerEvents: 'none', visibility: 'hidden', left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.width * 0.75 + 'px' });
     // main's backdrop.js places itself over the box only in frame() (on live, bridge.js runs it every engine frame):
     // here the layer draws on a change, so a resize with nothing else changing left it at the size it first had
-    if (this.bd && this.wantBackdrop && !this.disposed) this.bd.frame({ backdrop: { shown: true } });
+    if (this.bd && this.wantBackdrop && !this.disposed) this.bd.frame(this.backdropFrame());
   };
 
   // The control an event's own element stands for (tag(): the button main's pass-mode screen drew for it), when that

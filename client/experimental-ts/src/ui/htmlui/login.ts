@@ -17,7 +17,10 @@ import { WindowBuilder, type Ids, type WindowSpec } from './snapshot';
 export type LoginMode = 'signin' | 'signup' | 'verify' | 'reset';
 export interface LoginLocal { mode: LoginMode; username: string; pending?: string;
   /** Opened by the title's ONLINE (live: the sign-in window shows only after it). */
-  open?: boolean }
+  open?: boolean;
+  /** The app's error when the window opened (a refusal from before it, as a free mode start signed out): not its own,
+   * so not on its status line. */
+  stale?: string | null }
 export const loginLocal = (): LoginLocal => ({ mode: 'signin', username: '' });
 
 /** The live panel's numbers (session.cpp: MID, LEFT, WIDE; LINK_Y by mode; OPEN_W). */
@@ -98,7 +101,7 @@ export function loginWindow(d: LoginDeps): WindowSpec {
   for (const l of links) text(l.name, l.x, ly, l.w, 16, l.label, m === 'signin' ? (l.name === 'link1' ? 2 : 0) : 1);
   if (m === 'signin') text('mid', MID - 3, ly, 16, 16, '·');
   // the status line: a mark by state, then the text (session.cpp status / reason)
-  const error = acc?.error ?? (m === 'signin' ? state.error : null) ?? null;
+  const error = acc?.error ?? (m === 'signin' && state.error !== ui.stale ? state.error : null) ?? null;
   const [mark, line] = busy ? [MARK.busy, BUSY[m]] : error ? [MARK.err, error] : [MARK.idle, ''];
   text('dot', LEFT, 240, 16, 16, mark);
   text('status', LEFT + 16, 240, 424, 16, line);
@@ -122,8 +125,10 @@ export function loginWindow(d: LoginDeps): WindowSpec {
       if (input.parentNode !== root) {
         root.append(input);
         // the dialog opens with its caret in the first field (live: CWindowTaskInput focused, caret on), unless the
-        // player is already in another control
-        if (name === 'input1' && (!document.activeElement || document.activeElement === document.body)) input.focus({ preventScroll: true });
+        // player is already in another of its controls (the title's ONLINE, pressed to open it, going with the title);
+        // after this draw, once the layer is shown (a hidden layer's input takes no focus)
+        const first = input;
+        if (name === 'input1') setTimeout(() => { const at = document.activeElement; if (first.isConnected && (!at || at === document.body || !root.contains(at))) first.focus({ preventScroll: true }); }, 0);
       }
       if (css) { input.style.font = css.font; input.style.letterSpacing = css.letterSpacing; }
       const reset = m === 'reset', secret = name === 'input2';

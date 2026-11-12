@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, text, sleep, screenshot, record, startNpcDuel, playDuel, ownedCopies, surrender, byKey, byText, resultShown, resultNext, claimNpcReward, lobbyShown, listedNames, openNpcCard } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, text, sleep, screenshot, record, startNpcDuel, playDuel, ownedCopies, surrender, byKey, byText, resultShown, resultNext, claimNpcReward, lobbyShown, npcNames, openNpcCard } from './harness';
 import { resultLeave } from './harness';
 
 const fieldCount = (side:'your'|'opponent',zone:string) => `[...document.querySelectorAll('.de-field-card')].filter(b=>(b.getAttribute('aria-label')??'').includes(', ${side} ${zone}')).length`;
@@ -11,13 +11,12 @@ describe.skipIf(!enabled)('NPC duels in the real world with the real duel engine
       const page = await openPage(); await openClient(page,await signIn(`TestNp${RUN}`));
       await enterWorld(page,`Npc ${RUN}`);
       // npc.start (eligibility): a special NPC refuses a character without its duel right.
-      // the NPCs here: the player list's search, Show all (main's CFindMenu), its rows
-      const npcs = await listedNames(page);
+      // the NPCs here (on the map)
+      const npcs = await npcNames(page);
       expect(npcs.length).toBeGreaterThan(0);
       let refusal = 'no special NPC listed in this area';
       if (npcs.includes('Seto Kaiba')) {
-        await openNpcCard(page,'Seto Kaiba'); await until(page,`[...document.querySelectorAll('[data-key^="npc-duel:"]')].some(b=>!b.disabled)`,30000);
-        await press(page,`[...document.querySelectorAll('[data-key^="npc-duel:"]')].find(b=>!b.disabled)`);
+        await openNpcCard(page,'Seto Kaiba');
         // the NPC's refusal in its balloon (as live): its lines, no Start Duel?, a click and the talk ends
         const balloon = `document.querySelector('button[data-key="npc-talk:next"]')`;
         await until(page,balloon,20000);

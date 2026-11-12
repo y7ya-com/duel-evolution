@@ -14,14 +14,14 @@ import { SKIN_CSS } from './skin';
 import { duelConfigWindow, titleOptionsWindow, DUEL_OPTIONS_TEXTS, type OptionsDeps, type OptionsUi } from './htmlui/options';
 import { closeAudioPage, openAudioPage } from './htmlui/audio-page';
 import { renderTagLobby, TAG_CSS } from './extra/tag';
-import { changeAvatarAction, freeChoices } from './htmlui/avatar';
+import { changeAvatarAction, freeChoices, FIRST_CATEGORY } from './htmlui/avatar';
 import { Ids } from './htmlui/snapshot';
 import type { ControlHandlers, WindowSpec } from './htmlui/snapshot';
 import { htmlUiLocal, htmlWindows, stockDialog, DELETE_TEXT } from './htmlui/windows';
 import { UiText, localizeSpecs } from '../features/ui-text';
 import { titleConfigWindow } from './htmlui/title-config';
 import { StarterPicker } from './htmlui/starter';
-import { duellogQuery, duellogUi, duellogWindow, fetchDuellogFull, replayWindow, type DuellogUi } from './htmlui/duellog';
+import { duellogQuery, duellogUi, duellogWindow, duellogServerPicker, fetchDuellogFull, replayWindow, type DuellogUi } from './htmlui/duellog';
 import type { TitleConfigUi } from './htmlui/title-config';
 import { bracketWindow, duelHelpStrip, eventKey, informationWindow, joinGunslingWindow, resultWindow, tournamentUi } from './htmlui/tournament';
 import { discordWire } from './htmlui/discord-wire';
@@ -50,7 +50,7 @@ import { deckBackdrop } from '@htmlui/screens/deck.js';
 import { PictureArt } from './htmlui/art';
 import { setPictureResolver, disposePictures } from './htmlui/pictures';
 import { StartScene, PORTRAIT_AT } from './htmlui/start-scene';
-import { TitleScene, type TitleButton } from './htmlui/title-scene';
+import { TitleScene, TITLE_DIMMED, type TitleButton } from './htmlui/title-scene';
 import { BUST_AT } from './htmlui/windows';
 import { loginLocal, loginWindow } from './htmlui/login';
 import { duelDialog, duelDialogCovers, duelOkDialog, loadDuelSpeed } from './htmlui/duel-dialogs';
@@ -198,7 +198,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const self = state.lobby?.avatars.find(a => a.self), look = state.online?.cosmetics?.appearance.parts ?? (self?.parts?.length === 16 ? Array.from(self.parts) : null);
     send({ type: 'onlineAction', action: { type: 'refresh' } });
     if (!look) { local.message = 'Your avatar has not loaded yet.'; requestRender(); return; }
-    htmlUiState.dialog = { kind: 'avatar', slot: null, look: [...look], category: 0, page: 0 }; showHtml();
+    htmlUiState.dialog = { kind: 'avatar', slot: null, look: [...look], category: FIRST_CATEGORY, page: 0 }; showHtml();
   };
   const changeAvatar = () => ({ busy: !!state.online?.pending,
     choices: (index: number, look: number[]) => {
@@ -229,9 +229,12 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         else send({ type: 'duelChallenge', playerId: pid });
       } } : {}),
       ...(watchable ? { watch: () => { close(); send({ type: 'spectate', pid }); } } : {}),
-      ...(state.socialDetail ? { friend: social('inviteFriend'), trade: social('inviteTrade'), team: social('inviteTeam'), ignore: social('ignore'),
-        mail: () => { close(); htmlUiState.compose = { toPid: pid, toName: name, subject: '', body: '' }; showHtml(); } } : {}),
+      ...(state.socialDetail ? { friend: social('inviteFriend'), trade: social('inviteTrade'), ignore: social('ignore') } : {}),
       ...(name ? { whisper: () => { htmlUiState.chatDraft = `/w ${name} `; close(); } } : {}),
+      // Invite to Team: a team's leader, to a player not in it (CPlayerListMenu: inTeam, authority, no team name)
+      ...(socialLists()?.team?.leader && !state.socialDetail?.teamMembers.some(m => m.pid === pid) ? { team: social('inviteTeam') } : {}),
+      // Go to the same Area (CPlayerListMenu::pressJump): to the player's side, where the server says they stand
+      jump: () => { const at = p.location ?? (avatar ? { x: avatar.x, y: avatar.y } : null); close(); if (at && state.scene === 'lobby') send({ type: 'move', x: Math.round(at.x) + 32, y: Math.round(at.y) }); },
     };
   };
   // the list windows' content: the rewrite's social state (an ignored player's name from the players the client sees)
@@ -252,7 +255,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       unignore: pid => social({ type: 'unignore', pid }), formTeam: name => social({ type: 'createTeam', name }),
       leaveTeam: () => social({ type: 'leaveTeam' }), disbandTeam: () => social({ type: 'disbandTeam' }),
       removeFriend: pid => social({ type: 'removeFriend', pid }),
-      // Find a Player (CWindowModelFriendEnum) and Ignore by name (CWindowModelBlacklistInput)
+      // Ignore by name (CWindowModelBlacklistInput), the invitations' Yes / No
       lookup: sd.lookup?.name !== undefined ? { name: sd.lookup.name, pid: sd.lookup.result === 0 && sd.lookup.pid ? sd.lookup.pid : null } : null, error: sd.error,
       offers: sd.friendOffers.map(o => ({ pid: o.pid, name: o.name, level: o.level })), teamInvites: sd.teamInvites.map(t => ({ teamId: t.teamId, teamName: t.teamName, inviterPid: t.inviterPid, inviterName: t.inviterName })),
       canTrade: ['idle', 'finished', 'closing'].includes(sd.trade.phase),
@@ -273,7 +276,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   };
   // the deck editor: main's deck screen (src/ui/htmlui/deck-scene.ts), its engine side on the layer (deck-stage.ts)
   let deckDom: DeckDom | null = null;
-  const deckScene = new DeckScene({ state: () => state, send: command => send(command), rerender: () => showHtml(), leave: () => open('lobby'),
+  let deckFromTitle = false;
+  const deckScene = new DeckScene({ state: () => state, send: command => send(command), rerender: () => showHtml(), leave: () => { if (deckFromTitle) { deckFromTitle = false; send({ type: 'disconnect' }); } else open('lobby'); },
     notice: message => { local.message = message; requestRender(); },
     ...(controller.readGameFile ? { packTexts: () => loadPackTexts(path => controller.readGameFile!(path), state.settings?.language ?? 'E') } : {}) });
   // the shop is main's card shop (htmlui/card-shop.ts: shop/index.js mountCardShop, which calls the server's /api/de/shop
@@ -288,7 +292,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // online: the world server's connection (state.online is the HTTP account's presence, unset in the overworld)
   const pageMods = pageModules({ online: () => !!state.player && state.connection === 'online' && state.mode !== 'free',
     overworld: () => state.scene === 'lobby' && !!state.player && htmlUiState.dialog?.kind !== 'avatar',
-    trade: () => !!state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene), veil: sceneVeilUp });
+    trade: () => !!state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene), veil: sceneVeilUp,
+    free: () => !!state.player && state.connection === 'online' && state.mode === 'free' });
   // main's card shop talks HTTP itself (bridge.js mounts it on onYo2ShopOpen): it opens before the cosmetics state has
   // loaded or the app's own catalogue fetch answered (a failed one is its own "Couldn't open the shop" / Try again), and
   // a tunnel resume underneath (reconnecting) keeps it, its tab and an open pack reveal in place.
@@ -359,8 +364,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   };
   const duellogSpecs = (): WindowSpec[] => {
     if (!duellog || !state.player || state.scene === 'duel' || state.scene === 'title' || state.connection !== 'online') { duellog = null; return []; }
-    return [duellogWindow(htmlIds, duellog, { load: loadDuellog, close: () => { duellog = null; showHtml(); }, rerender: () => showHtml(),
-      open: openUrl, play: key => { duellog = null; send({ type: 'replayPlay', key }); } })];
+    const deps = { load: loadDuellog, close: () => { duellog = null; showHtml(); }, rerender: () => showHtml(),
+      open: openUrl, play: (key: string) => { duellog = null; send({ type: 'replayPlay', key }); } };
+    const servers = duellogServerPicker(htmlIds, duellog, deps);
+    return [duellogWindow(htmlIds, duellog, deps), ...(servers ? [servers] : [])];
   };
   // the NPC reward pack pick in main's pack picker (htmlui/npc-pack.ts: CWindowPackSelect) over the lobby or the duel
   const npcPack = npcPackUi();
@@ -386,7 +393,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // Then the reward pack pick (npc-pack.ts) and what the duel gave (npc-itemget.ts), each over everything.
   const npcTalkSpecs = (): WindowSpec[] => {
     const npc = state.npc; if (state.scene !== 'lobby' || !npcTalkStage(npc) || sceneVeilUp()) return [];
-    const parts = state.lobby?.avatars.find(a => a.npc && a.id === npc!.npc!.id)?.parts ?? state.lobby?.avatars.find(a => a.npc && a.name === npc!.npc!.name)?.parts ?? null;
+    const parts = state.lobby?.avatars.find(a => a.npc && Math.abs(a.id) === npc!.npc!.id)?.parts ?? state.lobby?.avatars.find(a => a.npc && a.name === npc!.npc!.name)?.parts ?? null;
     return npcTalkWindows(npc, { ids: htmlIds, busy: !!state.busy, parts, send: command => { if (controller.getState().npc === npc) send(command); } });
   };
   const npcEscape = (e: KeyboardEvent): boolean => {
@@ -424,16 +431,18 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   let optionsUi: OptionsUi | null = null;
   let trackedActionsFor: string | null = null;
   const optionsSpecs = (): WindowSpec[] => {
-    if (!optionsUi) return [];
+    if (!optionsUi) return languageError([]);
     const display = browserDisplay.state, ui = optionsUi;
     const deps: OptionsDeps = { settings: state.settings, busy: !!state.busy, languageReady: !!state.languageStatus?.available && !state.languageStatus.loading,
       fullscreen: { active: display.active, supported: display.supported, pending: display.pending, toggle: () => { void browserDisplay.toggle(); } },
       text: id => gameTexts.get(id), rerender: showHtml,
       set: settings => send({ type: 'settings', settings }), close: () => { optionsUi = null; showHtml(); } };
     // DUEL OPTIONS (the Main Menu's) or the title's OPTIONS
-    const out = [ui.kind === 'title' ? titleOptionsWindow(htmlIds, ui, deps) : duelConfigWindow(htmlIds, ui, deps)];
-    // a language that could not load (CSystemConfigManager::applyLanguage refused): main's error dialog over DUEL
-    // OPTIONS; the previous language stays and < / > choose it again
+    return languageError([ui.kind === 'title' ? titleOptionsWindow(htmlIds, ui, deps) : duelConfigWindow(htmlIds, ui, deps)]);
+  };
+  // a language that could not load (CSystemConfigManager::applyLanguage refused, after the title's OPTIONS OK): main's
+  // error dialog over the title (and over an OPTIONS window); the previous language stays and its flag chooses it again
+  const languageError = (out: WindowSpec[]): WindowSpec[] => {
     const refused = state.languageStatus?.error;
     if (refused && refused !== languageErrorSeen) {
       const dialog = stockDialog({ ids: htmlIds }, 'language-error', 'error', refused, [{ from: 'OK', key: 'language-error-ok', click: () => { languageErrorSeen = refused; showHtml(); } }]);
@@ -565,7 +574,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (!tradeDom && trading && typeof globalThis.document !== 'undefined') tradeDom = new DeckDom(htmlUi?.host ?? host, tradeTrunk, { art: htmlUi ? new URL('/ui/', location.href).href : '/ui/', ...cardArt(), owns: isTradeTrunk });
     if (!htmlUi) { const specs = deckDom || tradeDom ? buildHtml() : []; if (deckDom) { const d = deckScene.stageView(); deckDom.show(specs, d.detail, d.drag); } tradeDom?.show(specs, tradeTrunk.detailView(), null); syncPortrait(); return; }
     const specs = buildHtml(), deck = deckScene.stageView();
-    htmlUi.show(specs, ['title', 'characters'].includes(state.scene), engineScene());
+    // the title under its OPTIONS window: the movie and the backdrop at kTitleDimmed, the movie's buttons inactive
+    const titleDialog = state.scene === 'title' && optionsUi?.kind === 'title';
+    titleScene?.setActive(!titleDialog);
+    htmlUi.show(specs, ['title', 'characters'].includes(state.scene), engineScene(), titleDialog ? TITLE_DIMMED : 1);
     deckDom?.show(specs, deck.detail, deck.drag);
     tradeDom?.show(specs, tradeTrunk.detailView(), null);
     syncPortrait();
@@ -576,7 +588,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   function syncPortrait(): void {
     const d = htmlUiState.dialog, dc = htmlUiState.discordCard;
     const avatar = d?.kind === 'avatar' && state.scene !== 'characters' ? d : null;
-    const look = avatar ? avatar.look : dc && state.scene === 'lobby' ? dc.parts : null;
+    // a player's card: live shows that player's bust where the Discord card's stands (BUST_AT)
+    const card = state.scene === 'lobby' && state.profileDetail && state.profileDetail.selectedPid !== null && state.profileDetail.selectedPid !== state.profileDetail.selfPid
+      ? state.lobby?.avatars.find(a => a.id === state.profileDetail!.selectedPid)?.parts : null;
+    const look = avatar ? avatar.look : dc && state.scene === 'lobby' ? dc.parts : card ? Array.from(card) : null;
     if (!look || look.length !== 16 || !controller.loadArchiveImage) { portraitScene?.show({ logo: false, portrait: null, reducedMotion: true }); portraitScene?.element.remove(); return; }
     portraitScene ??= new StartScene(controller.loadArchiveImage.bind(controller));
     portraitScene.show({ logo: false, portrait: Uint8Array.from(look), reducedMotion: state.settings.reducedMotion, at: avatar ? PORTRAIT_AT : BUST_AT });
@@ -815,15 +830,18 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // the title's movie buttons (htmlui/title-scene.ts), as live: ONLINE signs in (the sign-in window, signed out) and
   // goes online, OPTIONS opens its OPTIONS window (COptionDlg), DECK EDITOR and FREE DUEL start free mode (ovr/freemode.c)
   let freeTarget: 'deck' | null = null;
+  // the deck editor opened by the title's DECK EDITOR: its EXIT goes back to the title (live), not into the free lobby
   const titlePress = (name: TitleButton) => {
     if (state.busy) return;
+    // signed out, every way online starts at the sign-in window (free mode goes online too); an error from before it
+    // is not its own (it says only what happens in it)
+    if (!state.auth?.signedIn && state.auth && name !== 'options') { loginUi.open = true; loginUi.stale = state.error ?? null; requestRender(); return; }
     if (name === 'online') {
-      if (state.auth && !state.auth.signedIn) { loginUi.open = true; requestRender(); return; }
       if (state.connection === 'online' && state.mode !== 'free') open('characters'); else send({ type: 'connect', freeMode: false });
     } else if (name === 'options') { optionsUi = { kind: 'title' }; showHtml(); }
     else {
       freeTarget = name === 'deck' ? 'deck' : null;
-      if (state.connection === 'online' && state.mode === 'free') { if (freeTarget) { freeTarget = null; open('deck'); } else open(state.player ? 'lobby' : 'characters'); }
+      if (state.connection === 'online' && state.mode === 'free') { if (freeTarget) { freeTarget = null; deckFromTitle = true; open('deck'); } else open(state.player ? 'lobby' : 'characters'); }
       else send({ type: 'connect', freeMode: true });
     }
   };
@@ -880,9 +898,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const ch = alone ? undefined : state.characters.find(c => c.slot === htmlUiState.selected);
     // first dressing: Change Avatar's portrait of the look being made (CChangeAvatarPack), no ring logo
     if (d?.kind === 'avatar') { startScene.show({ logo: false, portrait: Uint8Array.from(d.look), reducedMotion: state.settings.reducedMotion }); return; }
-    // live's Select Player is the swirl backdrop and the turning ring alone: no portrait of the row under the pointer;
-    // the ring turns as live's engine turns it, whatever the reduced-motion setting
-    void ch; startScene.show({ logo: true, portrait: null, reducedMotion: false });
+    // live's Select Player: the swirl backdrop, the turning ring and the waist-up portrait of the character last under
+    // the pointer (CWindowPlayerSelect::onMain; main's select.js leaves the engine's bust to show through); the ring
+    // turns as live's engine turns it, whatever the reduced-motion setting
+    startScene.show({ logo: true, portrait: ch?.parts?.length === 16 ? Uint8Array.from(ch.parts) : null, reducedMotion: false });
   }
   function renderLobby(): void {
     if (!state.lobby) return loadingScene('lobby', 'Lobby');
@@ -902,9 +921,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const d = delta[e.key]; if (!d) return; e.preventDefault(); send({ type: 'move', x: Math.max(0, Math.min(worldW, self.x + d[0])), y: Math.max(0, Math.min(worldH, self.y + d[1])) });
     };
     for (const avatar of lobby.avatars) {
-      // an NPC standing on the map opens its card, as its row of the player list does (main's CNpcListMenu: Send Duel
-      // Request to it from there); a player's opens the player card
-      const b = button('', () => { if (avatar.npc) { lobbyUi.npc = -avatar.id; if (state.profileDetail?.selectedPid != null) send({ type: 'profileAction', action: { type: 'close' } }); showHtml(); return; } send({ type: 'interact', playerId: avatar.id }); }, !lobby.connected);
+      // an NPC standing on the map starts its talk at once, its card beside it (live: CNpcTalk, its record, deck and
+      // biography, and "Start Duel?" after its lines); a player's opens the player card
+      const b = button('', () => { if (avatar.npc && state.profileDetail?.selectedPid != null) send({ type: 'profileAction', action: { type: 'close' } }); send({ type: 'interact', playerId: avatar.id }); }, !lobby.connected);
       b.className = 'de-avatar' + (avatar.self ? ' self' : ''); b.style.left = `${avatar.x / worldW * 100}%`; b.style.top = `${avatar.y / worldH * 100}%`; b.setAttribute('aria-label', `${avatar.name}${avatar.npc ? ', NPC' : ''}`);
       const art = safeImageUrl(avatar.image);
       if (art) { const img = el('img', 'de-avatar-sprite'); img.src = art; img.alt = ''; b.append(img); } else b.append(el('span', 'de-avatar-placeholder'));
@@ -1256,7 +1275,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       else if (leaveShop && !state.busy) { leaveShop = false; queueMicrotask(() => open('lobby')); }
       if (state.scene !== 'title') titleScene?.hide();
       if (state.auth?.signedIn || state.scene !== 'title') loginUi.open = false;
-      if (freeTarget && state.mode === 'free' && state.connection === 'online' && state.player && !state.busy && state.scene !== 'deck' && state.scene !== 'characters') { freeTarget = null; queueMicrotask(() => open('deck')); }
+      if (state.scene === 'lobby' || state.scene === 'title') deckFromTitle = false;
+      if (freeTarget && state.mode === 'free' && state.connection === 'online' && state.player && !state.busy && state.scene !== 'deck' && state.scene !== 'characters') { freeTarget = null; deckFromTitle = true; queueMicrotask(() => open('deck')); }
       if (!available(state.scene)) unavailableScene(state.scene, state.scene === 'deck' ? 'Edit Deck' : state.scene[0].toUpperCase() + state.scene.slice(1));
       else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': if (state.sideboarding) renderSideboarding(); else renderDuel(); break; }
       // the trade scene's ground under main's trade windows (htmlui/trade.ts) and its trunk (htmlui/trade-trunk.ts)
@@ -1274,39 +1294,43 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const go = (scene: Scene) => () => open(scene);
       const entries: MenuEntry[] = !state.player ? [] : [
         { label: 'Edit Deck', key: 'deck', disabled: blocked || sideboard, run: go('deck') },
-        ...(state.profileDetail && state.mode !== 'free' ? [
+        ...(state.profileDetail ? [
           { label: 'My Profile', key: 'profile', disabled: blocked || sideboard, run: () => { if (state.scene !== 'lobby') open('lobby'); send({ type: 'profileAction', action: { type: 'open', pid: state.player!.id } }); } },
           // Create Comment edits the player's own profile lines: it opens over that profile (the controller's rule)
           { label: 'Create Comment', key: 'comment', disabled: blocked || sideboard, run: () => { if (state.scene !== 'lobby') open('lobby'); const p = state.profileDetail; if (p?.selectedPid !== state.player!.id) send({ type: 'profileAction', action: { type: 'open', pid: state.player!.id } }); htmlUiState.comment = [p?.selectedPid === state.player!.id ? p.comments[0] ?? '' : '', p?.selectedPid === state.player!.id ? p.comments[1] ?? '' : '']; showHtml(); } },
+          // Change Title (CWindowModelTitleConfig), live's My Room menu's, after My Profile
+          ...(state.location === 'my-room' && state.titles ? [{ label: 'Change Title', key: 'change-title', disabled: blocked || sideboard, run: () => { titleUi = { selected: -1, top: 0 }; showHtml(); } }] : []),
         ] : []),
-        ...(state.mode !== 'free' && state.location ? [
+        ...(state.location ? [
           // Return to your Room (the private My Room lobby) and, inside it, the door back to the world
           state.location === 'my-room'
             ? { label: 'Return to the World', key: 'leave-room', disabled: blocked || sideboard || !!state.duel, run: () => { if (state.scene !== 'lobby') open('lobby'); send({ type: 'myRoom', enter: false }); } }
             : { label: 'Return to your Room', key: 'my-room', disabled: blocked || sideboard || !!state.duel, run: () => { if (state.scene !== 'lobby') open('lobby'); send({ type: 'myRoom', enter: true }); } },
         ] : []),
         { label: 'DUEL OPTIONS', key: 'settings', disabled: blocked, run: () => { optionsUi = { kind: 'options' }; showHtml(); } },
-        ...(state.mode !== 'free' ? [
+        // live's free mode keeps the whole menu (its D-Mail, Duel Log and lists over the free lobby's session)
+        ...([
           { label: 'D-Mail', key: 'mail', disabled: blocked || sideboard || !state.socialDetail, run: () => { htmlUiState.mail = { top: 0, selected: -1 }; send({ type: 'socialAction', action: { type: 'refreshMail' } }); showHtml(); } },
           // Duel Log (CWindowModelDuellogTop): Latest / Server Duel Logs, the Duel Log Collection
           { label: 'Duel Log', key: 'duellog', disabled: blocked || sideboard, run: () => { duellog = duellogUi(); loadDuellog(duellog.search, 1); } },
           // main's Audio page (htmlui/audio-page.ts: client/recomp/web/audiopage.js over the rewrite's audio manager), as live
           { label: 'Audio', key: 'audio', disabled: blocked || !state.audio, run: () => openAudioPage() },
-          // Find a Player (CWindowModelFriendEnum) is the Friend List's (its Find a Player button), as live: no entry here
+          // live finds players from the player list and the map (no Find a Player window)
           // main's list windows (src/ui/htmlui: CWindowModelBlacklist / Friendlist / Teamlist) over the scene
           ...(state.socialDetail ? (['ignore', 'friends', 'team'] as const).map(kind => ({ label: { ignore: 'Ignore List', friends: 'Friend List', team: 'Team List' }[kind], key: kind === 'team' ? 'teams' : kind,
             disabled: blocked || sideboard, run: () => { htmlUiState.lists = { kind, selected: -1 }; if (kind === 'team') send({ type: 'socialAction', action: { type: 'refreshTeam' } }); if (kind === 'friends') loadPresence(); showHtml(); } })) : []),
-        ] : []),
+        ]),
         ...((state.duel || sideboard) && state.scene !== 'duel' ? [{ label: 'Return to Duel', key: 'duel', disabled: blocked, run: go('duel') }] : []),
         // the way back from the rewrite's own scenes; in the lobby itself there is nothing to return to (live has no entry)
         ...(state.scene !== 'lobby' ? [{ label: 'Return to Lobby', key: 'lobby', disabled: blocked || sideboard, run: go('lobby') }] : []),
-        // Return to Title stays available while busy: it is how a player abandons a request that never answers
-        ...(state.connection === 'online' ? [{ label: 'Return to Title', key: 'title', run: () => confirmAction('Disconnect from the game?', () => send({ type: 'disconnect' }), 'disconnect') }] : []),
+        // Return to Title stays available while busy: it is how a player abandons a request that never answers. Live
+        // goes straight back to the title (no question first)
+        ...(state.connection === 'online' ? [{ label: 'Return to Title', key: 'title', run: () => send({ type: 'disconnect' }) }] : []),
       ];
-      // live's order (main's Main Menu over the 2008 engine, top to bottom): Edit Deck, My Profile, Create Comment, DUEL
+      // live's order (main's Main Menu over the 2008 engine, top to bottom): Edit Deck, My Profile, (My Room: Change Title,) Create Comment, DUEL
       // OPTIONS, D-Mail, Audio, Duel Log, Ignore / Friend / Team List, Return to your Room, Return to Title; the
       // rewrite's own entries after the lists, before the ways out
-      const LIVE_ORDER = ['deck', 'profile', 'comment', 'settings', 'mail', 'audio', 'duellog', 'ignore', 'friends', 'teams', 'change-title', 'tournament', 'find', 'shop', 'my-room', 'leave-room', 'duel', 'lobby', 'title'];
+      const LIVE_ORDER = ['deck', 'profile', 'change-title', 'comment', 'settings', 'mail', 'audio', 'duellog', 'ignore', 'friends', 'teams', 'tournament', 'find', 'shop', 'my-room', 'leave-room', 'duel', 'lobby', 'title'];
       const rank = (e: MenuEntry) => { const i = LIVE_ORDER.indexOf(e.key); return i < 0 ? LIVE_ORDER.length - 4 : i; };
       entries.sort((a, b) => rank(a) - rank(b));
       const world = state.scene === 'lobby' && state.lobby;
@@ -1316,10 +1340,13 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const reserve = barReserve(), fieldShift = reserve ? Math.max(0, Math.min(1016 - 64, reserve + 8) - 391) : 0;
       // (Card Swap's bar is its strip alone, as live: EXIT leaves the trade; live's shop and its pack reveal stand over no
       // bar: the shop page runs to the strip at its foot)
+      // the sign-in window stands over the bar's empty strip, as live's CWindowLogin over CWindowModelMenu
       const trading = !!state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene);
-      menuView = state.scene === 'title' || state.scene === 'duel' || state.scene === 'shop' ? null : { entries, fieldShift, keys: !!state.player && !['deck', 'shop', 'characters'].includes(state.scene) && !trading,
+      menuView = state.scene === 'title' && !showsLogin() || state.scene === 'duel' || state.scene === 'shop' ? null : { entries, fieldShift, keys: !!state.player && !['deck', 'shop', 'characters'].includes(state.scene) && !trading,
         // live's bar message is blank but for a pending request's wait (no "Online in Duel Academy.")
         message: state.player ? (world && waitingMessage({ state, text: id => gameTexts.get(id) })) || '' : '',
+        mainOpen: () => { const p = state.profileDetail; return !!(htmlUiState.mail || htmlUiState.compose || htmlUiState.lists || htmlUiState.comment || optionsUi?.kind === 'options' || duellog || titleUi
+          || p && p.selectedPid !== null && p.selectedPid === p.selfPid); },
         ...(world ? { duel: () => { duelKey(state, lobbyUi); showHtml(); }, move: () => { moveKey(lobbyUi); showHtml(); }, duelOpen: () => ['duel', 'find', 'wait'].includes(lobbyUi.open ?? ''), moveOpen: () => lobbyUi.open === 'move' } : {}) };
       nav.replaceChildren(status);
       // Extension panels also get stable keyboard focus when their data changes.
@@ -1366,7 +1393,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (state.scene === 'duel' && local.duelCmd !== null) { e.preventDefault(); closeCmd(); return; }
     if (npcEscape(e)) return;
     // DUEL OPTIONS / Audio (a modal over the scene): its language error first, then the window
-    if (optionsUi) { e.preventDefault(); const refused = state.languageStatus?.error; if (refused && refused !== languageErrorSeen) languageErrorSeen = refused; else optionsUi = null; showHtml(); return; }
+    if (optionsUi) { e.preventDefault(); const refused = state.languageStatus?.error; if (refused && refused !== languageErrorSeen) languageErrorSeen = refused; else { const before = optionsUi.kind === 'title' ? optionsUi.before?.sound : undefined; if (before !== undefined && before !== state.settings.sound) send({ type: 'settings', settings: { sound: before } }); optionsUi = null; } showHtml(); return; }
     if (state.duel?.prompt?.cancelable && state.scene === 'duel') { e.preventDefault(); respondToPrompt(state.duel.prompt.id, { cancel: true }); }
     else if (state.scene === 'lobby' && state.profileDetail?.selectedPid !== null && state.profileDetail?.selectedPid !== undefined) { e.preventDefault(); send({ type: 'profileAction', action: { type: 'close' } }); }
     else if (state.scene === 'deck' && (deckScene.ui.dialog || deckScene.ui.files)) { e.preventDefault(); deckScene.ui.dialog = null; deckScene.ui.files = null; showHtml(); }

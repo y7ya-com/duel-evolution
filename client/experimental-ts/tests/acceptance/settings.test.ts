@@ -22,39 +22,41 @@ async function openDeck(page:Page) { await menuEntry(page,'deck'); await until(p
 async function trunkNames(page:Page) { await openDeck(page); const names = await collectionNames(page); await exitDeckEditor(page); return names; }
 /** DUEL OPTIONS (htmlui/options.ts, live's CWindowModelDuelConfig) from the Main Menu. */
 async function duelOptions(page:Page) { await menuEntry(page,'settings'); await until(page,byKey('duel-config-ok'),30000); }
-const LANGUAGES = ['日本語','English','Deutsch','Français','Italiano','Español','한국어'];
-/** The title's OPTIONS (htmlui/options.ts titleOptionsWindow, live's COptionDlg): Language, Screen and Volume rows. */
+/** The seven flags in COptionDlg (its selected language's name as live shows it, the code the flag sets). */
+const LANGUAGES: Record<string,string> = { Japanese:'J',English:'E',German:'G',French:'F',Italian:'I',Spanish:'S',Korean:'K' };
+/** The title's OPTIONS (htmlui/options.ts titleOptionsWindow, live's COptionDlg): the flags, the monitors, the slider. */
 const optionsShown = byKey('opt-ok');
-const langShown = `${byKey('opt-lang')}?.textContent.trim()`;
-const langReady = `(${byKey('opt-lang-next')}&&!${byKey('opt-lang-next')}.disabled)`;
-/** main's error dialog over OPTIONS: a language whose tables could not load. */
+const named = (name:string) => `document.querySelector('[data-name="${name}"]')`;
+const langShown = `${named('COptionDlg::m_textSelectedLang')}?.textContent.trim()`;
+const langReady = `(${byKey('opt-lang-E')}&&!${byKey('opt-lang-E')}.disabled)`;
+/** main's error dialog: a language whose tables could not load. */
 const langError = byKey('language-error-ok');
-const soundShown = `${byKey('opt-sound-level')}?.textContent.trim()`;
-/** Back on the title (Main Menu: Return to Title, its key: the label follows the language; Yes to 'Disconnect from the
- * game?', as a player would) and its OPTIONS open. */
+/** The volume slider's step, '0'..'15'. */
+const soundShown = `${named('COptionDlg::m_slider')}?.getAttribute('aria-valuenow')`;
+/** Back on the title (Main Menu: Return to Title, its key: the label follows the language) and its OPTIONS open. */
 async function titleOptions(page:Page) {
   await until(page,`${titleButton('options')}||${optionsShown}||${byKey('main-menu')}`,60000);
-  if (!(await page.ev(`Boolean(${titleButton('options')}||${optionsShown})`)) && await page.ev(`Boolean(${byKey('main-menu')})`)) {
-    await menuEntry(page,'title'); await until(page,byKey('disconnect-yes'),30000); await press(page,byKey('disconnect-yes'));
-  }
+  if (!(await page.ev(`Boolean(${titleButton('options')}||${optionsShown})`)) && await page.ev(`Boolean(${byKey('main-menu')})`)) await menuEntry(page,'title');
   if (!(await page.ev(`Boolean(${optionsShown})`))) { await until(page,titleButton('options'),60000); await press(page,titleButton('options')); }
   await until(page,optionsShown,30000);
 }
-/** OPTIONS' < / > to a language, a step at a time as live's row goes (each waits for that language's tables, or the refusal). */
+/** A flag (live: it only chooses; the language loads on OK). */
 async function chooseIn(page:Page,name:string) {
-  for (let step = 0; step < LANGUAGES.length; step++) {
-    await until(page,`${langReady}||${langError}`,90000);
-    const current = await page.ev(langShown) as string;
-    if (current === name || await page.ev(`Boolean(${langError})`)) return;
-    const from = LANGUAGES.indexOf(current), to = LANGUAGES.indexOf(name), forward = (to - from + LANGUAGES.length) % LANGUAGES.length <= LANGUAGES.length / 2;
-    await press(page,byKey(forward ? 'opt-lang-next' : 'opt-lang-prev'));
-    await until(page,`${langShown}!==${JSON.stringify(current)}||${langError}`,90000);
-  }
-  await until(page,`(${langShown}===${JSON.stringify(name)}&&${langReady})||${langError}`,90000);
+  await until(page,`${langReady}||${langError}`,90000);
+  await press(page,byKey(`opt-lang-${LANGUAGES[name]}`));
+  await until(page,`${langShown}===${JSON.stringify(name)}`,10000);
+}
+/** OPTIONS' OK, then OPTIONS again once the language chosen has loaded (or was refused). */
+async function okAndReopen(page:Page) {
+  await press(page,optionsShown); await until(page,`!${optionsShown}`,10000);
+  await until(page,`${titleButton('options')}||${langError}`,30000);
+  if (await page.ev(`Boolean(${langError})`)) return;
+  await press(page,titleButton('options')); await until(page,optionsShown,30000);
+  await until(page,`${langReady}||${langError}`,90000);
 }
 /** OPTIONS' OK, then online again into the world. */
 async function leaveOptions(page:Page,me:string) { await press(page,optionsShown); await until(page,`!${optionsShown}`,10000); await reenterWorld(page,me); }
-async function choose(page:Page,name:string,me:string) { await titleOptions(page); await chooseIn(page,name); await leaveOptions(page,me); }
+async function choose(page:Page,name:string,me:string) { await titleOptions(page); await chooseIn(page,name); await okAndReopen(page); await leaveOptions(page,me); }
 /** The Main Menu's entry labels (main's CMainMenu), opened and closed again. */
 async function menuLabels(page:Page) {
   await press(page,byKey('main-menu')); await until(page,byKey('menu:deck'),10000);
@@ -93,7 +95,7 @@ const audioVolume = `document.querySelector('#rc-audio input[type=range][aria-la
 async function closeAudio(page:Page) { await press(page,`[...document.querySelectorAll('#rc-audio .foot button')].find(b=>b.textContent==='OK')`); await until(page,`!document.querySelector('#rc-audio')`,10000); }
 /** OPTIONS' Volume (the sound effects level) down to nothing, a step at a time. */
 async function muteEffects(page:Page) {
-  for (let i = 0; i < 12 && await page.ev(soundShown) !== '0%'; i++) { const was = await page.ev(soundShown); await press(page,byKey('opt-sound-down')); await until(page,`${soundShown}!==${JSON.stringify(was)}`,5000); }
+  for (let i = 0; i < 16 && await page.ev(soundShown) !== '0'; i++) { const was = await page.ev(soundShown); await press(page,byKey('opt-sound-down')); await until(page,`${soundShown}!==${JSON.stringify(was)}`,5000); }
 }
 
 describe.skipIf(!enabled)('Options: language, display, persistence and accessibility',() => {
@@ -109,7 +111,7 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       await press(page,byKey('duel-config-cancel')); await until(page,`!${byKey('duel-config-ok')}`,10000);
       await titleOptions(page);
       expect(await page.ev(langShown)).toBe('English');
-      await chooseIn(page,'Deutsch');
+      await chooseIn(page,'German'); await okAndReopen(page);
       expect(await page.ev(`Boolean(${langError})`)).toBe(false);
       await screenshot(page,'settings-language-de');
       await leaveOptions(page,me);
@@ -126,57 +128,61 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       expect(german.length).toBe(english.length);
       expect(changed).toBeGreaterThan(english.length / 2);
       // Japanese: a different script and code page (< twice, through English).
-      await choose(page,'日本語',me);
+      await choose(page,'Japanese',me);
       const japanese = await trunkNames(page), japaneseMenu = await menuLabels(page);
       expect(japanese.some(n => /[぀-ヿ一-鿿]/.test(n))).toBe(true);
       expect(japaneseMenu.some(n => /[぀-ヿ一-鿿]/.test(n))).toBe(true);
       await screenshot(page,'settings-language-ja-deck');
-      // Refused data: the archive is unreachable while choosing French: main's error dialog says so, Deutsch stays and
-      // the choice can be made again.
-      await titleOptions(page); await chooseIn(page,'Deutsch');
+      // Refused data: the archive is unreachable when OK applies French: main's error dialog says so, German stays and
+      // the flag can be chosen again.
+      await titleOptions(page); await chooseIn(page,'German'); await okAndReopen(page);
+      expect(await page.ev(langShown)).toBe('German');
       await page.send('Network.setBlockedURLs',{ urls:['*/game-assets/*'] });
-      await chooseIn(page,'Français');
+      await chooseIn(page,'French'); await okAndReopen(page);
       await until(page,langError,60000);
       const refusal = await page.ev(`${langError}.closest('.win').innerText`) as string;
       expect(refusal).toMatch(/Français|French/);
       await screenshot(page,'settings-language-refused');
-      expect(await page.ev(langShown)).toBe('Deutsch');
       await page.send('Network.setBlockedURLs',{ urls:[] });
       await press(page,langError); await until(page,`!${langError}`,10000);
-      await chooseIn(page,'Français');
+      await titleOptions(page);
+      expect(await page.ev(langShown)).toBe('German');
+      await chooseIn(page,'French'); await okAndReopen(page);
       expect(await page.ev(`Boolean(${langError})`)).toBe(false);
-      // Screen: Full screen refused once leaves the window as it was; a later press enters fullscreen and Window leaves it.
+      expect(await page.ev(langShown)).toBe('French');
+      // Screen: the Full monitor and OK, refused once, leaves the window as it was; again it enters fullscreen and the
+      // Window monitor and OK leave it.
       await page.ev(`(()=>{const real=Element.prototype.requestFullscreen;Element.prototype.requestFullscreen=function(){Element.prototype.requestFullscreen=real;return Promise.reject(new TypeError('Permissions check failed'));};})()`);
-      await press(page,byKey('opt-fullscreen')); await sleep(500);
-      const refusedFullscreen = await page.ev(`document.fullscreenElement===null&&!${byKey('opt-fullscreen')}.disabled`) as boolean;
+      await press(page,byKey('opt-fullscreen')); await okAndReopen(page); await sleep(500);
+      const refusedFullscreen = await page.ev(`document.fullscreenElement===null&&${byKey('opt-windowed')}.getAttribute('aria-pressed')==='true'`) as boolean;
       expect(refusedFullscreen).toBe(true);
-      await press(page,byKey('opt-fullscreen'));
-      await until(page,`document.fullscreenElement!==null&&${byKey('opt-windowed')}&&!${byKey('opt-windowed')}.disabled`,15000);
+      await press(page,byKey('opt-fullscreen')); await okAndReopen(page);
+      await until(page,`document.fullscreenElement!==null&&${named('COptionDlg::m_textSelectedScreen')}?.textContent.trim()==='Full'`,15000);
       await screenshot(page,'settings-fullscreen');
-      await press(page,byKey('opt-windowed'));
-      await until(page,`document.fullscreenElement===null&&!${byKey('opt-fullscreen')}.disabled`,15000);
+      await press(page,byKey('opt-windowed')); await okAndReopen(page);
+      await until(page,`document.fullscreenElement===null&&${named('COptionDlg::m_textSelectedScreen')}?.textContent.trim()==='Window'`,15000);
       await leaveOptions(page,me);
       const french = await trunkNames(page);
       expect(french.filter((f,i) => f !== english[i] && f !== german[i]).length).toBeGreaterThan(english.length / 3);
-      record('settings.language-screen',{ actions:'Title OPTIONS Language row: Deutsch (DUEL OPTIONS window text follows); Main Menu and deck screen; 日本語; Deutsch; Français with the archive blocked, then again; Screen row: Full screen refused once, then enter and Window',
+      record('settings.language-screen',{ actions:'Title OPTIONS flags and OK: German (DUEL OPTIONS window text follows); Main Menu and deck screen; Japanese; German; French with the archive blocked, then again; Screen monitors and OK: Full screen refused once, then enter and Window',
         expected:'The original seven languages; card text and main\'s labels switch from that language\'s tables; a refused load says so and keeps the old language; a refused fullscreen leaves the window as it was',
-        observed:`first collection card "${english[0]}" → de "${german[0]}" (${changed}/${english.length} changed) → ja "${japanese[0]}" → fr "${french[0]}"; Main Menu ${englishMenu.join('/')} → de ${germanMenu.join('/')} (${menuChanged} changed) → ja ${japaneseMenu.join('/')}; blocked: error dialog "${refusal.replace(/\s+/g,' ').slice(0,160)}" with Deutsch still shown, retry chose Français; fullscreen refused (still windowed), then entered and left` });
+        observed:`first collection card "${english[0]}" → de "${german[0]}" (${changed}/${english.length} changed) → ja "${japanese[0]}" → fr "${french[0]}"; Main Menu ${englishMenu.join('/')} → de ${germanMenu.join('/')} (${menuChanged} changed) → ja ${japaneseMenu.join('/')}; blocked: error dialog "${refusal.replace(/\s+/g,' ').slice(0,160)}" with German still shown, retry chose French; fullscreen refused (still windowed), then entered and left` });
 
       // settings.persist: the effects volume (OPTIONS' Volume) and the language, then a reload restores both.
       await titleOptions(page);
       const before = await page.ev(soundShown) as string;
-      await press(page,byKey(before === '100%' ? 'opt-sound-down' : 'opt-sound-up')); await until(page,`${soundShown}!==${JSON.stringify(before)}`,5000);
+      await press(page,byKey(before === '15' ? 'opt-sound-down' : 'opt-sound-up')); await until(page,`${soundShown}!==${JSON.stringify(before)}`,5000);
       const sound = await page.ev(soundShown) as string;
       await press(page,optionsShown); await until(page,`!${optionsShown}`,10000);
       const saved = await stored(page);
       await page.go(`${CLIENT}/?portOffset=1000&assets=/game-assets/`,`document.querySelector('.de-client')`);
       await titleOptions(page);
-      await until(page,`${langShown}==='Français'`,90000);
+      await until(page,`${langShown}==='French'`,90000);
       const restored = { sound:await page.ev(soundShown), language:await page.ev(langShown) };
-      expect(restored).toEqual({ sound,language:'Français' });
-      expect(saved).toMatchObject({ language:'F',sound:Number(sound.replace('%','')) / 100 });
+      expect(restored).toEqual({ sound,language:'French' });
+      expect(saved).toMatchObject({ language:'F',sound:Number(sound) / 15 });
       await screenshot(page,'settings-restored');
-      record('settings.persist',{ actions:'Title OPTIONS: Volume + (Français chosen before), OK; reload the page',
+      record('settings.persist',{ actions:'Title OPTIONS: the volume a step (French chosen before), OK; reload the page',
         expected:'The volume and language restore after reload',
         observed:`saved sound ${saved.sound}, language ${saved.language}; after reload OPTIONS shows Volume ${restored.sound}, Language ${restored.language}` });
 
@@ -296,7 +302,7 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       await menuEntry(page,'audio'); await until(page,audioVolume,30000);
       await until(page,`/Plays in ${slots.length} of/.test(document.querySelector('#rc-audio').innerText)`,15000);
       const reloaded = { sound:mutedShown,background:Number(await page.ev(`${audioVolume}.value`)) };
-      expect(reloaded).toEqual({ sound:'0%',background:60 });
+      expect(reloaded).toEqual({ sound:'0',background:60 });
       await screenshot(page,'audio-options');
       await closeAudio(page);
       const afterReload = await playing(page);

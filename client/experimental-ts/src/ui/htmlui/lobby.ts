@@ -1,6 +1,6 @@
 // The lobby's duel and move windows through main's screens (screens/duelsetup.js: the Duel menu, Auto Duel, Create
 // Duel, the bar's Move list, the player list's search menu; screens/lobby.js: an NPC's card; screens/dialog.js: the
-// prompts), built from main's captured windows (mock/duelsetup-*.json, lobby-npc.json, dialog-*.json) with the rewrite's
+// prompts), built from main's captured windows (mock/duelsetup-*.json, dialog-*.json) with the rewrite's
 // lobby in them: its rooms, its matchmaking queue, its areas and NPCs. What a control does is a ClientApp command.
 // Owned screens (duelsetup.js) take the pointer themselves, so a choice switch's look (normal / checked) is set here.
 import { REWRITE_TEXT } from '../../features/ui-text';
@@ -14,7 +14,6 @@ import duelWaitMock from './templates/duelsetup-wait.json';
 import moveMock from './templates/duelsetup-move.json';
 import findMenuMock from './templates/duelsetup-findmenu.json';
 import playerListMock from './templates/duelsetup-plist.json';
-import npcCardMock from './templates/lobby-npc.json';
 import dialogInput1 from './templates/dialog-input1.json';
 import dialogYesNo from './templates/dialog-yesno.json';
 import { wrapDialogText } from './dialog-text';
@@ -40,14 +39,14 @@ export interface LobbyLocal {
   searching: boolean; search: Search | null;
   find: { style: 3 | 4 | 6; similar: boolean };
   wait: { style: 3 | 4; timeLimit: boolean; watch: boolean; surrender: boolean; password: string };
-  /** The NPC whose card is open; a room's password prompt; the Duel key's "cancel the duel you created?". */
-  npc: number | null; join: { roomId: number; password: string } | null; cancel: boolean;
+  /** A room's password prompt; the Duel key's "cancel the duel you created?". */
+  join: { roomId: number; password: string } | null; cancel: boolean;
   /** The Move list's first row shown. */
   moveTop: number;
 }
 export const lobbyLocal = (): LobbyLocal => ({ open: null, searching: false, search: null, find: { style: 3, similar: false },
-  // Create Duel opens on Match (best of 3), On, Allowed, Allowed, as live's
-  wait: { style: 4, timeLimit: true, watch: true, surrender: true, password: '' }, npc: null, join: null, cancel: false, moveTop: 0 });
+  // Create Duel opens on Single, On, Allowed, Allowed, as live's (the tour's capture: a new character's Create Duel)
+  wait: { style: 3, timeLimit: true, watch: true, surrender: true, password: '' }, join: null, cancel: false, moveTop: 0 });
 
 export interface LobbyDeps {
   ui: LobbyLocal;
@@ -182,17 +181,14 @@ function moveWindow(ctx: BuildContext, deps: LobbyDeps): WindowSpec | null {
   return b.spec();
 }
 
-/** Who a search lists: the other players here, NPCs too for Show all (the search's last row). */
-export interface ListRow { kind: 'player' | 'npc'; id: number; name: string; level?: number }
-// the players in the order they came (live's list: newest last, kept as players move and their records change; the
-// lobby's avatars come in whatever order the session's updates leave them)
-const arrival = new Map<number, number>(); let arrivals = 0;
+/** Who a search lists: the other players here (live lists no NPCs, Show all included), in the order they came. */
+export interface ListRow { kind: 'player'; id: number; name: string; level?: number }
+// the order each player was first seen in (the server's area list order, kept: live's list never reshuffles)
+const seenOrder = new Map<number, number>();
 export function listRows(state: ClientView, search: Search | null, friends: readonly number[]): ListRow[] {
   const lobby = state.lobby; if (!lobby) return [];
-  const here = lobby.avatars.filter(a => !a.self && !a.npc), self = lobby.avatars.find(a => a.self);
-  for (const a of here) if (!arrival.has(a.id)) arrival.set(a.id, ++arrivals);
-  if (arrival.size > here.length) { const ids = new Set(here.map(a => a.id)); for (const id of arrival.keys()) if (!ids.has(id)) arrival.delete(id); }
-  const players = here.sort((a, b) => arrival.get(a.id)! - arrival.get(b.id)!);
+  const seen = (id: number) => { let n = seenOrder.get(id); if (n === undefined) { n = seenOrder.size; seenOrder.set(id, n); } return n; };
+  const players = lobby.avatars.filter(a => !a.self && !a.npc).sort((a, b) => seen(a.id) - seen(b.id)), self = lobby.avatars.find(a => a.self);
   const rooms = lobby.rooms ?? [], room = (pid: number) => rooms.find(r => r.owner === pid && !r.opponent);
   const row = (a: { id: number; name: string; level?: number }): ListRow => ({ kind: 'player', id: a.id, name: a.name, ...(a.level ? { level: a.level } : {}) });
   switch (search) {
@@ -200,7 +196,7 @@ export function listRows(state: ClientView, search: Search | null, friends: read
     case 'name': return [...players].sort((a, b) => a.name.localeCompare(b.name)).map(row);
     case 'friends': return players.filter(a => friends.includes(a.id)).map(row);
     case 'near': return self ? [...players].sort((a, b) => Math.hypot(a.x - self.x, a.y - self.y) - Math.hypot(b.x - self.x, b.y - self.y)).map(row) : players.map(row);
-    case 'all': return [...players.map(row), ...(state.mode !== 'free' ? lobby.npcs ?? [] : []).map(n => ({ kind: 'npc' as const, id: n.id, name: n.name }))];
+    case 'all': return players.map(row);
     // the levels are not in the lobby's list: the players here, as listed
     default: return players.map(row);
   }
@@ -215,13 +211,14 @@ export function lobbyList(ctx: BuildContext, deps: LobbyDeps, openPlayer: (pid: 
   const cs = b.fromTemplate(t, true), ui = deps.ui, rows = listRows(ctx.state, ui.search, deps.friends);
   const list = cs.find(c => c.cls === 'CWindowTaskActiveListbox' && !c.parent);
   if (list) {
-    Object.assign(list, { items: rows.map(r => `@0${r.level ? `Lv ${r.level}` : ''}@>40/${r.name}`), top: 0, topLine: 0, selected: -1, rows: 6 });
+    // the row of the player whose card is open is the list's chosen one (live: the row clicked stays lit)
+    const open = ctx.state.profileDetail?.selectedPid;
+    Object.assign(list, { items: rows.map(r => `@0${r.level ? `Lv ${r.level}` : ''}@>40/${r.name}`), top: 0, topLine: 0, selected: rows.findIndex(r => r.id === open), rows: 6 });
     const bar = cs.find(c => c.parent === list.id && /Scroll$/.test(c.cls)); if (bar) Object.assign(bar, { value: 0, max: Math.max(0, rows.length - 6), page: 6 });
     const win = b.win;
     b.on(list, { label: 'Players here', click: point => {
       if (!point) return; const r = rows[Math.floor((point[1] - win.y - list.y) / 16) + Number(list.top || 0)]; if (!r) return;
-      if (r.kind === 'npc') { ui.npc = r.id; if (ctx.state.profileDetail?.selectedPid != null) ctx.send({ type: 'profileAction', action: { type: 'close' } }); ctx.rerender(); }
-      else { ui.npc = null; openPlayer(r.id); }
+      openPlayer(r.id);
     } });
   }
   const search = cs.find(c => c.cls === 'CWindowTaskPictureSwitch' && top(c));
@@ -241,29 +238,6 @@ function searchMenu(ctx: BuildContext, deps: LobbyDeps): WindowSpec {
     if ((ui.search === 'single' || ui.search === 'match') && !ctx.state.busy) ctx.send({ type: 'refreshMatchmaking' });
     ctx.rerender();
   } });
-  return b.spec();
-}
-
-// An NPC's card (CNpcListMenu, main's lobby.js card; mock/lobby-npc.json at 0, 219, 336 wide): the NPC's name in red on
-// its plane, then Send Duel Request on the card's button plane (the game's TextSwitch, 24, +6, 288 x 24). The rewrite
-// knows an NPC's name only: the record, deck and profile helps are left out and the card ends under the name.
-function npcCard(ctx: BuildContext, deps: LobbyDeps): WindowSpec | null {
-  const ui = deps.ui, npc = ctx.state.lobby?.npcs?.find(n => n.id === ui.npc);
-  if (!npc || ctx.state.mode === 'free') { ui.npc = null; return null; }
-  const t = npcCardMock.windows[0]!, h = 8 + 36 + 36 + 8;
-  const b = new WindowBuilder(ctx.ids, `npc:${npc.id}`, t.cls, { x: t.x, y: t.y, w: t.w, h }, { z: 51603, modal: false });
-  const cs = b.fromTemplate(t, true);
-  for (const c of cs) if (top(c) && c.cls === 'CWindowTaskHelp' && !c.name.includes('レベル＆名前')) c.shown = false;
-  const name = cs.find(c => c.cls === 'CWindowTaskHelp' && c.name.includes('レベル＆名前')), text = name && cs.find(c => c.parent === name.id && c.cls === 'CWindowTaskText');
-  if (text) Object.assign(text, { text: npc.name, color: [1, 0, 0, 1] });
-  const frame = cs.find(c => c.cls === 'CWindowTaskFrameThin'); if (frame) Object.assign(frame, { h, parts: { sprites: [], labels: [], swfs: [] } });
-  const plane = cs.find(c => c.cls === 'CWindowTaskBackPlane' && top(c) && c.name.includes('背景')); if (plane) Object.assign(plane, { y: 44, h: 36 });
-  const eligibility = ctx.state.npc?.eligibility, checking = eligibility?.status === 'pending' || !!eligibility?.refreshing;
-  const enabled = !!ctx.state.lobby?.connected && !ctx.state.busy && !checking && eligibility?.status !== 'uncertain';
-  for (const c of cs) if (top(c) && c.cls === 'CWindowTaskTextSwitch') { c.shown = false; c.parts = undefined; }
-  const duel = cs.find(c => top(c) && c.cls === 'CWindowTaskTextSwitch' && c.name.trim() === 'デュエル申し込みボタン');
-  if (duel) { Object.assign(duel, { shown: true, x: 24, y: 50, w: 288, h: 24, state: enabled ? 'normal' : 'disabled' });
-    b.on(duel, { key: `npc-duel:${npc.id}`, label: `Send Duel Request to ${npc.name}`, click: () => { if (!enabled) return; ui.npc = null; ctx.send({ type: 'interact', playerId: -Math.abs(npc.id) }); ctx.rerender(); } }); }
   return b.spec();
 }
 
@@ -315,10 +289,9 @@ export function waitingMessage(ctx: Pick<BuildContext, 'state' | 'text'>): strin
  * card, the prompts). */
 export function lobbyWindows(ctx: BuildContext, deps: LobbyDeps): WindowSpec[] {
   const ui = deps.ui, out: WindowSpec[] = [];
-  if (ctx.state.scene !== 'lobby' || !ctx.state.lobby) { Object.assign(ui, { open: null, searching: false, npc: null, join: null, cancel: false }); return out; }
+  if (ctx.state.scene !== 'lobby' || !ctx.state.lobby) { Object.assign(ui, { open: null, searching: false, join: null, cancel: false }); return out; }
   if (ui.join && !ctx.state.lobby.rooms?.some(r => r.id === ui.join!.roomId)) ui.join = null;
   if (ui.cancel && !waiting(ctx.state)) ui.cancel = false;
-  const npc = npcCard(ctx, deps); if (npc) out.push(npc);
   if (ui.searching) out.push(searchMenu(ctx, deps));
   if (ui.open === 'duel') out.push(duelMenu(ctx, deps));
   else if (ui.open === 'find') out.push(findWindow(ctx, deps));

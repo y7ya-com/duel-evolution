@@ -40,6 +40,9 @@ function look(source: PictureSource): Promise<string | null> {
   return p;
 }
 
+/** A picture's URL for a screen that draws it itself (option-dlg.ts: sprites as CSS backgrounds); null if it can't load. */
+export const pictureUrl = (source: PictureSource): Promise<string | null> => look(source);
+
 interface Drawn { el: HTMLElement; inner: HTMLElement | null; source: string; natural: [number, number] | null }
 function place(d: Drawn, p: Picture): void {
   if (p.label) { if (d.el.title !== p.label) { d.el.title = p.label; d.el.setAttribute('role', 'img'); d.el.setAttribute('aria-label', p.label); } }

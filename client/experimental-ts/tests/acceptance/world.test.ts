@@ -125,10 +125,10 @@ describe.skipIf(!enabled)('world (PixiJS)',() => {
         log.push(`map ${w.mapId}: ${listed.map(([,n,x,y,d]) => `${n}@${x},${y}/${d}`).join(' ')}`);
         await shot(page,file);
       }
-      // the nearest NPC's hit target opens its card (main's CNpcListMenu), as its row of the player list does
+      // the nearest NPC's hit target starts its talk, its card beside it (live's CNpcTalk)
       const id = await page.ev(`(()=>{const a=window.__deApp.getState().lobby.avatars.filter(a=>a.npc);const me=window.__deApp.getState().lobby.avatars.find(a=>a.self);a.sort((p,q)=>Math.hypot(p.x-me.x,p.y-me.y)-Math.hypot(q.x-me.x,q.y-me.y));return a[0]?.id})()`) as number;
       await page.ev(`document.querySelector('[data-key="avatar:${id}"]').click()`);
-      await until(page,`document.querySelector('[data-key="npc-duel:${-id}"]')`,10000); await sleep(800); await shot(page,'33-npc-card');
+      await until(page,`document.querySelector('button[data-key="npc-talk:next"],[data-key="npc-start:yes"]')`,10000); await sleep(800); await shot(page,'33-npc-card');
       log.push(`clicked NPC ${-id}: its card is open`);
       console.log('npcs',log.join(' | '));
       record('world.npcs',{ actions:'Visit three maps; click an NPC',expected:'NPCs at the exe spot coordinates; the NPC card opens',observed:log.join('; ') });

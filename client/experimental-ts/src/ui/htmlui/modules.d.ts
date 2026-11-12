@@ -107,9 +107,9 @@ declare module '@htmlui/controls/basic.js' {
   export function syncWindow(root: HTMLElement, win: unknown, st: Map<number, unknown>, api: HtmlUiApi): void;
   /** Whether a generic renderer draws this control's class. */
   export function covers(c: { cls: string }): boolean;
-  /** One control drawn into el by its generic renderer (null: no renderer for its class). */
-  export function renderControl(c: unknown, el: HTMLElement, api?: unknown, opts?: unknown): HTMLElement | null;
-  /** Lines of text (Arial, the game's spacing) as one block at x, y, aligned in w (0 left, 1 centre, 2 right). */
+  /** One control drawn once into el by its generic renderer (null without one). */
+  export function renderControl(c: unknown, el: HTMLElement, api: HtmlUiApi, opts?: unknown): HTMLElement | null;
+  /** Text as the game draws it (Arial, its metrics and spacing) at x, y in parent, aligned in w (0 left, 1 centre, 2 right). */
   export function textBox(parent: HTMLElement, s: string, o?: { x?: number; y?: number; w?: number; h?: number; align?: number; px?: number; gap?: number; color?: number[]; white?: boolean; wrap?: boolean }): HTMLElement;
   /** CWindowTaskFrameBottomThick's 14 pieces: [x, y, w, h, u, v] of window_base_01_c0<style>. */
   export function bottomThickPieces(w: number, h: number, band: number): [number, number, number, number, number, number][];
@@ -117,6 +117,8 @@ declare module '@htmlui/controls/basic.js' {
 declare module '@htmlui/controls/skin.js' {
   /** main's duel window frame (the grey FrameDuel panel and its well), appended to parent at the given size. */
   export function duelWindow(parent: HTMLElement, size: { w: number; h: number }): HTMLElement;
+  /** main's duel-style button (CWindowTaskButtonDuel): a <button>, its caption centred. */
+  export function duelButton(parent: HTMLElement, o: { x: number; y: number; w: number; h?: number; label?: string; state?: string | null }): HTMLButtonElement;
 }
 declare module '@htmlui/crafting/api.js' {
   export function peekView(): unknown;

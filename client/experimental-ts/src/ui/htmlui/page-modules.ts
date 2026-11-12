@@ -19,6 +19,8 @@ export interface PageModulesView {
   /** A scene's loading veil is up and not yet fading (scene-loading.ts sceneVeilUp): the launchers wait under it and come
    * back as it starts to fade, fading in with it (main bridge.js wait). */
   veil?(): boolean;
+  /** Free mode's world (live: its bar has the Wardrobe key, no Missions). */
+  free?(): boolean;
 }
 
 type Frames = {
@@ -45,7 +47,7 @@ export function pageModules(view: PageModulesView, onError: (e: unknown) => void
     /** Each draw of the layer (and its once-a-second tick): bridge.js's per-frame calls. */
     frame(snap: HtmlSnapshot | null): void {
       if (dead) return;
-      const on = !!snap && view.online();
+      const free = !!snap && !!view.free?.(), on = !!snap && view.online() || free;
       if (!on && !frames) return;
       if (!frames) { load(); return; }
       // the starter deck chooser sits over the lobby, so the Missions button stays up and keeps the view it read on
@@ -58,7 +60,7 @@ export function pageModules(view: PageModulesView, onError: (e: unknown) => void
       const trade = on && view.trade(), veil = !!view.veil?.();
       // the launchers live on the overworld's bar; away from it (a duel, the deck editor, the shop, a trade) they go
       run('wardrobe', snap, !on || trade || veil || !view.overworld());
-      run('missions', snap, !on || trade || veil || !view.overworld());
+      run('missions', snap, !on || free || trade || veil || !view.overworld());
       // the trade panel keys on Card Swap's scene number: the rewrite's trade opens over its lobby
       run('trade', trade ? { ...snap, scene: CARD_SWAP } : snap, !trade);
     },

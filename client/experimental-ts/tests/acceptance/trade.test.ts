@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, type, text, sleep, stageShot, record, earnCards, ownedCopies, openDeckEditor, exitDeckEditor, byKey, type Page } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, type, text, sleep, stageShot, record, earnCards, ownedCopies, openDeckEditor, exitDeckEditor, byKey, listRow, type Page } from './harness';
 
 /** Card Swap is main's trade windows (src/ui/htmlui/trade.ts: CWindowModelTrade, its card areas, main's dialogs) and
  * the deck screen's trunk (CWindowModelKaban, htmlui/trade-trunk.ts: its rows .htmlui-deck-row, a press offers). */
@@ -8,19 +8,11 @@ const scene = `document.querySelector('.de-trade-scene')`;
 const dialogText = (key:string) => `(document.querySelector('[data-key="${key}"]')?.closest('.win')?.innerText ?? '')`;
 const open = (page:Page) => page.ev(`Boolean(document.querySelector('#htmlui-host [data-window-class="CWindowModelTrade"]')||document.querySelector('[data-key^="trade-"]')||${scene})`) as Promise<boolean>;
 const closed = `!document.querySelector('#htmlui-host [data-window-class="CWindowModelTrade"]')&&!document.querySelector('[data-key^="trade-"]')&&!${scene}`;
-async function social(page:Page) { await click(page,'Find Player'); await until(page,`document.querySelector('[data-key="find-name"]')`,30000); await sleep(800); }
-async function find(page:Page,name:string) {
-  const input = `document.querySelector('[data-key="find-name"]')`;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    await type(page,input,name); await until(page,`${input}?.value===${JSON.stringify(name)}`,5000);
-    await press(page,`document.querySelector('[data-key="find-search"]')`);
-    try { await until(page,`document.querySelector('.win[data-window-class="CWindowModelFriendEnum"]')?.innerText.includes(${JSON.stringify(`${name} (ID `)})`,8000); return; } catch { await sleep(500); }
-  }
-  throw new Error(`Could not find ${name}`);
-}
+/** Send Trade Request from the partner's card (live: their row of the player list). */
 async function invite(from:Page,to:Page,name:string) {
-  await social(from); await find(from,name);
-  await press(from,`document.querySelector('[data-key="find-trade"]')`);
+  await until(from,listRow(name),30000); await press(from,listRow(name));
+  await until(from,`document.querySelector('[data-key="card-trade"]')&&!document.querySelector('[data-key="card-trade"]').disabled`,15000);
+  await press(from,`document.querySelector('[data-key="card-trade"]')`);
   await until(to,`${dialogText('trade-accept')}.includes('You have a Trade Request!')`,30000);
 }
 /** The trunk's copies left of a card (its row's figure), 0 when it has no row. */

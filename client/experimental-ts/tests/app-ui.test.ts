@@ -50,10 +50,13 @@ function harness() {
   // point (the row's centre), as main's screens press it
   const control = (label: string, cls?: string) => { for (const spec of mounted.htmlUi.windows()) if (!cls || spec.win.cls === cls) for (const [id, h] of spec.handlers) if (h.label === label && !h.key) return { spec, h, c: spec.win.controls.find(c => c.id === id)! }; return undefined; };
   const pressRow = (label: string, row: number, cls?: string) => { const t = control(label, cls); expect(t).toBeDefined(); t!.h.click!([t!.spec.win.x + t!.c.x + 8, t!.spec.win.y + t!.c.y + 16 * row + 8]); };
+  // an NPC on the map: live starts its talk at once, its card beside it (the map's button sends this interaction; the
+  // test map places no NPC)
   const pickNpc = async (name: string, id: number) => {
-    expect(mounted.htmlUi.press('plist-search')).toBe(true); await flush(); pressRow('Search', 6, 'CFindMenu'); await flush();   // Show all: NPCs too
-    const rows = control('Players here', 'CPlayerListDlg')!.c.items as string[]; expect(rows.some(r => r.endsWith(`/${name}`))).toBe(true); pressRow('Players here', rows.findIndex(r => r.endsWith(`/${name}`))); await flush();
-    expect(mounted.htmlUi.press(`npc-duel:${id}`)).toBe(true); await flush();
+    expect(app.getState().lobby?.npcs?.some(n => n.id === id && n.name === name)).toBe(true);
+    const avatar = root.querySelectorAll('button').find(n => n.dataset.key === `avatar:${-id}`);
+    if (avatar) avatar.onclick?.({}); else await app.dispatch({ type: 'interact', playerId: -id });
+    await flush();
   };
   const openPlayer = async (name: string) => {
     const rows = control('Players here', 'CPlayerListDlg')!.c.items as string[], row = rows.findIndex(r => r.endsWith(`/${name}`));

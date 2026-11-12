@@ -26,7 +26,8 @@ export type DuellogSource = 'latest' | 'server' | 'collection' | 'yoc';
 /** A log kept in the Duel Log Collection (this browser): a local record's key and/or an archive row's id. */
 export interface CollectedLog { when: number; names: [string, string]; local?: string; server?: number; result?: string; comment?: string }
 export interface DuellogUi {
-  view: 'top' | 'list' | 'search';
+  /** The window shown; 'server', the top under Server Duel Logs' server list. */
+  view: 'top' | 'list' | 'search' | 'server';
   /** The list open (the plate pressed) and the plate under the pointer on the top (its description). */
   source: DuellogSource; hover: DuellogSource | null;
   page: number; selected: number;
@@ -170,54 +171,75 @@ export function duellogEntries(ui: DuellogUi, you: string, collection: readonly 
   return rows.filter(r => (!opp || r.names.some(n => n.toLowerCase().includes(opp))) && (!s.result || r.result === s.result));
 }
 
-const X = 267, Y = 158, W = 490, H = 450;
+const X = 266, Y = 158, W = 492, H = 452;
+// live's list (CWindowModelDuellogList): a duel-style window 112, 229, 800 x 310: its title green in the well's dark
+// header band, ten 16-pixel striped rows from 75, Card Search / Show all / Back (198 wide) at 278
+const LX = 112, LY = 229, LW = 800, LH = 310, LROWS = 10;
+const SHADOW = { dx: 1, dy: 1, color: [0, 0, 0, 1] };
+/** Server Duel Logs' server list (live: a green-framed list of the game's languages over the top window, its close X):
+ * the languages' servers, and World; this server keeps one archive, so each opens it. */
+export const DUELLOG_SERVERS = ['Japanese', 'English', 'German', 'Italian', 'French', 'Spanish', 'Korean', 'World'] as const;
+export function duellogServerPicker(ids: Ids, ui: DuellogUi, d: DuellogDeps): WindowSpec | null {
+  if (ui.view !== 'server') return null;
+  const open = (src: DuellogSource) => { ui.source = src; ui.view = 'list'; ui.selected = -1; ui.op = false; ui.page = 1; ui.message = undefined; ui.search = emptySearch(); d.load(ui.search, 1); };
+  // live: 364, 180, 290 x 182 (its green frame), eight grey rows 250 wide from 22, 25.5 apart (live's list runs past the
+  // frame's foot on live), its close X at the top right
+  const W2 = 290, H2 = 224, b = new WindowBuilder(ids, 'duellog:servers', 'CWindowModelDuellogServerSelect', { x: 364, y: 180, w: W2, h: H2 }, { z: 51503, modal: true, plain: { border: '#5ee14a', body: 'rgba(190,192,200,.92)' } });
+  DUELLOG_SERVERS.forEach((name, i) => b.add('CWindowTaskButtonDuel', `server:${i}`, { x: 10, y: 18 + 25.5 * i, w: 250, h: 22 }, { label: name, align: 1, state: 'normal', color: [0, 0, 0, 1] },
+    { key: `duellog-server:${name}`, label: `${name} server`, click: () => open('server') }));
+  b.add('CWindowTaskIconHide', 'close', { x: W2 - 22, y: 2, w: 16, h: 14 }, { pressed: false, label: '✕' }, { key: 'duellog-server-close', label: 'Close', click: () => { ui.view = 'top'; d.rerender(); } });
+  return b.spec();
+}
+// the plates' sprite (duel_btn_02_c01: the glossy plate, normal at 0, the pink pressed / chosen one at 32)
+const PLATE = (y: number) => ({ tex: 'data/common/window/duel_btn_02_c01.png', src: [0, y, 224, 32] as [number, number, number, number] });
 export function duellogWindow(ids: Ids, ui: DuellogUi, d: DuellogDeps): WindowSpec {
-  const cls = { top: 'CWindowModelDuellogTop', list: 'CWindowModelDuellogList', search: 'CWindowModelDuellogSearch' }[ui.view];
+  const cls = { top: 'CWindowModelDuellogTop', list: 'CWindowModelDuellogList', search: 'CWindowModelDuellogSearch', server: 'CWindowModelDuellogTop' }[ui.view];
   const store = d.collection ?? localCollection;
-  const rect = ui.view === 'search' ? { x: 312, y: 250, w: 400, h: 180 } : { x: X, y: Y, w: W, h: H };
-  const b = new WindowBuilder(ids, `duellog:${ui.view}`, cls, rect, { z: 51453, modal: true });
-  b.add('CWindowTaskFrameDuel', 'frame', { x: 0, y: 0, w: 0, h: 0 });
+  const rect = ui.view === 'search' ? { x: 312, y: 250, w: 400, h: 180 } : ui.view === 'list' ? { x: LX, y: LY, w: LW, h: LH } : { x: X, y: Y, w: W, h: H };
+  const b = new WindowBuilder(ids, `duellog:${ui.view === 'server' ? 'top' : ui.view}`, cls, rect, { z: 51453, modal: true, ...(ui.view === 'top' || ui.view === 'server' ? { back: 'data/common/window/log_win_01_c01.png' } : {}) });
+  if (ui.view !== 'top' && ui.view !== 'server') b.add('CWindowTaskFrameDuel', 'frame', { x: 0, y: 0, w: 0, h: 0 });
   const text = (name: string, x: number, y: number, w: number, t: string, align = 0) => b.add('CWindowTaskShadowText', name, { x, y, w, h: 16 }, { text: t, align, fontSize: 16, color: [1, 1, 1, 1] });
   const button = (name: string, x: number, w: number, label: string, key: string, run: (() => void) | null, y = 419) =>
     b.add('CWindowTaskButtonDuel', name, { x, y, w, h: 24 }, { label, align: 1, state: run ? 'normal' : 'disabled', color: [0, 0, 0, 1] }, { key, click: () => run?.() });
   const close = () => d.close();
-  if (ui.view === 'top') {
-    // the window's title band is empty on live; the four plates, two by two
-    text('title', 0, 4, W, '', 1);
+  const open = (src: DuellogSource) => { ui.source = src; ui.view = 'list'; ui.selected = -1; ui.op = false; ui.page = 1; ui.message = undefined; ui.search = emptySearch(); d.load(ui.search, 1); };
+  if (ui.view === 'top' || ui.view === 'server') {
+    // live's top window (its own snapshot): log_win_01_c01 under four glossy plates (duel_btn_02_c01, 224 x 32 at 22 /
+    // 246, 53 / 109), their white shadowed names centred over them (324 wide: YOC's runs past its plate), the plate
+    // under the pointer's help in the blue box (30, 176, 424 x 208, scrolling), Close (176, 420, 140 wide)
     const plate = (src: DuellogSource, x: number, y: number) => {
-      const press = () => { ui.source = src; ui.view = 'list'; ui.selected = -1; ui.op = false; ui.page = 1; ui.message = undefined; ui.search = emptySearch(); d.load(ui.search, 1); };
-      const pointer = (over: boolean) => { const next = over ? src : ui.hover === src ? null : ui.hover; if (next !== ui.hover) { ui.hover = next; d.rerender(); } };
-      // a switch per plate (main's screen gives the engine's picture switches no element of their own to press)
-      b.add('CWindowTaskTextSwitch', `plate:${src}`, { x, y, w: 205, h: 31 }, { label: DUELLOG_TEXT[src], align: 1, state: 'normal', checked: false, color: [0, 0, 0, 1] },
-        { key: `duellog-${src}`, label: DUELLOG_TEXT[src], click: press, pointer });
+      // Server Duel Logs asks which server first (live: the language list)
+      const press = () => { if (src === 'server') { ui.view = 'server'; d.rerender(); } else open(src); };
+      b.add('CWindowTaskPictureSwitch', `plate:${src}`, { x, y, w: 224, h: 32 }, { label: '', state: 'normal', enabled: true, checked: false, help: HELP[src],
+        art: { normal: PLATE(0), hover: PLATE(32), pressed: PLATE(32), checked: PLATE(32) } }, { key: `duellog-${src}`, label: DUELLOG_TEXT[src], click: press });
+      b.add('CWindowTaskShadowText', `label:${src}`, { x: x - 50, y: y + 8, w: 324, h: 16 }, { text: DUELLOG_TEXT[src], align: 1, fontSize: 16, color: [1, 1, 1, 1], shadow: SHADOW });
     };
-    plate('latest', 35, 54); plate('server', 250, 54); plate('collection', 35, 109); plate('yoc', 250, 109);
-    const lines = ui.hover ? wrapLines(HELP[ui.hover], 50) : [];
-    b.add('CWindowTaskListbox', 'help', { x: 21, y: 169, w: 432, h: 224 }, { items: lines, selected: -1, top: 0, topLine: 0, rows: 14 });
-    b.add('CWindowTaskScroll', 'helpScroll', { x: 454, y: 169, w: 16, h: 224 }, { value: 0, max: 0, page: 14, thumb: { pos: 0, len: 224 }, length: 224, horizontal: false });
-    button('close', 175, 140, 'Close', 'duellog-close', close);
+    plate('latest', 22, 53); plate('server', 246, 53); plate('collection', 22, 109); plate('yoc', 246, 109);
+    b.add('CWindowTaskShadowText', '説明', { x: 30, y: 176, w: 424, h: 208 }, { text: '', align: 0, fontSize: 16, color: [1, 1, 1, 1], shadow: SHADOW, scroll: true, helpSlot: true });
+    button('close', 176, 140, 'Close', 'duellog-close', close, 420);
     return b.spec();
   }
   if (ui.view === 'list') {
     const status = ui.loading ? 'Reading the Duel Log…' : ui.source !== 'latest' && ui.source !== 'collection' ? ui.error : null;
     const collection = store.get();
     const rows = status ? [] : duellogEntries(ui, '', collection);
-    const pages = Math.max(1, Math.ceil(rows.length / DUELLOG_ROWS)), page = ui.page = Math.min(pages, Math.max(1, ui.page));
-    const shown = rows.slice((page - 1) * DUELLOG_ROWS, page * DUELLOG_ROWS);
+    const pages = Math.max(1, Math.ceil(rows.length / LROWS)), page = ui.page = Math.min(pages, Math.max(1, ui.page));
+    const shown = rows.slice((page - 1) * LROWS, page * LROWS);
     if (ui.selected >= shown.length) { ui.selected = -1; ui.op = false; }
-    text('title', 0, 4, W, DUELLOG_TEXT[ui.source], 1);
-    text('header', 21, 32, 448, rows.length ? `${rows.length} log${rows.length === 1 ? '' : 's'}${pages > 1 ? `   Page ${page}/${pages}` : ''}${ui.search.opp || ui.search.result ? `   ${searchText(ui.search)}` : ''}` : '', 0);
-    const items = status ? [status] : shown.length ? shown.map(r => r.line) : ['There are no Duel Logs.'];
-    const list = b.add('CWindowTaskListbox', 'list', { x: 21, y: 56, w: 432, h: 16 * DUELLOG_ROWS }, { items, selected: ui.selected, top: 0, topLine: 0, rows: DUELLOG_ROWS });
+    // the title green in the well's dark header band (live), the rows striped, empty ones blank (no empty-state line)
+    b.add('CWindowTaskBackPlane', 'header', { x: 13, y: 32, w: LW - 26, h: 43 }, { band: 'linear-gradient(#3f4366, #5d6283)' });
+    b.add('CWindowTaskShadowText', 'title', { x: 0, y: 36, w: LW, h: 16 }, { text: DUELLOG_TEXT[ui.source], align: 1, fontSize: 16, color: [0.2, 1, 0.2, 1], shadow: SHADOW });
+    const items = status ? [status] : shown.map(r => r.line);
+    const list = b.add('CWindowTaskListbox', 'list', { x: 13, y: 75, w: LW - 26, h: 16 * LROWS }, { items, selected: ui.selected, top: 0, topLine: 0, rows: LROWS });
     const turn = (p: number) => { if (p >= 1 && p <= pages && p !== page) { ui.page = p; ui.selected = -1; ui.op = false; d.rerender(); } };
-    b.on(list, { label: DUELLOG_TEXT[ui.source], click: point => { if (!point || status) return; const i = Math.floor((point[1] - Y - 56) / 16); if (i >= 0 && i < shown.length) { ui.selected = i; ui.op = true; ui.comment = null; d.rerender(); } },
+    b.on(list, { label: DUELLOG_TEXT[ui.source], click: point => { if (!point || status) return; const i = Math.floor((point[1] - LY - 75) / 16); if (i >= 0 && i < shown.length) { ui.selected = i; ui.op = true; ui.comment = null; d.rerender(); } },
       wheel: delta => turn(page + (delta > 0 ? 1 : -1)) });
-    b.add('CWindowTaskScroll', 'scroll', { x: 454, y: 56, w: 16, h: 16 * DUELLOG_ROWS }, { value: page - 1, max: pages - 1, page: 1, thumb: { pos: pages > 1 ? Math.round((page - 1) * (320 - 320 / pages) / (pages - 1)) : 0, len: Math.round(320 / pages) }, length: 320, horizontal: false },
-      { value: v => turn(Math.round(v) + 1), wheel: delta => turn(page + (delta > 0 ? 1 : -1)) });
-    if (ui.message) text('message', 21, 384, 448, ui.message, 1);
-    button('search', 35, 130, 'Search', 'duellog-search', ui.source === 'yoc' ? null : () => { ui.draft = { ...ui.search }; ui.op = false; ui.view = 'search'; d.rerender(); });
-    button('back', 180, 130, 'Back', 'duellog-back', () => { ui.view = 'top'; ui.op = false; ui.selected = -1; ui.message = undefined; d.rerender(); });
-    button('close', 325, 130, 'Close', 'duellog-close', close);
+    if (ui.message) text('message', 13, 240, LW - 26, ui.message, 1);
+    // Card Search (the logs whose duels used a card: here, the opponent and result the rewrite knows), Show all (the
+    // search off), Back to the top
+    button('search', 51, 198, 'Card Search', 'duellog-search', ui.source === 'yoc' ? null : () => { ui.draft = { ...ui.search }; ui.op = false; ui.view = 'search'; d.rerender(); }, 278);
+    button('all', 301, 198, 'Show all', 'duellog-all', ui.search.opp || ui.search.result ? () => { ui.search = emptySearch(); ui.page = 1; ui.selected = -1; ui.op = false; d.rerender(); } : null, 278);
+    button('back', 551, 198, 'Back', 'duellog-back', () => { ui.view = 'top'; ui.op = false; ui.selected = -1; ui.message = undefined; d.rerender(); }, 278);
     // the operation menu (CWindowModelDuellogOperation: the thin frame, its plane, a text switch per choice) at the row
     const row = ui.op && ui.selected >= 0 ? shown[ui.selected] : undefined;
     if (row) {
@@ -234,7 +256,7 @@ export function duellogWindow(ids: Ids, ui: DuellogUi, d: DuellogDeps): WindowSp
       if (row.server !== null) ops.push(['download', DUELLOG_TEXT.download, () => { ui.op = false; d.open(replayDownloadUrl(row.server!), true); d.rerender(); }]);
       ops.push(['cancel', 'Cancel', () => done()]);
       const ow = 200, editing = ui.comment !== null, oh = 8 + 28 * (editing ? 2 : ops.length);
-      const ox = 140, oy = Math.min(H - 40 - oh, 56 + 16 * ui.selected + 16);
+      const ox = 300, oy = Math.min(LH - 40 - oh, 75 + 16 * ui.selected + 16);
       b.add('CWindowTaskFrameThin', 'opFrame', { x: ox, y: oy, w: ow, h: oh }, { style: 0 });
       b.add('CWindowTaskBackPlane', 'opPlane', { x: ox + 4, y: oy + 4, w: ow - 8, h: oh - 8 });
       if (editing) {

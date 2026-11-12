@@ -158,7 +158,7 @@ describe('UI ownership and semantic interaction', () => {
     f.update({ profileDetail: { ...profileDetail, selectedPid: 3 } }); await Promise.resolve(); expect(control(f, 'card-duel')).toBeUndefined(); expect(f.mounted.htmlUi.press('card-watch')).toBe(true);
     f.mounted.htmlUi.press('duel-accept'); f.mounted.htmlUi.press('duel-decline');
     const close = { type: 'profileAction', action: { type: 'close' } };
-    expect(f.commands).toEqual([{ type: 'createDuelRoom', options: { style: 4, timeLimit: true, allowWatch: true, allowSurrender: true } }, close, { type: 'challengeRoom', roomId: 9 }, close, { type: 'spectate', pid: 3 }, { type: 'replyChallenge', accept: true }, { type: 'replyChallenge', accept: false }]);
+    expect(f.commands).toEqual([{ type: 'createDuelRoom', options: { style: 3, timeLimit: true, allowWatch: true, allowSurrender: true } }, close, { type: 'challengeRoom', roomId: 9 }, close, { type: 'spectate', pid: 3 }, { type: 'replyChallenge', accept: true }, { type: 'replyChallenge', accept: false }]);
     f.update({ scene: 'duel', duel: { players: [{ name: 'A', lp: 8000 }, { name: 'B', lp: 8000 }], cards: [], prompt: null, turn: 1, turnPlayer: 0, phase: 'Main', log: [], spectating: true } }); await Promise.resolve();
     // a spectator has no Surrender: the deck's command list (live's CUSummonDialogSp) leaves the duel
     f.root.querySelectorAll('button').find(n => n.dataset.key === 'field-deck:0')!.onclick?.({}); await Promise.resolve();

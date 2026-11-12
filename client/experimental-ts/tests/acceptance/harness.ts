@@ -132,23 +132,25 @@ export const lobbyShown = `(!!document.querySelector('[data-key="menubar-duel"]'
 /** A row's name: its label past the level live's rows lead with ("Lv 1 Name"; an NPC's row has none). */
 const rowName = `(b=>(b.getAttribute('aria-label')??'').replace(/^Lv \\d+ /,''))`;
 export const listRow = (name:string) => `[...document.querySelectorAll('#htmlui-host .pl-row')].find(b=>${rowName}(b)===${JSON.stringify(name)}&&b.getClientRects().length)`;
-/** The player list's search (its magnifier) and one of its rows (main's CFindMenu): Show all lists the NPCs here too. */
+/** The player list's search (its magnifier) and one of its rows (main's CFindMenu). */
 export async function searchPlayers(page:Page,row = 'Show all') {
   await press(page,byKey('plist-search'));
   const r = `[...document.querySelectorAll('#htmlui-host .ds-row')].find(b=>b.textContent.trim()===${JSON.stringify(row)})`;
   await until(page,r,10000); await press(page,r);
   await until(page,`!document.querySelector('#htmlui-host .ds-row')`,10000);
 }
-/** Every name the player list shows after Show all (the players here, then the NPCs). */
-export async function listedNames(page:Page):Promise<string[]> {
-  await searchPlayers(page,'Show all');
-  return page.ev(`[...document.querySelectorAll('#htmlui-host .pl-row')].map(${rowName})`) as Promise<string[]>;
+/** The NPCs standing in this area (the map's NPC avatars), by name. */
+export async function npcNames(page:Page):Promise<string[]> {
+  return page.ev(`(window.__deApp?.getState().lobby?.avatars??[]).filter(a=>a.npc).map(a=>a.name)`) as Promise<string[]>;
 }
-/** An NPC's card (main's CNpcListMenu) from the player list's Show all; resolves when its Send Duel Request is there. */
+/** An NPC's talk and card, as live: its avatar on the map pressed (the first of that name; several share one, levels
+ * 4/6/8). Resolves once the talk shows (its balloon or its "Start Duel?"). */
 export async function openNpcCard(page:Page,npc:string) {
-  if (!await page.ev(`Boolean(${listRow(npc)})`)) await searchPlayers(page,'Show all');
-  await until(page,listRow(npc),20000); await press(page,listRow(npc));
-  await until(page,`document.querySelector('[data-key^="npc-duel:"]')`,20000);
+  const id = await page.ev(`(window.__deApp?.getState().lobby?.avatars??[]).find(a=>a.npc&&a.name===${JSON.stringify(npc)})?.id`) as number | undefined;
+  if (id === undefined) throw new Error(`no NPC ${npc} here`);
+  await until(page,`document.querySelector('[data-key="avatar:${id}"]')`,20000);
+  await page.ev(`document.querySelector('[data-key="avatar:${id}"]').click()`);
+  await until(page,`document.querySelector('button[data-key="npc-talk:next"],[data-key="npc-start:yes"]')`,20000);
 }
 /** The Main Menu's entries (main's CMainMenu, src/ui/htmlui) while it is closed: reached through the menu bar's MAIN key. */
 const MAIN_MENU = ['Edit Deck','My Profile','Create Comment','DUEL OPTIONS','D-Mail','Audio','Duel Log','Ignore List','Friend List','Team List','Return to your Room','Return to Duel','Return to Lobby','Return to Title'];
@@ -187,8 +189,6 @@ export async function click(page:Page,text:string,timeout = 30000) {
     }
     return;
   }
-  // Find Player is no Main Menu entry (as live): the Friend List's Find a Player opens it
-  if (text === 'Find Player') { await click(page,'Friend List',timeout); await until(page,byKey('list-find'),timeout); await press(page,byKey('list-find')); return; }
   await until(page,`${byText(text)}||${inMainMenu(text)}`,timeout);
   // the menu already open (its entries waiting on a busy app): wait for the entry; closed: open it with MAIN
   if (!await page.ev(`Boolean(${byText(text)})`)) {
@@ -196,8 +196,6 @@ export async function click(page:Page,text:string,timeout = 30000) {
     await until(page,byText(text),timeout);
   }
   await press(page,byText(text));
-  // Return to Title asks first (the Main Menu's 'Disconnect from the game?' Yes / No): a player answers Yes
-  if (text === 'Return to Title') { await until(page,byKey('disconnect-yes'),timeout); await press(page,byKey('disconnect-yes')); }
 }
 export async function type(page:Page,selector:string,value:string) {
   await until(page,selector);
@@ -425,12 +423,8 @@ export async function playDuel(page:Page,options:{ attack?:boolean; summon?:bool
 }
 /** The NPC's card → its talk (the balloon's lines, clicked on) → Start Duel? Yes → rock-paper-scissors → first/second → start. */
 export async function startNpcDuel(page:Page,npc:string) {
-  // the player list's Show all, the NPC's row (several NPCs share a name, levels 4/6/8: the first), its card's
-  // Send Duel Request once eligibility allows it
+  // the NPC on the map (several NPCs share a name, levels 4/6/8: the first): its talk, its lines, "Start Duel?"
   await openNpcCard(page,npc);
-  const entry = `[...document.querySelectorAll('[data-key^="npc-duel:"]')].find(b=>!b.disabled)`;
-  await until(page,entry,30000);
-  await press(page,entry);
   const confirm = `[...document.querySelectorAll('[data-key="npc-start:yes"]')].find(b=>!b.disabled&&b.getClientRects().length)`;
   const next = `[...document.querySelectorAll('button[data-key="npc-talk:next"]')].find(b=>!b.disabled&&b.getClientRects().length)`;
   for (let i = 0; i < 6 && !(await page.ev(`Boolean(${confirm})`)); i++) { await until(page,`${confirm}||${next}`,20000); if (await page.ev(`Boolean(${next})`) && !(await page.ev(`Boolean(${confirm})`))) await press(page,next); await sleep(300); }

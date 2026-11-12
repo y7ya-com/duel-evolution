@@ -16,6 +16,9 @@ export function npcTiles(csv: string): string[] {
   return lines.slice(4, 13).map(t => t === '****' ? '' : t);
 }
 
+/** Where live draws a famous NPC's talk picture from its csv's place (measured: a03 396, 31 at 478, 32). */
+const NPC_PICTURE_DX = 82, NPC_PICTURE_DY = 1;
+
 export class PictureArt {
   private leases: Lease[] = [];
   /** The composed pictures' object URLs (a portrait, a clerk), revoked with the client. */
@@ -38,14 +41,23 @@ export class PictureArt {
     const [kind, arg = ''] = source.canvas.split(':');
     if (kind === 'portrait' && this.composer) return this.picture(await this.composer.compose(Uint8Array.from(arg.split('.').map(Number)), 1, signal));
     if (kind === 'clerk') return this.picture(await this.clerk(arg, signal));
+    if (kind === 'npc') return this.picture(await this.npcPicture(arg, signal));
     throw new Error('Unknown picture.');
   };
+  /** A famous NPC's talk picture as live draws it: its csv's 3 x 3 tiles at the place its header gives (lines 2 and 3:
+   * x, y; live: Alexis Rhodes' a03 at 396, 31 shows at 478, 32), on a 1024 x 768 screen. */
+  private async npcPicture(id: string, signal: AbortSignal): Promise<HTMLCanvasElement> {
+    const tiles = await this.clerk(id, signal), screen = document.createElement('canvas'); screen.width = 1024; screen.height = 768;
+    screen.getContext('2d')?.drawImage(tiles, NPC_PICTURE_DX + (Number(tiles.dataset.x) || 0), NPC_PICTURE_DY + (Number(tiles.dataset.y) || 0));
+    return screen;
+  }
   private async clerk(id: string, signal: AbortSignal): Promise<HTMLCanvasElement> {
     if (!/^[ad]\d\d$/.test(id)) throw new Error('Unknown clerk.');
     const load = this.loaders.loadArchiveImage; if (!load) throw new Error('No original art.');
     const lease = await load(`data/avatar/npc/${id}.csv`, signal);
     let csv: string; try { csv = await (await fetch(lease.url, { signal })).text(); } finally { lease.release(); }
     const tiles = npcTiles(csv), canvas = document.createElement('canvas'); canvas.width = canvas.height = 768;
+    const head = csv.split(/\r?\n/).map(l => l.trim()); canvas.dataset.x = head[1] ?? ''; canvas.dataset.y = head[2] ?? '';
     const ctx = canvas.getContext('2d');
     await Promise.all(tiles.map(async (tile, i) => {
       if (!tile || !/^[\w.-]+\.png$/.test(tile)) return;
