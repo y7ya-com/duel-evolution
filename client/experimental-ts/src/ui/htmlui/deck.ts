@@ -21,7 +21,7 @@ export type DeckFrom = 'trunk' | DeckZone;
 /** A card picked up (CDeckScene's drag, DeckWindow.h DeckDragState): where from, and where the pointer has it. */
 export interface DeckDrag { passcode: number; from: DeckFrom; index: number; at: [number, number]; start: [number, number]; moved: boolean }
 /** The Load / Save / Structure Deck list (CWindowModelFileList). */
-export interface DeckFiles { mode: 'load' | 'save' | 'recipe'; selected: number }
+export interface DeckFiles { mode: 'load' | 'save' | 'recipe'; selected: number; /** The list's first row shown. */ top?: number }
 export type DeckDialog =
   | { kind: 'name'; name: string }
   | { kind: 'confirm'; text: string; yes(): void }
@@ -39,8 +39,15 @@ export interface DeckUi {
   drag: DeckDrag | null;
   files: DeckFiles | null;
   dialog: DeckDialog | null;
+  /** The editor at its full height (the chat folded or none: live's CWindowTaskDeck expanded, 11 trunk rows); false
+   * with the chat open under it (live's lobby: the windows 104 shorter, the Side row at 480, 9 trunk rows). */
+  tall: boolean;
 }
-export const deckUi = (): DeckUi => ({ view: 'main', top: 0, filter: emptyKabanFilter(), shown: 0, detail: 0, mouse: null, drag: null, files: null, dialog: null });
+export const deckUi = (): DeckUi => ({ view: 'main', top: 0, filter: emptyKabanFilter(), shown: 0, detail: 0, mouse: null, drag: null, files: null, dialog: null, tall: true });
+/** What the chat open under the editor takes off its windows' height (live: 712 -> 608). */
+export const shortBy = (ui: Pick<DeckUi, 'tall'>) => ui.tall ? 0 : 104;
+/** The trunk's rows (CWindowTaskKaban::setRowCount: 11 at full height, 9 with the chat open). */
+export const trunkRows = (ui: Pick<DeckUi, 'tall'>) => ui.tall ? 11 : 9;
 
 // ---------------------------------------------------------------- the cards as the engine sorts and names them
 // The icon strips' cells (screens/deck.js ATTRS / RACES / ICONS: the game's own order)
@@ -177,8 +184,13 @@ export interface DeckContext {
   trunk: readonly CardView[];
   /** The deck's card description (the detail's text). */
   busy: boolean;
+  /** A card's YO2 id (the engine's card number, the windows' `card` as live's snapshot has it: main's crafting row and
+   * rarity marks read it), 0 while the card wire's table is not loaded. */
+  yo2(pc: number): number;
+  /** Every card the trunk holds, the deck's copies too (CWindowTaskKabanNumber: trunkTotal, live's count box). */
+  owned: number;
 }
-export const TRUNK_ROWS = 11, ROW_H = 56;
+export const ROW_H = 56;
 const WZ = { detail: 51103, kaban: 51153, deck: 51203 };
 
 // The card detail (CCardDetailViewDlg / CWindowModelCardDetail, 0, 175, 248 x 559): the icon bar and its ▽ key, the
@@ -187,7 +199,7 @@ const WZ = { detail: 51103, kaban: 51153, deck: 51203 };
 export function detailWindow(ctx: DeckContext): WindowSpec {
   const { ids, ui } = ctx, top = ui.detail === 2 ? 712 - 24 : 175, h = ui.detail === 2 ? 24 : 559, c = ui.shown ? ctx.card(ui.shown) : undefined, monster = !!c && isMonster(c);
   const b = new WindowBuilder(ids, 'deck-detail', 'CCardDetailViewDlg', { x: 0, y: top, w: 248, h }, { z: WZ.detail, wz: WZ.detail + 2, modal: true, drawn: { x: 0, y: top, w: 256, h: h + 1 },
-    mode: ui.detail, card: c ? 1 : 0, monster, scene: scene(ids, ui.mouse), extras: [{ id: ids.of('deck-detail/power'), cls: 'CTextElm' }], holes: [] as { x: number; y: number; w: number; h: number }[], labels: [] as Label[] });
+    mode: ui.detail, card: c ? ctx.yo2(c.passcode ?? 0) : 0, monster, scene: scene(ids, ui.mouse), extras: [{ id: ids.of('deck-detail/power'), cls: 'CTextElm' }], holes: [] as { x: number; y: number; w: number; h: number }[], labels: [] as Label[] });
   const t = new Tree(ids, 'deck-detail'), z = WZ.detail, full = ui.detail === 0;
   const bar = t.parts();
   for (const [name, u, x, sx] of [['左', 0, 0, 1], ['中央', 8, 8, 29], ['右', 16, 240, 1]] as const) t.sprite(bar, `CWindowTaskIconbarの${name}画像`, 'data/common/window/iconbar_01_c01.png', [u, 0, 8, 24], x, top, z, { sx, a: 0.699999988079071 });
@@ -229,29 +241,32 @@ export function detailText(c: CardView): string {
 // key rows (swfs: main's search panel stands over them), the list (744, 88: 11 rows of 256 x 56) and its rows.
 export function kabanWindow(ctx: DeckContext): WindowSpec {
   const { ids, ui, deck } = ctx;
-  const b = new WindowBuilder(ids, 'deck-kaban', 'CWindowModelKaban', { x: 736, y: 0, w: 288, h: 712 }, { z: WZ.kaban, wz: WZ.kaban + 15, modal: true, drawn: null, scene: scene(ids, ui.mouse) });
+  const S = shortBy(ui), ROWS = trunkRows(ui);
+  const b = new WindowBuilder(ids, 'deck-kaban', 'CWindowModelKaban', { x: 736, y: 0, w: 288, h: 712 - S }, { z: WZ.kaban, wz: WZ.kaban + 15, modal: true, drawn: null, scene: scene(ids, ui.mouse) });
   const t = new Tree(ids, 'deck-kaban'), z = WZ.kaban;
-  control(b, ids, 'kaban', 'CWindowTaskKaban', 'Kaban', { x: 0, y: 0, z: z + 1 });
+  // with 9 rows the list's bottom border (picBottom: deck_carddai_01_c00's middle cell under the last row)
+  const kp = t.parts(); if (ROWS === 9) t.sprite(kp, 'picBottom', 'data/deck/deck_carddai_01_c00.png', [8, 8, 8, 8], 744, 592, z + 12, { sx: 32 });
+  control(b, ids, 'kaban', 'CWindowTaskKaban', 'Kaban', { x: 0, y: 0, z: z + 1 }, { parts: kp });
   control(b, ids, 'select', 'CWindowTaskKabanCard', 'SelectCard', { x: 0, y: 0, z: z + 1 }, { card: 0 });
-  const frame = t.parts(); frameThin(t, frame, 8, 736, 80, 288, 632, z + 6);
-  control(b, ids, 'frame', 'CWindowTaskFrameThin', 'Frame', { x: 736, y: 80, w: 288, h: 632, z: z + 6 }, { style: 8, parts: frame });
+  const frame = t.parts(); frameThin(t, frame, 8, 736, 80, 288, 632 - S, z + 6);
+  control(b, ids, 'frame', 'CWindowTaskFrameThin', 'Frame', { x: 736, y: 80, w: 288, h: 632 - S, z: z + 6 }, { style: 8, parts: frame });
   const bar = t.parts(), tex = 'data/deck/deckbar_01_c03.png';
   t.sprite(bar, 'LT', tex, [0, 0, 8, 88], 736, 0, z + 7); t.sprite(bar, 'Top', tex, [8, 0, 8, 88], 744, 0, z + 7, { sx: 34 }); t.sprite(bar, 'RT', tex, [16, 0, 8, 88], 1016, 0, z + 7);
   t.sprite(bar, 'TitleTop', 'data/deck/deck_moji_01_?.png', [0, 84, 160, 28], 744, 0, z + 14);
   // (the 'Rearrange' title under it: main's search panel stands over that row on live, its plate hiding the title; drawn
   // here it came out over the search field)
   control(b, ids, 'bar', 'CWindowTaskDeckBar', 'Bar', { x: 736, y: 0, z: z + 7 }, { parts: bar });
-  const total = deck ? deck.main.length + deck.side.length + deck.extra.length : 0;
+  const total = ctx.owned;
   const num = t.parts(); t.swf(num, 'KabanCountBtn', 944, 4, z + 10); t.label(num, 'KabanCountNumber', `@9${total}`, total < 10 ? 1000 : total < 100 ? 992 : 984, 6, z + 16);
   control(b, ids, 'num', 'CWindowTaskKabanNumber', 'KabanNum', { x: 944, y: 4, z: z + 8 }, { count: total, parts: num });
   const order = t.parts(); ['MagicBtn', 'TrapBtn', 'NormalBtn', 'EffectBtn', 'RitualBtn', 'FusionBtn'].forEach((n, i) => t.swf(order, n, 832 + 32 * i, 29, z + 15));
   control(b, ids, 'order', 'CWindowTaskKabanOrder', 'Order', { x: 832, y: 29, z: z + 8 }, { parts: order });
   const search = t.parts(); ['AtkBtn', 'DefBtn', 'TypeBtn', 'AttrBtn', 'EffectBtn', 'NameBtn', 'StrBtn', 'LevelBtn', 'ForbiBtn'].forEach((n, i) => t.swf(search, n, 800 + 24 * i, 57, z + 15));
   control(b, ids, 'search', 'CWindowTaskKabanSearch', 'Search', { x: 800, y: 57, z: z + 8 }, { parts: search });
-  const hits = ctx.trunk.length, maxTop = Math.max(0, hits - TRUNK_ROWS);
+  const hits = ctx.trunk.length, maxTop = Math.max(0, hits - ROWS);
   ui.top = Math.max(0, Math.min(ui.top, maxTop));
-  control(b, ids, 'list', 'CWindowTaskKabanList', 'KabanList', { x: 744, y: 88, z: z + 9 }, { rowCount: TRUNK_ROWS, category: ui.filter.cat, top: ui.top, hits, pool: `${hits}` });
-  for (let r = 0; r < TRUNK_ROWS; r++) trunkRow(b, t, ids, r, ctx.trunk[ui.top + r], deck, z);
+  control(b, ids, 'list', 'CWindowTaskKabanList', 'KabanList', { x: 744, y: 88, z: z + 9 }, { rowCount: ROWS, category: ui.filter.cat, top: ui.top, hits, pool: `${hits}` });
+  for (let r = 0; r < ROWS; r++) trunkRow(b, t, ids, r, ctx.trunk[ui.top + r], deck, z, ctx.yo2);
   return b.spec();
 }
 // A trunk row (CWindowTaskKabanListBtn, 744, 88 + 56 r): its frame's left column in the card kind's colour
@@ -259,7 +274,7 @@ export function kabanWindow(ctx: DeckContext): WindowSpec {
 // 0.694) dimmed to half when the trunk can't give another copy, the copies figure (×000 at +16, +40) and the info line
 // (KabanWindowList.cpp: the race 56, attribute 72, spell / trap icon 88, star 104 and level 122, ATK 140 / DEF 184
 // right-aligned in 40, "/" 176, the limit 232, all at +8; the name 56, 32 in 200).
-function trunkRow(b: WindowBuilder, t: Tree, ids: Ids, r: number, c: CardView | undefined, deck: DeckView | null, z: number): void {
+function trunkRow(b: WindowBuilder, t: Tree, ids: Ids, r: number, c: CardView | undefined, deck: DeckView | null, z: number, yo2: (pc: number) => number): void {
   const x = 744, y = 88 + ROW_H * r, p = t.parts(), color = c ? rowColor(c) : 0, v = !c || canTake(c, deck) ? 1 : 0.5, col = [v, v, v, 1];
   const carddai = (n: number) => `data/deck/deck_carddai_01_c0${n}.png`;
   const column = (names: [string, string, string], tex: string, px: number, sx: number) => {
@@ -269,7 +284,7 @@ function trunkRow(b: WindowBuilder, t: Tree, ids: Ids, r: number, c: CardView | 
   column(['picLT', 'picLC', 'picLB'], carddai(color), x, 1);
   if (c) column(['picRT', 'picRC', 'picRB'], carddai(1), x + 8, 31); else column(['picNothingT', 'picNothingC', 'picNothingB'], carddai(0), x + 8, 31);
   if (c?.passcode !== undefined) t.sprite(p, 'picElm', cardTex(c.passcode), [0, 0, 50, 72], x + 15, y + 3, z + 20, { sx: 0.6944444179534912, sy: 0.6944444179534912, col });
-  control(b, ids, `row${r}`, 'CWindowTaskKabanListBtn', 'ListBtn', { x, y, w: 256, h: ROW_H, z: z + 11 }, { card: c ? 1 + r : 0, passcode: c?.passcode ?? 0, color, parts: p });
+  control(b, ids, `row${r}`, 'CWindowTaskKabanListBtn', 'ListBtn', { x, y, w: 256, h: ROW_H, z: z + 11 }, { card: c ? yo2(c.passcode ?? 0) || 1 + r : 0, row: c ? 1 + r : 0, passcode: c?.passcode ?? 0, color, parts: p });
   if (!c) return;
   // the copies figure: "×" then three digits (deck_font_01_c01 cells 8 x 12: 0-9, then ×)
   const fig = t.parts(), left = Math.min(999, copiesLeft(c, deck)), digits = String(left).padStart(3, '0');
@@ -306,44 +321,56 @@ function trunkRow(b: WindowBuilder, t: Tree, ids: Ids, r: number, c: CardView | 
 // 15 to a row at 262 + 28 c, 96 + 80 r (DeckWindowDeck.cpp layGrid), the side's one row at 624, 14 px apart past 15
 // cards (CWindowTaskDeck::rebuild), each a 50 x 72 picture (a hole) with its limit icon.
 export const GRID = { x: 262, y: 96, dx: 28, dy: 80, perRow: 15, sideY: 624 } as const;
+/** The grids' order (DeckWindowDeck.cpp sortedSlot: each card goes in after its key's cards of a smaller or equal
+ * YO2 id; the key is the card's frame, structureFrameOfType 0x00933590: normal 0, effect 1, ritual 2, fusion 3, spell
+ * 4, trap 5; the Fusion grid by YO2 id alone): the deck's indexes as the game shows them. Live's grids are always this
+ * order, whatever order the deck was saved in; a card dropped on its own grid goes back to its place. Before the card
+ * wire's table is read the cards of a key keep the deck's order. */
+export function gridOrder(zone: DeckZone, list: readonly number[], ctx: Pick<DeckContext, 'card' | 'yo2'>): number[] {
+  const frame = (pc: number) => { const c = ctx.card(pc); return c ? [0, 1, 4, 5, 2, 3][categoryOf(c)]! : 0; };
+  const key = list.map(pc => [zone === 'extra' ? 0 : frame(pc), ctx.yo2(pc)] as const);
+  return list.map((_, i) => i).sort((a, b) => key[a]![0] - key[b]![0] || key[a]![1] - key[b]![1] || a - b);
+}
 const sideDx = (count: number) => count > 15 ? 14 : 28;
 export function deckWindow(ctx: DeckContext): WindowSpec {
   const { ids, ui, deck } = ctx, extra = ui.view === 'extra';
-  const b = new WindowBuilder(ids, 'deck-deck', 'CWindowModelDeck', { x: 248, y: 0, w: 488, h: 712 }, { z: WZ.deck, wz: WZ.deck + 43, modal: true, drawn: null, scene: scene(ids, ui.mouse) });
+  const S = shortBy(ui);
+  const b = new WindowBuilder(ids, 'deck-deck', 'CWindowModelDeck', { x: 248, y: 0, w: 488, h: 712 - S }, { z: WZ.deck, wz: WZ.deck + 43, modal: true, drawn: null, scene: scene(ids, ui.mouse) });
   const t = new Tree(ids, 'deck-deck'), z = WZ.deck, main = deck?.main ?? [], side = deck?.side ?? [], ext = deck?.extra ?? [];
   control(b, ids, 'deck', 'CWindowTaskDeck', 'deck', { x: 0, y: 0, z }, { view: ui.view, expanded: true, counts: { main: main.length, side: side.length, extra: ext.length, missing: 0 },
     grids: { main: [...main], side: [...side], extra: [...ext], missing: [] } });
-  const mainH = extra ? 616 : 496;
+  const mainH = (extra ? 616 : 528) - S;
   const plane = t.parts(); backPlane(t, plane, 256, 88, 472, mainH, z + 1);
   control(b, ids, 'mainPlane', 'CWindowTaskBackPlane', 'CWindowTaskTextFieldの背景', { x: 256, y: 88, w: 472, h: mainH, z: z + 1 }, { parts: plane });
   const dragging = ui.drag?.moved && ui.drag.from !== 'trunk' ? ui.drag : null;
-  const cards = (zone: DeckZone, list: readonly number[], y0: number) => list.forEach((pc, i) => {
-    const one = zone === 'side', col = one ? i : i % GRID.perRow, row = one ? 0 : Math.floor(i / GRID.perRow), x = GRID.x + (one ? sideDx(list.length) : GRID.dx) * col, y = y0 + GRID.dy * row, wz = z + 2 + col, c = ctx.card(pc), p = t.parts();
+  const cards = (zone: DeckZone, list: readonly number[], y0: number) => gridOrder(zone, list, ctx).forEach((i, at) => {
+    const pc = list[i]!, one = zone === 'side', col = one ? at : at % GRID.perRow, row = one ? 0 : Math.floor(at / GRID.perRow), x = GRID.x + (one ? sideDx(list.length) : GRID.dx) * col, y = y0 + GRID.dy * row, wz = z + 2 + col, c = ctx.card(pc), p = t.parts();
     const lifted = dragging?.from === zone && dragging.index === i;
     if (!lifted) {
       t.sprite(p, 'picCard', cardTex(pc), [0, 0, 50, 72], x, y, wz);
       if (c && limitOf(c) < 3) t.sprite(p, 'picLimit', 'data/common/icon/icon_seigen_01.png', [16 * limitOf(c), 0, 16, 16], x, y, wz + 1);
     }
-    control(b, ids, `${zone}${i}`, 'CWindowTaskDeckCard', 'noname', { x, y, w: 50, h: 72, z: wz }, { card: lifted ? 0 : i + 1, passcode: pc, zone, index: i, dragging: false, parts: p });
+    control(b, ids, `${zone}${i}`, 'CWindowTaskDeckCard', 'noname', { x, y, w: 50, h: 72, z: wz }, { card: lifted ? 0 : ctx.yo2(pc) || i + 1, passcode: pc, zone, index: i, dragging: false, parts: p });
   });
   if (extra) cards('extra', ext, GRID.y); else cards('main', main, GRID.y);
-  const mframe = t.parts(); frameThin(t, mframe, 7, 248, 80, 488, extra ? 632 : 512, z + 5);
-  control(b, ids, 'frameMain', 'CWindowTaskFrameThin', 'frameMain', { x: 248, y: 80, w: 488, h: extra ? 632 : 512, z: z + 5 }, { style: 7, parts: mframe });
+  const mframe = t.parts(); frameThin(t, mframe, 7, 248, 80, 488, (extra ? 632 : 512) - S, z + 5);
+  control(b, ids, 'frameMain', 'CWindowTaskFrameThin', 'frameMain', { x: 248, y: 80, w: 488, h: (extra ? 632 : 512) - S, z: z + 5 }, { style: 7, parts: mframe });
   if (!extra) {
-    const sp = t.parts(); frameThin(t, sp, 7, 248, 608, 488, 104, z + 25);
-    control(b, ids, 'frameSide', 'CWindowTaskFrameThin', 'frameSide', { x: 248, y: 608, w: 488, h: 104, z: z + 25 }, { style: 7, parts: sp });
+    const sp = t.parts(); frameThin(t, sp, 7, 248, 608 - S, 488, 104, z + 25);
+    control(b, ids, 'frameSide', 'CWindowTaskFrameThin', 'frameSide', { x: 248, y: 608 - S, w: 488, h: 104, z: z + 25 }, { style: 7, parts: sp });
   }
   const bar = t.parts(), tex = 'data/deck/deckbar_01_c02.png', w7 = 'data/common/window/window_base_01_c07.png';
   t.sprite(bar, 'LT', tex, [0, 0, 8, 88], 248, 0, z + 26); t.sprite(bar, 'Top', tex, [8, 0, 8, 88], 256, 0, z + 26, { sx: 59 }); t.sprite(bar, 'RT', tex, [16, 0, 8, 88], 728, 0, z + 26);
   if (!extra) {
     // the side's band under the main grid: three rows of window_base_01_c07 cells (584, 592 twice the height, 608)
-    for (const [nm, u, v, y, sy] of [['U', [72, 56, 80], [8, 16, 8], 584, 1], ['C', [24, 32, 40], [8, 8, 8], 592, 2], ['D', [72, 56, 80], [0, 0, 0], 608, 1]] as const) {
+    for (const [nm, u, v, y0, sy] of [['U', [72, 56, 80], [8, 16, 8], 584, 1], ['C', [24, 32, 40], [8, 8, 8], 592, 2], ['D', [72, 56, 80], [0, 0, 0], 608, 1]] as const) {
+      const y = y0 - S;
       t.sprite(bar, `LB${nm}`, w7, [u[0], v[0], 8, 8], 248, y, z + 26, { sy }); t.sprite(bar, `Bottom${nm}`, w7, [u[1], v[1], 8, 8], 256, y, z + 26, { sx: 59, sy });
       t.sprite(bar, `RB${nm}`, w7, [u[2], v[2], 8, 8], 728, y, z + 26, { sy });
     }
   }
   t.sprite(bar, 'TitleTop', 'data/deck/deck_moji_01_?.png', [0, 0, 160, 28], 256, 0, z + 53); t.sprite(bar, 'TitleMiddle', 'data/deck/deck_moji_01_?.png', [0, 28, 160, 28], 256, 28, z + 53);
-  if (!extra) t.sprite(bar, 'TitleBottom', 'data/deck/deck_moji_01_?.png', [0, 56, 160, 28], 256, 584, z + 53);
+  if (!extra) t.sprite(bar, 'TitleBottom', 'data/deck/deck_moji_01_?.png', [0, 56, 160, 28], 256, 584 - S, z + 53);
   control(b, ids, 'bar', 'CWindowTaskDeckBar', 'bar', { x: 248, y: 0, z: z + 26 }, { parts: bar });
   // the tabs: the front one's cells from 0, the back one's from 41; its word bright (u 128) in front
   const tab = (key: 'MainTab' | 'FusionTab', x: number, front: boolean, v: number, wz: number) => {
@@ -357,79 +384,79 @@ export function deckWindow(ctx: DeckContext): WindowSpec {
   const kinds = [0, 0, 0, 0, 0]; for (const pc of main) { const c = ctx.card(pc); if (c) { const k = categoryOf(c); kinds[k === 2 ? 0 : k === 3 ? 1 : k === 0 ? 2 : k === 4 ? 4 : 3]!++; } }
   const num = t.parts(), cnt = 'data/deck/deck_cardcount_01_?.png';
   t.sprite(num, 'mainBG', cnt, [0, 0, 34, 25], 402, 60, z + 54);
-  if (!extra) t.sprite(num, 'sideBG', cnt, [34, 0, 34, 25], 318, 587, z + 54);
+  if (!extra) t.sprite(num, 'sideBG', cnt, [34, 0, 34, 25], 318, 587 - S, z + 54);
   ['magic', 'trap', 'normal', 'effect', 'ritual'].forEach((n, i) => t.sprite(num, `${n}BG`, cnt, [68 + 34 * i, 0, 34, 25], 480 + 40 * i, 29, z + 54));
   t.sprite(num, 'fusionBG', cnt, [34, 0, 34, 25], 596, 60, z + 54);
   // the numbers right of their box's left edge as the game pens them (one digit 9 px further than two)
   const pen = (x: number, n: number) => x + (n < 10 ? 17 : 9);
   t.label(num, 'mainNumber', `${main.length < 40 ? '@1' : '@9'}${main.length}`, pen(402, main.length), 64, z + 55);
-  if (!extra) t.label(num, 'sideNumber', `@9${side.length}`, pen(318, side.length), 591, z + 55);
+  if (!extra) t.label(num, 'sideNumber', `@9${side.length}`, pen(318, side.length), 591 - S, z + 55);
   kinds.forEach((n, i) => t.label(num, `${['magic', 'trap', 'normal', 'effect', 'ritual'][i]}Number`, `@0${n}`, pen(480 + 40 * i, n), 33, z + 55));
   t.label(num, 'fusionNumber', `@9${ext.length}`, pen(596, ext.length), 64, z + 55);
   control(b, ids, 'num', 'CWindowTaskDeckNumber', 'DeckNum', { x: 248, y: 29, z: z + 27 }, { parts: num });
   if (!extra) {
-    const sp = t.parts(); backPlane(t, sp, 256, 616, 472, 88, z + 41);
-    control(b, ids, 'sidePlane', 'CWindowTaskBackPlane', 'CWindowTaskTextFieldの背景', { x: 256, y: 616, w: 472, h: 88, z: z + 41 }, { parts: sp });
+    const sp = t.parts(); backPlane(t, sp, 256, 616 - S, 472, 88, z + 41);
+    control(b, ids, 'sidePlane', 'CWindowTaskBackPlane', 'CWindowTaskTextFieldの背景', { x: 256, y: 616 - S, w: 472, h: 88, z: z + 41 }, { parts: sp });
     // the side's cards over its plane (their own depth above it)
-    const before = b.win.controls.length; cards('side', side, GRID.sideY);
+    const before = b.win.controls.length; cards('side', side, GRID.sideY - S);
     for (const c of b.win.controls.slice(before)) for (const s of (c.parts as Parts).sprites) s.wz += 40;
   }
   return b.spec();
 }
 
 /** The drop zones (DeckEntryMain.cpp deckDropTarget / inTrunkZone): the grids 256..728, the trunk 744..956. */
-export function dropZone(view: 'main' | 'extra', x: number, y: number): DeckFrom | null {
-  if (x > 744 && x < 956 && y > 88 && y < 704) return 'trunk';
+export function dropZone(view: 'main' | 'extra', x: number, y: number, S = 0): DeckFrom | null {
+  if (x > 744 && x < 956 && y > 88 && y < 704 - S) return 'trunk';
   if (x >= 256 && x < 728) {
-    if (view === 'extra') return y >= 88 && y < 704 ? 'extra' : null;
-    if (y >= 88 && y < 584) return 'main';
-    if (y >= 616 && y < 704) return 'side';
+    if (view === 'extra') return y >= 88 && y < 704 - S ? 'extra' : null;
+    if (y >= 88 && y < 584 - S) return 'main';
+    if (y >= 616 - S && y < 704 - S) return 'side';
   }
   return null;
 }
 
-// ---------------------------------------------------------------- the file list (CWindowModelFileList, 164, 312)
-// main's capture (deck-files): 696 wide; the title band (window_base_01_c01 cells 24..40, 0 and 8 at alpha 0.8, the
-// title 24 px white, centred), the list frame (FrameBottomThick, 164, 344, 696 x 176: its band under the list) over the
-// list's eight 16 px rows (172, 352, 680 wide), and the four switches at 46 / 221 / 395 / 569, 176 (80 x 24; "Save
-// New" 82): new / delete / yes / no. Load hides "new" (the rewrite's Import there), Structure Deck "new" and "delete".
-export interface FileRow { label: string }
+// ---------------------------------------------------------------- the file list (CWindowModelFileList)
+// Live's engine draws this window itself (htmlui.json has no screen for it): deck-files.ts draws it as the engine does,
+// from these controls (CWindowModelFileList::init 0x009299f0, src/Deck/DeckUtilFileList.cpp; live's snapshots): the
+// eighteen 8 x 8 window_base_01_c01 tiles (title band 0..32, the list's top 32, the field band 168..192 in pack mode),
+// the frame (FrameBottomThick 0, 32, 696 x h + 32, its 32-pixel band under the list or the field), the listbox (8, 40,
+// 680 x 128: eight 16-pixel rows, decks centred, packs left with "@>64/" and their structure icon at 24), the text
+// field in pack mode (8, 192, 680 x 128: the highlighted pack's text), the four switches new / delete / yes / no in
+// quarter-width cells at h + 32, and the title (24 px, centred at 8). Decks and Save: 164, 312, 696 x 144; the pack
+// list (STRUCTURE DECK): 164, 236, 696 x 296.
+export interface FileRow { label: string; /** A pack's structure icon kind (structureIconSrc: icon_deck_01 at 16 + 32 kind). */ icon?: number }
 export interface FileButton { label: string; key: string; run: (() => void) | null }
-export function fileListWindow(ids: Ids, title: string, rows: readonly FileRow[], selected: number, top: number, pick: (i: number) => void, buttons: (FileButton | null)[]): WindowSpec {
-  const X = 164, Y = 312, W = 696, b = new WindowBuilder(ids, 'deck-files', 'CWindowModelFileList', { x: X, y: Y, w: W, h: 144 }, { z: 51353, wz: 51387, modal: true, topmost: true, drawn: { x: X, y: Y + 8, w: W, h: 200 } });
-  const t = new Tree(ids, 'deck-files'), z = 51383, base = 'data/common/window/window_base_01_c01.png', a = 0.800000011920929;
-  b.win.extras = ([['LT1', 24, 0, 0, 0, 1, 1], ['Top1', 32, 0, 8, 0, 85, 1], ['RT1', 40, 0, 688, 0, 1, 1], ['LT2', 24, 8, 0, 8, 1, 3], ['Top2', 32, 8, 8, 8, 85, 3], ['RT2', 40, 8, 688, 8, 1, 3],
-    ['LT3', 72, 0, 0, 32, 1, 1], ['Top3', 56, 0, 8, 32, 85, 1], ['RT3', 80, 0, 688, 32, 1, 1]] as const).map(([name, u, v, x, y, sx, sy]) =>
-    ({ id: ids.of(`deck-files/${name}`), cls: 'CSpriteElm', name, tex: base, src: [u, v, 8, 8], x, y, z: 31, wx: X + x, wy: Y + y, wz: z + 1, a, sx, sy, rgba: [1, 1, 1, a], col: [1, 1, 1, a], shown: true }));
-  const fp = t.parts(), piece = (name: string, u: number, v: number, x: number, y: number, sx = 1, sy = 1) => t.sprite(fp, `CWindowTaskFrameBottomThickの${name}画像`, base, [u, v, 8, 8], x, y, z, { sx, sy });
-  piece('左上', 0, 0, 164, 344); piece('中央上', 8, 0, 172, 344, 85); piece('右上', 16, 0, 852, 344); piece('左中央', 0, 8, 164, 352, 1, 16); piece('右中央', 16, 8, 852, 352, 1, 16);
-  piece('左下', 72, 8, 164, 480); piece('中央下', 56, 16, 172, 480, 85); piece('右下', 80, 8, 852, 480);
-  piece('下部分の左', 24, 8, 164, 488, 1, 3); piece('下部分の右', 40, 8, 852, 488, 1, 3); piece('下部分の左下', 24, 16, 164, 512); piece('下部分の中央下', 32, 16, 172, 512, 85); piece('下部分の右下', 40, 16, 852, 512);
-  piece('下部分の中央部', 32, 8, 172, 488, 85, 3);
-  control(b, ids, 'frame', 'CWindowTaskFrameBottomThick', 'FileListframe', { x: 164, y: 344, w: 696, h: 176, z }, { band: 32, style: 1, parts: fp });
-  // the list: its rows as the listbox's text (black), the chosen one on a light stripe
-  const shown = rows.slice(top, top + 8);
-  control(b, ids, 'list', 'CWindowTaskListbox', 'FileListlistbox', { x: 172, y: 352, w: 680, h: 128, z }, { items: rows.map(r => r.label), selected, top, topLine: top, rows: 8 });
-  shown.forEach((row, i) => {
-    const p = t.parts(), y = 352 + 16 * i, on = top + i === selected;
-    if (on) t.sprite(p, 'CWindowTaskBackStripeの画像', base, [8, 8, 8, 8], 172, y, z + 1, { sx: 85, sy: 2, col: [0.55, 0.75, 1, 1] });
-    t.label(p, 'CWindowTaskTextのテキスト', `${on ? '@2' : '@0'}${row.label.replace(/@/g, '@@')}`, 180, y, z + 2);
-    const rc = control(b, ids, `row${i}`, 'CWindowTaskText', `FileListrow${i}`, { x: 172, y, w: 680, h: 16, z: z + 2 }, { text: row.label, align: 0, fontSize: 16, lineGap: 0, firstLine: 0, pageLines: 1, color: [0, 0, 0, 1], parts: p });
-    b.on(rc, { label: row.label, hover: false, click: () => pick(top + i) });
+export const FILE_ROWS = 8;
+export const FILE_TILES: readonly (readonly [string, number, number, number, number, boolean])[] = [
+  ['LT1', 24, 0, 0, 0, false], ['Top1', 32, 0, 1, 0, false], ['RT1', 40, 0, 2, 0, false],
+  ['LT2', 24, 8, 0, 8, true], ['Top2', 32, 8, 1, 8, true], ['RT2', 40, 8, 2, 8, true],
+  ['LT3', 72, 0, 0, 32, false], ['Top3', 56, 0, 1, 32, false], ['RT3', 80, 0, 2, 32, false],
+  ['LT', 72, 8, 0, 168, false], ['Top', 56, 16, 1, 168, false], ['RT', 80, 8, 2, 168, false],
+  ['LC', 24, 8, 0, 176, false], ['Center', 32, 8, 1, 176, false], ['RC', 40, 8, 2, 176, false],
+  ['LB', 72, 0, 0, 184, false], ['Bottom', 56, 0, 1, 184, false], ['RB', 80, 0, 2, 184, false],
+];
+export function fileListWindow(ids: Ids, mode: 'decks' | 'packs', title: string, rows: readonly FileRow[], selected: number, top: number,
+  pick: (i: number) => void, buttons: (FileButton | null)[], o: { field?: string; wheel?: (lines: number) => void } = {}): WindowSpec {
+  const packs = mode === 'packs', X = 164, Y = packs ? 236 : 312, W = 696, H = packs ? 296 : 144;
+  const b = new WindowBuilder(ids, 'deck-files', 'CWindowModelFileList', { x: X, y: Y, w: W, h: H }, { z: 51353, wz: 51387, modal: true, topmost: true, drawn: { x: X, y: Y + 8, w: W, h: H + 56 }, mode });
+  // the tiles (shown: the field band's only in pack mode); the window's z 31 over the frame's 30, opaque (blend 0)
+  b.win.extras = FILE_TILES.map(([name, u, v, col, y, tall], i) => ({ id: ids.of(`deck-files/${name}`), cls: 'CSpriteElm', name, src: [u, v, 8, 8],
+    x: col === 0 ? 0 : col === 1 ? 8 : W - 8, y, w: col === 1 ? W - 16 : 8, h: tall ? 24 : 8, shown: i < 9 || packs }));
+  b.add('CWindowTaskFrameBottomThick', 'FileListframe', { x: 0, y: 32, w: W, h: H + 32 }, { band: 32, style: 1 });
+  const shown = Math.max(0, Math.min(top, rows.length - FILE_ROWS));
+  const list = b.add('CWindowTaskListbox', 'FileListlistbox', { x: 8, y: 40, w: 680, h: 128 }, { items: rows.map(r => r.label), icons: rows.map(r => r.icon ?? null),
+    selected, top: shown, topLine: shown, rows: FILE_ROWS, align: packs ? 0 : 1, indent: packs ? 64 : 0 });
+  if (o.wheel) b.on(list, { hover: false, wheel: d => o.wheel!(d > 0 ? 1 : -1) });
+  rows.slice(shown, shown + FILE_ROWS).forEach((row, i) =>
+    b.add('CWindowTaskText', `FileListrow${i}`, { x: 8, y: 40 + 16 * i, w: 680, h: 16 }, { text: row.label, row: shown + i }, { key: `deck-file:${row.label}`, label: row.label, hover: false, click: () => pick(shown + i) }));
+  if (packs) b.add('CWindowTaskTextField', 'FileListtextfield', { x: 8, y: 192, w: 680, h: 128 }, { text: o.field ?? '', align: 0, fontSize: 16, lineGap: 0, firstLine: 0, pageLines: 8, color: [1, 1, 1, 1] });
+  // the switches: 80 x 24 ("Save New" 82), each centred in its quarter of the window
+  buttons.forEach((btn, i) => {
+    if (!btn) return;
+    const w = btn.label.length > 7 ? 82 : 80, x = Math.floor((W / 4 - w) / 2 + W / 4 * i);
+    b.add('CWindowTaskTextSwitch', `FileList${['new', 'delete', 'yes', 'no'][i]}Switch`, { x, y: H + 32, w, h: 24 }, { label: btn.label, state: btn.run ? 'normal' : 'disabled', checked: false, align: 1, color: [0, 0, 0, 1], shadow: null },
+      { key: btn.key, label: btn.label, click: () => btn.run?.() });
   });
-  // the switches: swich_01_c00's nine cells around the label (CWindowTaskTextSwitch), the label a shadow text
-  [46, 221, 395, 569].forEach((bx, i) => {
-    const btn = buttons[i]; if (!btn) return;
-    const w = btn.label.length > 7 ? 82 : 80, x = X + bx, y = 488, sw = 'data/common/window/swich_01_c00.png', p = t.parts(), sx = (w - 16) / 8;
-    for (const [name, u, v, px, py, ssx] of [['左上', 0, 0, 0, 0, 1], ['中央上', 8, 0, 8, 0, sx], ['右上', 16, 0, w - 8, 0, 1], ['左中央', 0, 8, 0, 8, 1], ['右中央', 16, 8, w - 8, 8, 1],
-      ['左下', 0, 16, 0, 16, 1], ['中央下', 8, 16, 8, 16, sx], ['右下', 16, 16, w - 8, 16, 1], ['中央', 8, 8, 8, 8, sx]] as const)
-      t.sprite(p, `CWindowTaskSwitchの${name}画像`, sw, [u, v, 8, 8], x + px, y + py, z + 2, { sx: ssx, col: btn.run ? [1, 1, 1, 1] : [0.6, 0.6, 0.6, 1] });
-    const c = control(b, ids, `btn${i}`, 'CWindowTaskTextSwitch', `FileList${['new', 'delete', 'yes', 'no'][i]}Switch`, { x, y, w, h: 24, z: z + 2 }, { label: btn.label, state: btn.run ? 'normal' : 'disabled', checked: false, align: 1, color: [0, 0, 0, 1], shadow: null, parts: p });
-    b.on(c, { key: btn.key, label: btn.label, hover: false, click: () => btn.run?.() });
-    const lp = t.parts(); t.label(lp, 'CWindowTaskTextのテキスト', btn.label, x, y + 4, z + 4);
-    control(b, ids, `btnText${i}`, 'CWindowTaskText', 'CWindowTaskShadowTextのテキスト', { x, y: y + 4, w, h: 16, z: z + 4 }, { text: btn.label, align: 1, fontSize: 16, lineGap: 0, firstLine: 0, pageLines: 1, color: btn.run ? [0, 0, 0, 1] : [0.45, 0.45, 0.45, 1], parts: lp });
-  });
-  const tp = t.parts(); t.label(tp, 'CWindowTaskTextのテキスト', title, X, Y + 8, z + 3);
-  control(b, ids, 'title', 'CWindowTaskText', 'Title', { x: X, y: Y + 8, w: W, h: 24, z: z + 3 }, { text: title, align: 1, fontSize: 24, lineGap: 0, firstLine: 0, pageLines: 100, color: [1, 1, 1, 1], parts: tp });
+  b.add('CWindowTaskText', 'Title', { x: 0, y: 8, w: W, h: 24 }, { text: title, align: 1, fontSize: 24, lineGap: 0, firstLine: 0, pageLines: 1, color: [1, 1, 1, 1] });
   return b.spec();
 }

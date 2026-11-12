@@ -10,7 +10,7 @@ import { idbRecordStore, type DuelRecordStore } from './services/duel-records';
 import { loadDuelSpeed } from './ui/htmlui/duel-dialogs';
 import type { DuelState } from './duel/types';
 import { encodeDuelResponse } from './duel/responses';
-import { GameApi, GameplayService, DeckEditor, toShopView, toSocialView, expandStarterDeck } from './services';
+import { GameApi, GameplayService, DeckEditor, toShopView, toSocialView } from './services';
 import { AssetManager } from './assets';
 import { loadPackCatalog, packImagePath } from './shop/packs';
 import type { Preloader } from './features/preload';
@@ -63,7 +63,7 @@ import { serializeDeck } from './ui/deck';
 import { CardDetailsCatalog, decodeLegacyDeck, encodeLegacyDeck } from './cards';
 import type { OriginalCardTextCatalog } from './cards/original-text';
 import type { DeckView, LobbyAvatar } from './ui/contracts';
-import { duelOptions } from './ui/contracts';
+import { duelOptions, DEFAULT_DECK } from './ui/contracts';
 import type { ClientData } from './data';
 import type {RecipeCatalog} from './recipes';
 import { ownedTitles } from './features/titles';
@@ -390,12 +390,15 @@ export class ClientApp implements ClientController {
    * the card shop's card faces and pack art), limited to the folders they read. */
   async readGameFile(path: string, signal?: AbortSignal): Promise<Uint8Array> {
     if (!this.options.assets) throw new Error('Original artwork is not configured.');
-    if (!/^data\/(?:avatar\/chibi|avatar\/wu|map\/map_switch|shop|y\/result|card|cardpack)\/(?:[\w#.-]+\/)*[\w#.-]+\.(?:png|jpg|csv|txt)$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
+    // (and the card pack catalogue's tables: the deck screen's structure deck texts, htmlui/pack-info.ts)
+    if (!/^data\/(?:avatar\/chibi|avatar\/wu|map\/map_switch|shop|y\/result|card|cardpack)\/(?:[\w#.-]+\/)*[\w#.-]+\.(?:png|jpg|csv|txt)$/i.test(path) && !/^data\/cardpack\/PACK_\w+\.bin$/.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
     const lease = await this.options.assets.readScene(path, signal ?? this.scope.signal);
     try { return lease.value.bytes.slice(); } finally { lease.release(); }
   }
   /** merge.dat's URL, for main's page modules (lazy-shim.ts `files`); absent without configured assets. */
   get gameArchiveUrl(): string | undefined { return this.options.assets?.archiveUrl; }
+  /** merge/data/card_passcode.bin's URL (lazy-shim.ts `files`: main's crafting/cards.js table). */
+  get passcodeTableUrl(): string | undefined { return this.options.assets?.passcodeTableUrl; }
   /** A card's big art by its YO2 id (lazy-shim.ts cardArt: the card shop's faces, the crafting editor), the 2x art as live's lazyfs reads it. */
   async readCardArt(id: number, signal?: AbortSignal): Promise<Uint8Array | null> {
     if (!this.options.assets) throw new Error('Original artwork is not configured.');
@@ -857,7 +860,7 @@ export class ClientApp implements ClientController {
   }
   private syncEditor(): void {
     if (!this.editor && !this.view.deckEditor) return;
-    this.view = { ...this.view, deckEditor: { decks: this.services.decks.state.data?.decks ?? [], current: this.editor?.deck ?? null,
+    this.view = { ...this.view, deckEditor: { decks: this.services.decks.state.data?.decks ?? [], deleted: this.services.decks.state.data?.deleted.map(d => d.name) ?? [], current: this.editor?.deck ?? null,
       collection: this.collection, allCards: this.catalogCards ??= this.catalog.allCards(),
       recipes:this.project('recipes',this.game?.state.pbin,pbin=>this.options.recipes?.available(pbin ?? null,this.freeMode) ?? []),
       dirty: this.editor?.dirty ?? false, loading: this.services.decks.state.loading } };
@@ -929,8 +932,8 @@ export class ClientApp implements ClientController {
   private async refresh(scene: Scene): Promise<void> {
     const options = { signal: this.connectionScope.signal }, epoch = this.epoch;
     if (scene === 'deck') {
+      // (the rights, PBIN, as live's engine has them: from the login and the server's own 0x3114 pushes)
       await this.requireGame().refreshCollection();
-      await this.requireGame().refreshPlayerBits();
       this.loadRarities();
       const data = await this.services.refreshDecks(options);
       if (epoch !== this.epoch || this.disposed) throw new DOMException('Session changed', 'AbortError');
@@ -999,10 +1002,11 @@ export class ClientApp implements ClientController {
         case 'deleteCharacter': await this.requireGame().deleteCharacter(command.slot); break;
         case 'selectCharacter': await this.requireGame().selectCharacter(command.slot); this.assertEpoch(epoch); await this.refresh('lobby'); await this.refresh('deck'); this.assertEpoch(epoch); this.patch({ scene: 'lobby' }); break;
         case 'claimStarter': {
-          const claim = await this.services.claimStarter(command.id, { signal: this.connectionScope.signal }); this.assertEpoch(epoch);
-          await this.requireGame().refreshPlayerBits();this.assertEpoch(epoch);
-          const deck = expandStarterDeck(claim.deck); await this.services.saveDeck(deck, this.deckMode, { signal: this.connectionScope.signal });
-          this.editor = new DeckEditor(deck, this.collection); await this.refresh('deck'); await this.refresh('lobby'); break;
+          // as live's: the server adds the deck to the character's decks (and makes it current) itself; nothing is saved
+          // for the player (live's "Save a playable owned deck" mission waits for their own save), and the structure
+          // deck's recipe right comes with the server's next 0x3114, as live's engine gets it
+          await this.services.claimStarter(command.id, { signal: this.connectionScope.signal }); this.assertEpoch(epoch);
+          this.editor = null; await this.refresh('deck'); await this.refresh('lobby'); break;
         }
         case 'openScene':
           if (command.scene !== 'lobby') this.stopWorld();
@@ -1081,6 +1085,8 @@ export class ClientApp implements ClientController {
         case 'beginDuel': this.requireGame().beginDuel(); break;
         case 'selectDeck': {
           const deck = this.services.decks.state.data?.decks.find(d => d.name === command.name);
+          // the folder's own empty "deck" (live's), never saved yet: loaded as it is, the server told when it is saved
+          if (!deck && command.name === DEFAULT_DECK) { this.editor = new DeckEditor({ name: DEFAULT_DECK, main: [], side: [], extra: [] }, this.collection); this.syncEditor(); this.emit(); break; }
           if (!deck) throw new Error('Deck no longer exists.');
           await this.services.selectDeck(command.name, this.deckMode, { signal: this.connectionScope.signal });
           this.editor = new DeckEditor(deck, this.collection); await this.services.refreshDecks({ signal: this.connectionScope.signal }); this.syncEditor(); this.emit(); break;
@@ -1151,6 +1157,9 @@ export class ClientApp implements ClientController {
           await this.services.refreshDecks({ signal: this.connectionScope.signal }); this.syncEditor(); this.emit(); break;
         }
         case 'deleteDeck': {
+          // the folder's "deck" the server never had: kept deleted there (a tombstone), as live's engine's delete leaves it
+          if (command.name === DEFAULT_DECK && !this.services.decks.state.data?.decks.some(d => d.name === DEFAULT_DECK))
+            await this.services.saveDeck({ name: DEFAULT_DECK, main: [], side: [], extra: [] }, undefined, { signal: this.connectionScope.signal });
           await this.services.deleteDeck(command.name, { signal: this.connectionScope.signal }); if (this.editor?.deck.name === command.name) this.editor = null; await this.refresh('deck');
           // Deleting the active deck leaves the server without one: the deck now shown becomes active, as the original selects the next deck.
           const data = this.services.decks.state.data, shown = this.editor?.savedName;

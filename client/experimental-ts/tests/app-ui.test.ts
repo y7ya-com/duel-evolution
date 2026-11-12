@@ -87,6 +87,8 @@ describe('actual ClientApp mounted through semantic UI', () => {
     all().find(n => n.dataset.zone === 'trunk' && n.dataset.index === '1' && n.dataset.passcode)!.dispatchEvent(ev('mousedown'));
     all().find(n => n.dataset.dropZone === 'main')!.dispatchEvent(ev('mouseup')); await flush();
     all().find(n => n.getAttribute?.('aria-label') === 'Save Deck')!.onclick({}); await flush();
+    // (live's list opens with no row chosen: the deck's own row first)
+    expect(f.mounted.htmlUi.press('deck-file:Starter')).toBe(true); await flush();
     expect(f.mounted.htmlUi.press('deck-files-ok')).toBe(true); await flush();
     expect(f.api.saveDeck).toHaveBeenCalledWith({ name: 'Starter', main: [1], side: [], extra: [2] }, 'world', expect.objectContaining({ signal: expect.any(AbortSignal) }));
     expect(f.app.getState().deckEditor?.dirty).toBe(false); f.dispose();

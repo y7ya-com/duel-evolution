@@ -6,16 +6,19 @@
 // (Module.yo2KabanFilter), its scroller wheels the trunk. The mouse is the DOM's (deck-dom.ts: the cards and buttons as
 // elements over main's windows, each calling one of the actions below).
 import type { CardView, ClientCommand, ClientView, DeckView, DeckZone } from '../contracts';
+import { DEFAULT_DECK } from '../contracts';
 import { deckPlacementReason } from '../helpers';
 import { deckProblems } from '../extra/deck-check';
 import { Ids, WindowBuilder } from './snapshot';
 import { wrapDialogText } from './dialog-text';
 import type { HtmlControl, WindowSpec } from './snapshot';
-import { deckUi, detailWindow, kabanWindow, deckWindow, fileListWindow, trunkCards, copiesLeft, isFusion, isMonster, raceOf, attrOf, TRUNK_ROWS, SIDE_BUTTONS } from './deck';
+import type { DeckChat } from './windows';
+import { deckUi, detailWindow, kabanWindow, deckWindow, fileListWindow, trunkCards, copiesLeft, isFusion, isMonster, raceOf, attrOf, trunkRows, SIDE_BUTTONS } from './deck';
 import type { DeckContext, DeckDialog, DeckFrom, DeckUi, FileButton, KabanFilter } from './deck';
 import type { PowerIcons } from './deck-dom';
 import { peekView as craftPeek, onChange as craftOnChange } from '@htmlui/crafting/api.js';
 import { cardState } from '@htmlui/crafting/model.js';
+import { loadTable, peekTable } from '@htmlui/crafting/cards.js';
 import dialogInput1 from './templates/dialog-input1.json';
 import dialogYesNo from './templates/dialog-yesno.json';
 import dialogOk from './templates/dialog-ok.json';
@@ -28,6 +31,8 @@ export interface DeckSceneOptions {
   /** A refusal for the player (the rewrite's notice; the scene shows it in main's OK dialog too). */
   notice(message: string): void;
   leave(): void;
+  /** The card packs' texts by pack id (the engine's PACK_Desc table): the structure deck's description. */
+  packTexts?(): Promise<Map<number, string>>;
   /** The crafting view (main's crafting/api.js: Shards, per card owned / craftable / rarity), null before it answers. */
   craftView?(): CraftView | null;
   /** Listen for crafting view changes (a Craft or a Dismantle in main's crafting bar). -> unsubscribe */
@@ -74,6 +79,22 @@ export class DeckScene {
     });
   }
   private craftView: () => CraftView | null;
+  private tableAsked = -Infinity; private owned = 0;
+  // ---------------------------------------------------------------- the chat under the editor
+  // live keeps its chat in the deck screen: from the world it stands open under the editor (whose windows are 104
+  // shorter for it: deck.ts shortBy) until its ▽ folds it to its bar (the editor at full height again) and its △ opens
+  // it; in My Room it is the bare bar (no chat there); Free Duel has none. Each visit opens with the chat open.
+  private chatFolded = false;
+  private chatMode(view: ClientView): 0 | 1 | 2 | null {
+    if (view.connection !== 'online' || view.mode === 'free' || !view.lobby) return null;
+    return view.location === 'my-room' ? 0 : this.chatFolded ? 2 : 1;
+  }
+  /** The deck screen's chat (windows.ts chatWindow), null: none. */
+  chat(): DeckChat | null {
+    const view = this.o.state(); if (view.scene !== 'deck' || !view.deckEditor) return null;
+    const mode = this.chatMode(view); if (mode === null) return null;
+    return { mode, fold: () => { this.chatFolded = true; this.o.rerender(); }, unfold: () => { this.chatFolded = false; this.o.rerender(); } };
+  }
   /** Stop following the crafting view. */
   dispose(): void { this.unCraft(); }
 
@@ -90,6 +111,7 @@ export class DeckScene {
       for (const c of editor.collection) if (c.passcode !== undefined && !this.byPc.has(c.passcode)) this.byPc.set(c.passcode, c);
       // every collectible card (the Show row's All / Missing / Craftable): the owned ones and the deck-legal rest
       this.pool = [...this.byPc.values()].filter(c => (c.owned ?? 0) > 0 || c.deckAllowed !== false);
+      this.owned = editor.collection.reduce((n, c) => n + Math.max(0, c.owned ?? 0), 0);
       this.trunkKey = '';
     }
     const key = `${this.craftVer}:${JSON.stringify(this.ui.filter)}`;
@@ -105,11 +127,15 @@ export class DeckScene {
   // ---------------------------------------------------------------- the windows
   /** main's windows for the editor (none outside the deck scene), back to front. */
   windows(): WindowSpec[] {
-    const view = this.o.state(); if (view.scene !== 'deck' || !view.deckEditor) { this.ui.files = null; this.ui.dialog = null; this.ui.drag = null; return []; }
+    const view = this.o.state(); if (view.scene !== 'deck' || !view.deckEditor) { this.ui.files = null; this.ui.dialog = null; this.ui.drag = null; this.ui.mouse = null; this.chatFolded = false; return []; }
     this.refresh(view);
+    const chat = this.chatMode(view); this.ui.tall = chat !== 1;
+    // the card wire's table (YO2 ids): the windows name their cards by it, as live's (main's crafting row reads it);
+    // asked again after a while if it could not be read
+    if (!peekTable() && Date.now() - this.tableAsked > 15000) { this.tableAsked = Date.now(); void loadTable().then(t => { if (t) this.o.rerender(); }, () => {}); }
     const deck = view.deckEditor.current, ui = this.ui;
     if (ui.shown && !this.byPc.has(ui.shown)) ui.shown = 0;
-    const ctx: DeckContext = { ids: this.ids, ui, deck, card: this.card, trunk: this.trunk, busy: !!view.busy };
+    const ctx: DeckContext = { ids: this.ids, ui, deck, card: this.card, trunk: this.trunk, busy: !!view.busy, yo2: pc => peekTable()?.id(pc) ?? 0, owned: this.owned };
     const kaban = kabanWindow(ctx), deckW = deckWindow(ctx);
     // the trunk wheels a line a notch (main's scroller: api.wheel on the list)
     const list = kaban.win.controls.find(c => c.cls === 'CWindowTaskKabanList');
@@ -127,7 +153,7 @@ export class DeckScene {
     return { detail, drag: d?.moved ? { passcode: d.passcode, at: d.at } : null };
   }
   private scroll(lines: number): void {
-    const max = Math.max(0, this.trunk.length - TRUNK_ROWS), top = Math.max(0, Math.min(max, this.ui.top + lines));
+    const max = Math.max(0, this.trunk.length - trunkRows(this.ui)), top = Math.max(0, Math.min(max, this.ui.top + lines));
     if (top !== this.ui.top) { this.ui.top = top; this.o.rerender(); }
   }
 
@@ -179,7 +205,7 @@ export class DeckScene {
   /** The trunk's wheel (a line a notch). */
   wheel(lines: number): void { if (this.live()) this.scroll(lines); }
   // DeckEntryMain.cpp's end of a drag: a trunk card onto a grid (a Fusion monster goes to the Fusion Deck), a deck card
-  // back to the trunk, between Main and Side, or to another place in its grid (the card dropped on, else the end)
+  // back to the trunk or between Main and Side
   private drop(pc: number, from: DeckFrom, index: number, to: DeckFrom | null, at: number | null, deck: DeckView | null): void {
     if (!to || !deck) return;
     const c = this.card(pc);
@@ -193,11 +219,8 @@ export class DeckScene {
       return;
     }
     if (to === 'trunk') { this.o.send({ type: 'deckCard', passcode: pc, from, to: 'collection', index }); return; }
-    if (to === from) {
-      const n = deck[from].length, target = Math.max(0, Math.min(n - 1, at ?? n - 1));
-      if (target !== index) this.o.send({ type: 'deckReorder', zone: from, fromIndex: index, toIndex: target });
-      return;
-    }
+    // a card let go over its own grid goes back (DeckEntryMain.cpp dropFromDeck cancelDrag: the grids keep the game's order)
+    if (to === from) return;
     if (from === 'extra' || to === 'extra') return this.refuse(from === 'extra' ? 'Fusion cards stay in the Fusion Deck.' : 'This card belongs in the Main or Side Deck.');
     this.o.send({ type: 'deckCard', passcode: pc, from, to, index });
   }
@@ -214,38 +237,51 @@ export class DeckScene {
     // as it opens, after a reload) the list shows with its buttons greyed until the reply (filesWindow's busy)
     const editor = view.deckEditor, ui = this.ui; if (!editor) return;
     if (view.busy && !['LoadBtn', 'SaveBtn', 'RecipeBtn'].includes(button)) return;
-    if (button === 'LoadBtn') ui.files = { mode: 'load', selected: Math.max(-1, editor.decks.findIndex(d => d.name === editor.current?.name)) };
-    else if (button === 'SaveBtn') ui.files = { mode: 'save', selected: Math.max(-1, editor.decks.findIndex(d => d.name === editor.current?.name)) };
-    else if (button === 'RecipeBtn') ui.files = { mode: 'recipe', selected: -1 };
+    // (each list opens with no row chosen, as live's)
+    if (button === 'LoadBtn') ui.files = { mode: 'load', selected: -1, top: 0 };
+    else if (button === 'SaveBtn') ui.files = { mode: 'save', selected: -1, top: 0 };
+    else if (button === 'RecipeBtn') ui.files = { mode: 'recipe', selected: -1, top: 0 };
     else if (button === 'ClearBtn') { const current = editor.current; if (current) ui.dialog = { kind: 'confirm', text: 'Remove every card from this deck? Save to keep the change.', yes: () => this.o.send({ type: 'replaceDeck', deck: { name: current.name, main: [], side: [], extra: [] }, source: 'clear' }) }; }
     else if (button === 'ExitBtn') { this.o.leave(); return; }
     this.o.rerender();
   }
 
   // ---------------------------------------------------------------- the Load / Save / Structure Deck lists
+  /** The deck files LOAD / SAVE DECK list, as the game lists the character's deck folder: by name (the file system's
+   * order, case-blind), with the folder's own "deck" (the deck file every character starts with, empty: live lists it
+   * beside the starter) while the server has no deck of that name and has not seen it deleted. */
+  deckRows(editor: NonNullable<ClientView['deckEditor']>): DeckView[] {
+    const rows = [...editor.decks];
+    if (!rows.some(d => d.name === DEFAULT_DECK) && !editor.deleted?.includes(DEFAULT_DECK)) rows.push({ name: DEFAULT_DECK, main: [], side: [], extra: [] });
+    return rows.sort((a, b) => { const x = a.name.toLowerCase(), y = b.name.toLowerCase(); return x < y ? -1 : x > y ? 1 : a.name < b.name ? -1 : 1; });
+  }
   private filesWindow(view: ClientView): WindowSpec | null {
     const f = this.ui.files, editor = view.deckEditor; if (!f || !editor) return null;
     const close = () => { this.ui.files = null; this.o.rerender(); };
     const pick = (i: number) => { if (this.ui.files) { this.ui.files.selected = i; this.o.rerender(); } };
+    const wheel = (n: number) => { const fl = this.ui.files; if (fl) { fl.top = Math.max(0, (fl.top ?? 0) + n); this.o.rerender(); } };
     const confirm = (text: string, yes: () => void) => { this.ui.dialog = { kind: 'confirm', text, yes }; this.o.rerender(); };
     const busy = !!view.busy, current = editor.current;
     const btn = (label: string, key: string, run: (() => void) | null): FileButton => ({ label, key, run: busy ? null : run });
+    const top = (n: number) => { const fl = this.ui.files!; fl.top = Math.max(0, Math.min(fl.top ?? 0, n - 8)); if (fl.selected >= 0 && fl.selected < fl.top) fl.top = fl.selected; if (fl.selected >= fl.top + 8) fl.top = fl.selected - 7; return fl.top; };
     if (f.mode === 'recipe') {
+      // the pack list (FILELIST_PACKS): a structure deck's icon and name, its text under the list once chosen
       const recipes = editor.recipes ?? [], r = recipes[f.selected];
       const apply = r ? () => { const deck = { name: current?.name ?? r.name, main: [...r.main], side: [...r.side], extra: [...r.extra] }; close(); this.o.send({ type: 'replaceDeck', deck, source: 'recipe' }); } : null;
-      return fileListWindow(this.ids, 'STRUCTURE DECK', recipes.map(x => ({ label: x.name })), f.selected, 0, pick,
-        [null, null, btn('OK', 'deck-files-ok', apply && (() => editor.dirty ? confirm('Replace the deck being edited with this structure deck?', apply) : apply())), btn('Cancel', 'deck-files-cancel', close)]);
+      if (r && !this.packText) this.loadPackText();
+      return fileListWindow(this.ids, 'packs', 'STRUCTURE DECK', recipes.map(x => ({ label: x.name, icon: 0 })), f.selected, top(recipes.length), pick,
+        [null, null, btn('OK', 'deck-files-ok', apply && (() => editor.dirty ? confirm('Replace the deck being edited with this structure deck?', apply) : apply())), btn('Cancel', 'deck-files-cancel', close)],
+        { field: r ? this.packText?.get(Number(r.id)) ?? '' : '', wheel });
     }
-    const decks = editor.decks, rows = decks.map(d => ({ label: d.name })), chosen = decks[f.selected];
-    if (current && !decks.some(d => d.name === current.name)) rows.push({ label: `${current.name} (not saved)` });
+    const decks = this.deckRows(editor), rows = decks.map(d => ({ label: d.name })), chosen = decks[f.selected];
     const del = chosen ? () => confirm(`Delete the deck “${chosen.name}”?`, () => { this.ui.files = null; this.o.send({ type: 'deleteDeck', name: chosen.name }); }) : null;
     if (f.mode === 'load') {
       const load = chosen ? () => { close(); this.o.send({ type: 'selectDeck', name: chosen.name }); } : null;
       // live's LOAD DECK (CWindowModelFileList FILELIST_DECKS): Delete / OK / Cancel, no "new"
-      return fileListWindow(this.ids, 'LOAD DECK', rows, f.selected, Math.max(0, f.selected - 7), pick, [
+      return fileListWindow(this.ids, 'decks', 'LOAD DECK', rows, f.selected, top(rows.length), pick, [
         null, btn('Delete', 'deck-files-delete', del),
         btn('OK', 'deck-files-ok', load && (() => editor.dirty && chosen!.name !== current?.name ? confirm('Load this deck? The changes to the deck being edited are not saved.', load) : load())),
-        btn('Cancel', 'deck-files-cancel', close)]);
+        btn('Cancel', 'deck-files-cancel', close)], { wheel });
     }
     // save: over the chosen deck (the deck being edited: saved; another: overwritten, after a question), or Save New
     const save = (as?: 'copy' | 'overwrite') => { close(); this.o.send({ type: 'saveDeck', ...(as ? { as } : {}) }); this.checkAfterSave(); };
@@ -253,9 +289,16 @@ export class DeckScene {
       if (chosen.name === current.name) return save();
       confirm(`Overwrite the deck “${chosen.name}” with this deck?`, () => { this.o.send({ type: 'renameDeck', name: chosen.name }); save('overwrite'); });
     } : null;
-    return fileListWindow(this.ids, 'SAVE DECK', rows, f.selected, Math.max(0, f.selected - 7), pick, [
+    return fileListWindow(this.ids, 'decks', 'SAVE DECK', rows, f.selected, top(rows.length), pick, [
       btn('Save New', 'deck-files-new', () => { this.ui.dialog = { kind: 'name', name: '' }; this.o.rerender(); }), btn('Delete', 'deck-files-delete', del),
-      btn('OK', 'deck-files-ok', over), btn('Cancel', 'deck-files-cancel', close)]);
+      btn('OK', 'deck-files-ok', over), btn('Cancel', 'deck-files-cancel', close)], { wheel });
+  }
+  // the packs' texts (data/cardpack/PACK_*.bin, the engine's catalogue): read once, when a structure deck is chosen
+  private packText: Map<number, string> | null = null; private packTextLoading = false;
+  private loadPackText(): void {
+    if (this.packTextLoading || !this.o.packTexts) return;
+    this.packTextLoading = true;
+    void this.o.packTexts().then(m => { this.packText = m; this.o.rerender(); }, () => { this.packTextLoading = false; });
   }
   private saveNew(name: string): void {
     const view = this.o.state(), editor = view.deckEditor; if (!editor) return;

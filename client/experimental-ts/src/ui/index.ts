@@ -40,6 +40,7 @@ import { pageModules } from './htmlui/page-modules';
 import { sceneVeilUp, VEIL_EVENT } from './htmlui/scene-loading';
 import { npcItemGetUi, npcItemGetWindows } from './htmlui/npc-itemget';
 import { installLazyShim } from './htmlui/lazy-shim';
+import { loadPackTexts } from './htmlui/pack-info';
 import { FLAG_ATLAS, flagCell } from './nation-flag';
 import { NPC_STAR_BIG, NPC_STAR_SMALL } from '../avatars/npc';
 import { barReserve, onBarReserve } from '@htmlui/screens/lobby_icons.js';
@@ -270,7 +271,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // the deck editor: main's deck screen (src/ui/htmlui/deck-scene.ts), its engine side on the layer (deck-stage.ts)
   let deckDom: DeckDom | null = null;
   const deckScene = new DeckScene({ state: () => state, send: command => send(command), rerender: () => showHtml(), leave: () => open('lobby'),
-    notice: message => { local.message = message; requestRender(); } });
+    notice: message => { local.message = message; requestRender(); },
+    ...(controller.readGameFile ? { packTexts: () => loadPackTexts(path => controller.readGameFile!(path), state.settings?.language ?? 'E') } : {}) });
   // the shop is main's card shop (htmlui/card-shop.ts: shop/index.js mountCardShop, which calls the server's /api/de/shop
   // itself; its packs' reveal and its Cosmetic Boxes tab are its own); free mode has no shop (the scene is unavailable).
   // Back on the card shop leaves at once; while the app is still busy (opening the shop refreshes the catalogue, the wallet
@@ -291,7 +293,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const pictureArt = new PictureArt({ ...(controller.loadArchiveImage ? { loadArchiveImage: controller.loadArchiveImage.bind(controller) } : {}), ...(controller.loadCardImage ? { loadCardImage: controller.loadCardImage.bind(controller) } : {}) });
   setPictureResolver(pictureArt.resolve);
   // main's Wardrobe previews and card shop faces read the game's files through lazyfs's Module.yo2Lazy on live
-  if (controller.readGameFile) installLazyShim(controller.readGameFile.bind(controller), controller.readCardArt?.bind(controller), controller.gameArchiveUrl);
+  if (controller.readGameFile) installLazyShim(controller.readGameFile.bind(controller), controller.readCardArt?.bind(controller), controller.gameArchiveUrl, controller.passcodeTableUrl);
   // the nation flag before a name over the head (nation-flag.ts: CNationFlag's small atlas cell), the atlas from the archive
   let flagAtlas: Promise<string | null> | null = null;
   const nationFlag = (cell: readonly [number, number]): HTMLElement => {
@@ -485,7 +487,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const onTagDuel = () => { if (!state.tagLobby || state.scene !== 'lobby' || !state.lobby?.connected || state.busy) return; lobbyUi.open = null; send({ type: 'tagAction', action: { type: 'open' } }); showHtml(); };
   globalThis.addEventListener?.('yo2-tag-lobby-open', onTagDuel);
   const buildHtml = () => localized(htmlWindows({ state, ui: htmlUiState, ids: htmlIds, send, rerender: showHtml, changeAvatar: changeAvatar(), menu: menuView, social: socialLists(), mailBox: mailBox(), profileActions: profileActions(), cardActions: cardActions(), openPlayer: pid => send({ type: 'interact', playerId: pid }),
-    deckWindows: () => deckScene.windows(), scene: sceneWindows(), prompts: duelPrompts(), covered: !!state.socialDetail && tradeScene(state.socialDetail.trade),
+    deckWindows: () => deckScene.windows(), deckChat: deckScene.chat(), scene: sceneWindows(), prompts: duelPrompts(), covered: !!state.socialDetail && tradeScene(state.socialDetail.trade),
     text: id => gameTexts.get(id), lobby: { list: ctx => lobbyList(ctx, lobbyDeps(), pid => send({ type: 'interact', playerId: pid })), windows: ctx => lobbyWindows(ctx, lobbyDeps()) },
     ...(checkPassword ? { checkPassword: (password: string) => checkPassword(password, new AbortController().signal) } : {}) }));
   const localized = (specs: WindowSpec[]): WindowSpec[] => { localizeSpecs(specs, uiText); return specs; };

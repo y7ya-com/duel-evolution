@@ -152,6 +152,7 @@ describe.skipIf(!enabled)('deck editor (main\'s HTML deck screen) against the re
       await typeName(page,deckA);
       const report = await page.ev(dialogUp) ? await answer(page) : '';
       expect(report).toMatch(/can't be used in a duel/i); expect(report).toMatch(/Main Deck/i);
+      record('deck.validate',{ actions:'SAVE DECK → Save New with a short deck', expected:'Size violations reported before a duel', observed:`"${report.replace(/\s+/g,' ').slice(0,160)}"` });
       await settle(page,`(window.__deApp?.getState()?.deckEditor?.decks??[]).some(d=>d.name===${JSON.stringify(deckA)})`,15000);
       await reload(page,character);
       let v = await view(page);
