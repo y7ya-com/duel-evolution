@@ -125,14 +125,17 @@ export class NpcAi {
         link: o.link,
         // the NPC's own seat plays on as the NPC would (its strength and style); the other seat at full strength
         makePolicy: (seat, own, peek) => new HeuristicBot(seat, o.cards, own
-          ? { npcId: o.npcId, spy, peek, rules, strength: cfg.strength, style }
+          ? { npcId: o.npcId, deck: (() => { const d = o.link?.()?.decks[seat]; return d ? [...d.main, ...(d.extra ?? [])] : undefined; })(), spy, peek, rules, strength: cfg.strength, style }
           : { spy, peek, rules }),
         budgetMs: cfg.budgetMs,
         maxCandidates: cfg.maxCandidates,
         spy,
       };
     }
-    this.bot = new HeuristicBot(o.seat, o.cards, { npcId: o.npcId, seed: o.seed, spy, peek: spy ? o.peek : undefined, search, blunder: cfg.blunder, rules, strength: cfg.strength, style });
+    // its own deck list (the duel it plays: inMyDeck in the rules)
+    const own = o.link?.()?.decks[o.seat];
+    const deck = own ? [...own.main, ...(own.extra ?? [])] : undefined;
+    this.bot = new HeuristicBot(o.seat, o.cards, { npcId: o.npcId, deck, seed: o.seed, spy, peek: spy ? o.peek : undefined, search, blunder: cfg.blunder, rules, strength: cfg.strength, style });
   }
 
   observe(ev: Json): void {

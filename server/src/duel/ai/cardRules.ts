@@ -34,7 +34,18 @@ export interface RuleCard extends RuleMon {
   isMonster: boolean; isSpell: boolean; isTrap: boolean; name: string;
   /** Another copy of it is in my hand already. */
   copyInHand: boolean;
+  /** A monster of mine that can still attack this turn. */
+  canAttack: boolean;
+  /** A card of the same name is already on my field or in my hand (another one than this). */
+  alreadyHave: boolean;
+  /** A copy of it is face-up on my field. */
+  copyOnField: boolean;
+  /** Its worth as the NPC's own picks price it (the discard / search order). */
+  worth: number;
 }
+
+/** My cards by zone, as lowercase names (the named-card operators: inMyHand, inMyDeck, onMyField, inMyGrave). */
+export interface RuleZones { hand: string[]; deck: string[]; field: string[]; grave: string[]; fieldSpells: string[] }
 
 export interface RuleCtx {
   myLp: number;
@@ -72,6 +83,8 @@ export interface RuleCtx {
   oppChained: boolean;
   /** More board facts (EXT_NUM / EXT_BOOL). */
   ext?: RuleCtxExt;
+  /** My cards by zone (deck: the NPC's deck list less every copy seen elsewhere). */
+  zones?: RuleZones;
 }
 
 export interface CardRule {
@@ -102,6 +115,9 @@ export interface CardRule {
   /** Its card picks (a target, a cost, a search, a revival, a discard): each offered card's score (higher first);
    *  cards under `min` are not taken unless the prompt needs them. No rule = the generic pick (chooseTargets). */
   pick?: { score: (ctx: RuleCtx, card: RuleCard) => number; min?: number };
+  /** Its chainReact is asked on my own turn too (its trigger window, a battle trick for my own attack, an answer to an
+   *  opponent's link that is not a negation). Without it only negations answer on my turn. */
+  ownTurn?: boolean;
   /** Its own number to declare (a cost to pay, say): the index among the values offered. No rule = the first. */
   number?: (ctx: RuleCtx, values: number[]) => number;
 }

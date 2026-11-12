@@ -28,6 +28,13 @@ export const EXT_NUM = [
   /** The opponent's monsters that leave with a continuous / equip card of theirs (Call of the Haunted, Glorious
    *  Illusion, Premature Burial): destroying the card takes the monster too. */
   "oppLinkedMonsters",
+  /** The value of the best removal target on the opponent's field (the NPC's removal picker: a monster my attackers
+   *  cannot beat is worth its ATK, one they beat half, a set Spell/Trap 1000...). */
+  "removalValue",
+  /** Hand cards: dead now (a preferred discard, or a monster needing more tributes than I have); better in the
+   *  graveyard (they gain from being discarded: Sangan-like, Dark World); Counter Traps (hand or set); cards that
+   *  revive a monster (hand or set). */
+  "myHandDead", "myHandDiscardPayoff", "myCounterTraps", "myReviveCards",
 ] as const;
 export const EXT_BOOL = [
   /** My turn, before my Battle Phase is over (Main Phase 1 or the Battle Phase); my Main Phase 2; a battle under way. */
@@ -53,5 +60,13 @@ export const EXT_BOOL = [
   "trapLock",
   /** The opponent's turn and it has not Normal Summoned or Set a monster yet (one more summon may follow). */
   "oppCanNormalSummon",
+  /** The opponent controls a battle lock (Swords of Revealing Light, Nightmare's Steelcage, Messenger of Peace...). */
+  "oppLockActive",
+  /** My turn and my Normal Summon / Set is still unused. */
+  "normalSummonLeft",
+  /** I control a face-down FLIP monster (flipping it by an effect would waste it). */
+  "mySetFlipMon",
+  /** The opponent's attacks this turn add up to my LP (oppPlanLethal by its other name). */
+  "oppLethalThrough",
 ] as const;
 export type RuleCtxExt = Partial<Record<(typeof EXT_NUM)[number], number> & Record<(typeof EXT_BOOL)[number], boolean>>;

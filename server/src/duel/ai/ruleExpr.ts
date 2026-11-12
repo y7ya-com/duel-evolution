@@ -31,6 +31,11 @@
 //   {"attacked": n}   an attack on me with ATK >= n, or one that ends the duel
 //   {"canPay": n}     my LP is over n + 1000
 //   {"named": "gaia the fierce knight"}   one of my face-up monsters' names starts with this (lowercase)
+//   {"inMyHand": name} {"inMyDeck": name} {"onMyField": name} {"inMyGrave": name}   how many of my cards there have a
+//     name starting with this (the deck: my deck list less every copy seen); {"fieldSpellIs": name} a face-up Field
+//     Spell (either side) is it
+//   inside pick.score also: canAttack, alreadyHave, copyOnField (true / false), worth (a number)
+//   ownTurn: true   the card's chainReact is asked on my own turn too (not only as a negation)
 //
 // Example: { "premature burial": { "idleActivate": { "all": [{ ">=": ["myGraveMaxAtk", 1700] },
 //   { ">=": ["myGraveMaxAtk", "oppMaxAtk"] }, { "canPay": 800 }] }, "idlePriority": 90 } }
@@ -50,7 +55,9 @@ const NUM_FIELDS = ["myLp", "oppLp", "myMaxAtk", "oppMaxAtk", "myBackrow", "oppB
   "oppHand", "myHand", "myHandTributes", "myRemoved", "attackAtk"] as const;
 const BOOL_FIELDS = ["myTurn", "oppEndPhase", "attackLethal", "attackOnDefense", "oppChained"] as const;
 const MON_NUM = ["atk", "def", "level"] as const, MON_BOOL = ["faceDown", "attackPos", "fusion", "chainHit", "blocksLethal"] as const;
-const CARD_BOOL = ["mine", "onField", "inHand", "inGrave", "inDeck", "inExtra", "banished", "isMonster", "isSpell", "isTrap", "copyInHand"] as const;
+const CARD_BOOL = ["mine", "onField", "inHand", "inGrave", "inDeck", "inExtra", "banished", "isMonster", "isSpell", "isTrap", "copyInHand",
+  "canAttack", "alreadyHave", "copyOnField"] as const;
+const CARD_NUM = ["worth"] as const;
 
 // the helpers of cardRules.ts, as names
 const attackers = (m: RuleMon[]): number => m.filter((x) => x.attackPos).length;
@@ -93,6 +100,7 @@ function compile(e: unknown, want: Kind, at: string, scope: Scope, budget: { n: 
   if (typeof e === "string") {
     let kind: Kind, fn: Fn;
     if (scope.card && !scope.mon && (CARD_BOOL as readonly string[]).includes(e)) { kind = "bool"; fn = (_c, m) => (m ? (m as RuleCard)[e as (typeof CARD_BOOL)[number]] === true : false); }
+    else if (scope.card && !scope.mon && (CARD_NUM as readonly string[]).includes(e)) { kind = "num"; fn = (_c, m) => (m ? (m as RuleCard)[e as (typeof CARD_NUM)[number]] ?? 0 : 0); }
     else if ((scope.mon || scope.card) && (MON_NUM as readonly string[]).includes(e)) { kind = "num"; fn = (_c, m) => (m ? m[e as "atk"] ?? 0 : 0); }
     else if ((scope.mon || scope.card) && (MON_BOOL as readonly string[]).includes(e)) { kind = "bool"; fn = (_c, m) => (m ? m[e as "faceDown"] === true : false); }
     else if ((EXT_NUM as readonly string[]).includes(e)) { kind = "num"; fn = (c) => c.ext?.[e as (typeof EXT_NUM)[number]] ?? 0; }
@@ -182,6 +190,19 @@ function compile(e: unknown, want: Kind, at: string, scope: Scope, budget: { n: 
       const name = arg.toLowerCase();
       return result("bool", (_c, m) => !!m && (m as RuleCard).name.startsWith(name));
     }
+    case "inMyHand": case "inMyDeck": case "onMyField": case "inMyGrave": {
+      only(op);
+      if (typeof arg !== "string" || !arg || arg.length > MAX_NAME) throw new RuleError(`${at}: "${op}" takes a card name`);
+      const name = arg.toLowerCase();
+      const zone = ({ inMyHand: "hand", inMyDeck: "deck", onMyField: "field", inMyGrave: "grave" } as const)[op];
+      return result("num", (c) => (c.zones?.[zone] ?? []).filter((n) => n.startsWith(name)).length);
+    }
+    case "fieldSpellIs": {
+      only(op);
+      if (typeof arg !== "string" || !arg || arg.length > MAX_NAME) throw new RuleError(`${at}: "fieldSpellIs" takes a card name`);
+      const name = arg.toLowerCase();
+      return result("bool", (c) => (c.zones?.fieldSpells ?? []).some((n) => n.startsWith(name)));
+    }
     case "named": {
       only(op);
       if (typeof arg !== "string" || !arg || arg.length > MAX_NAME) throw new RuleError(`${at}: "named" takes a card name`);
@@ -209,9 +230,9 @@ export function compileRule(r: unknown, at: string): CardRule {
     } else if (k === "idlePriority" || k === "chainPriority") {
       if (typeof v !== "number" || !Number.isFinite(v)) throw new RuleError(`${where}: a number`);
       out[k] = v;
-    } else if (k === "keepInHand") {
+    } else if (k === "keepInHand" || k === "ownTurn") {
       if (typeof v !== "boolean") throw new RuleError(`${where}: true or false`);
-      out.keepInHand = v;
+      out[k] = v;
     } else if (k === "pick") {
       if (!v || typeof v !== "object" || Array.isArray(v)) throw new RuleError(`${where}: { "score": <number>, "min": <number> }`);
       for (const kk of Object.keys(v)) if (kk !== "score" && kk !== "min") throw new RuleError(`${where}: unknown "${kk}"`);

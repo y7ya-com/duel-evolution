@@ -28,13 +28,13 @@ import { ATTACK_CLASS, attackClass, compareVerdicts, nextAttack, outcomeScore, p
 import BATTLE_PROOF_JSON from "./battleProof.json";
 import ON_SUMMON_JSON from "./onSummon.json";
 import CATEGORIES from "./aiCategories.json";
-import { type CardRule, type RuleCard, type RuleCtx, type RuleMon, tagRule } from "./cardRules.ts";
+import { type CardRule, type RuleCard, type RuleCtx, type RuleMon, type RuleZones, tagRule } from "./cardRules.ts";
 import type { RuleCtxExt } from "./ruleCtxExt.ts";
 import { activeRules, rulesOf, type RuleSet } from "./ruleSet.ts";
 import { H_ATOHAND, H_EQUIP, H_SPSUMMON, H_SUMMON, TAGS_NO_BOOST, TYPE_EXTRA, TYPE_CONTINUOUS, TYPE_COUNTER, TYPE_EFFECT, TYPE_EQUIP, TYPE_FIELD, TYPE_FUSION, TYPE_MONSTER, TYPE_QUICKPLAY, TYPE_SPELL, TYPE_TRAP, tagMask } from "../brain/cards.ts";
 import { COMBO_PLANS, type ComboPlan } from "./comboPlans.ts";
 import { evaluate, type EvalMon, type Position } from "./evaluate.ts";
-import { canPay, costOrder, expendable, type CostView } from "./costPick.ts";
+import { canPay, costOrder, discardBenefit, expendable, type CostView } from "./costPick.ts";
 import {
   type Activatable, type BoardCard, type CardRef, type DuelBoard, type Json, type PlaceRef, type PlayerBoard, type Prompt,
   LOCATION, PHASE, POS, boardFromState, boardFromView, freePlaces, isFaceDown, lowestBits, solveAnnounceCard, solveSum, toPrompt,
@@ -96,6 +96,8 @@ export interface CardInfo {
 export interface BotOpts {
   /** The NPC id: its own rules (NPC_RULES) and combo plan (COMBO_PLANS). */
   npcId?: number;
+  /** Its deck list (Main + Extra): what is still in the Deck is this less every copy seen (rule inMyDeck). */
+  deck?: number[];
   /** The card rules (ruleSet.ts): the active set when absent. */
   rules?: RuleSet;
   /** Spy vision: boards come from `peek` (the full duel state) instead of the select's honest `view`. */
@@ -214,6 +216,10 @@ export class HeuristicBot {
   #sel: Json | null = null;
   #whatIfs = new Map<string, { gain: number; summon: number }>();
   #stored: { turn: number; seqs: ReadonlySet<number> } | null = null;
+  #deckList: number[] = [];
+  /** My monsters (zones) that declared an attack this turn, and my attack under way (its zone, its target's). */
+  #attackedThisTurn = new Set<number>();
+  #myAttack: { sequence: number; target: number | null } | null = null;
   /** The chain length once our last answer in this window is on it (a later opponent link may be answered again). */
   #answeredAt = 0;
   /** This seat Normal Summoned this turn (the cost picker keeps a summonable monster until then); the opponent did. */
@@ -224,6 +230,7 @@ export class HeuristicBot {
     this.seat = seat;
     this.#cards = cards;
     this.#rules = rulesOf(opts.rules ?? activeRules(), opts.npcId);
+    this.#deckList = opts.deck ?? [];
     this.#combo = opts.npcId !== undefined ? COMBO_PLANS[opts.npcId] : undefined;
     this.#vision = !!opts.spy && !!opts.peek;
     this.#peek = opts.peek;
@@ -262,7 +269,7 @@ export class HeuristicBot {
           for (const c of (Array.isArray(ev.cards) ? ev.cards : []) as Json[]) if (top && Number(c.controller) === this.seat) top.targets.push(`${Number(c.location)}:${Number(c.sequence)}`);
         }
         break;
-      case "NEW_PHASE": case "NEW_TURN": this.#attack = null; this.#oppSummonAtk = 0; if (ev.type === "NEW_TURN") { this.#normalSummoned = false; this.#oppNormalSummoned = false; } break;
+      case "NEW_PHASE": case "NEW_TURN": this.#attack = null; this.#myAttack = null; this.#oppSummonAtk = 0; if (ev.type === "NEW_TURN") this.#attackedThisTurn.clear(); if (ev.type === "NEW_TURN") { this.#normalSummoned = false; this.#oppNormalSummoned = false; } break;
       case "SUMMONING": case "SPSUMMONING": case "FLIPSUMMONING":
         if (ev.type === "SUMMONING") { if (Number(ev.controller) === this.seat) this.#normalSummoned = true; else this.#oppNormalSummoned = true; }
         this.#oppSummonAtk = Number(ev.controller) !== this.seat && Number(ev.code) ? Math.max(1, this.#stat(Number(ev.code)).atk) : 0;
@@ -274,7 +281,10 @@ export class HeuristicBot {
       case "ATTACK": {
         const a = ev.card as Json | undefined, t = ev.target as Json | null | undefined;
         if (a && Number(a.controller) !== this.seat) this.#attack = { sequence: Number(a.sequence), direct: !t, target: t && Number(t.controller) === this.seat ? Number(t.sequence) : null };
-        else this.#attackSeen = true;
+        else {
+          this.#attackSeen = true;
+          if (a) { this.#attackedThisTurn.add(Number(a.sequence)); this.#myAttack = { sequence: Number(a.sequence), target: t ? Number(t.sequence) : null }; }
+        }
         break;
       }
       case "HINT": if (ev.hint_type === 3 && ev.player === this.seat) this.#hint = Number(ev.hint); break;
@@ -546,7 +556,20 @@ export class HeuristicBot {
       attackOnDefense: !!guard && (guard.position & POS.DEFENSE) !== 0,
       oppChained: this.#chainTop !== null && this.#chainTop !== this.seat,
       ext: { ...this.#ctxExt(myMon, oppMon, attackAtk, guard ?? null), lethalThrough: lethal.through },
+      zones: this.#zones(),
     };
+  }
+
+  /** My cards by zone, as names (the rules' named-card operators); the Deck is my deck list less every copy seen. */
+  #zones(): RuleZones {
+    const me = this.#me(), opp = this.#opp();
+    const names = (codes: number[]) => codes.filter(Boolean).map((c) => this.#nameOf(c));
+    const field = me ? [...me.mzone, ...me.szone].filter((c): c is BoardCard => !!c && !!c.code).map((c) => c.code) : [];
+    const seen = [...(me?.hand ?? []), ...field, ...(me?.grave ?? []), ...(me?.removed ?? [])].filter(Boolean);
+    const deck = [...this.#deckList];
+    for (const c of seen) { const i = deck.indexOf(c); if (i >= 0) deck.splice(i, 1); }
+    const fieldSpells = [me?.szone[5], opp?.szone[5]].filter((c): c is BoardCard => !!c && !!c.code && !isFaceDown(c.position)).map((c) => this.#nameOf(c.code));
+    return { hand: names(me?.hand ?? []), deck: names(deck), field: names(field), grave: names(me?.grave ?? []), fieldSpells };
   }
 
   /** On my turn before my battle is over: are my attacks lethal on this board (the battle plan, set cards aside), and
@@ -584,8 +607,11 @@ export class HeuristicBot {
     const keys = new Set(live.flatMap((l) => l.targets));
     const clears = live.some((l) => l.clears);
     let threat = 0, hits = 0, hitsBackrow = clears && me.szone.some(Boolean);
-    me.mzone.forEach((c, i) => { if (c && keys.has(`${LOCATION.MZONE}:${i}`)) { threat += c.attack ?? 0; hits++; } });
-    me.szone.forEach((c, i) => { if (c && (clears || keys.has(`${LOCATION.SZONE}:${i}`))) { threat += 1000; hits++; hitsBackrow = true; } });
+    // what a non-targeting link takes too (Raigeki, Dark Hole, Mirror Force: my monsters; Heavy Storm: my backrow)
+    const nukes = live.some((l) => { const k = this.#cards.brain.get(l.code); return !!k && (k.has("nuke_opp") || k.has("nuke_all")); });
+    const storms = clears || live.some((l) => { const k = this.#cards.brain.get(l.code); return !!k && (k.has("storm_opp") || k.has("storm_all")); });
+    me.mzone.forEach((c, i) => { if (c && (nukes || keys.has(`${LOCATION.MZONE}:${i}`))) { threat += c.attack ?? 0; hits++; } });
+    me.szone.forEach((c, i) => { if (c && (storms || keys.has(`${LOCATION.SZONE}:${i}`))) { threat += 1000; hits++; hitsBackrow = true; } });
     const handMon = me.hand.filter((c) => (type(c) & TYPE_MONSTER) !== 0);
     const costs = this.#costView();
     const spare = expendable(costs);
@@ -612,8 +638,11 @@ export class HeuristicBot {
       oppChainThreat: threat, oppChainHitsMine: hits,
       oppSummonAtk: this.#oppSummonAtk,
       incomingDamage: incoming,
-      myBattlerAtk: oppAttack && guard ? guard.attack ?? 0 : 0,
-      oppBattlerValue: oppAttack ? attackAtk : 0,
+      myBattlerAtk: oppAttack && guard ? guard.attack ?? 0 : myTurn && this.#myAttack ? me.mzone[this.#myAttack.sequence]?.attack ?? 0 : 0,
+      oppBattlerValue: oppAttack ? attackAtk : myTurn && this.#myAttack && this.#myAttack.target !== null ? (() => {
+        const t = opp.mzone[this.#myAttack!.target!];
+        return !t ? 0 : isFaceDown(t.position) ? UNKNOWN_WALL : (t.position & POS.DEFENSE) !== 0 ? t.defense ?? 0 : t.attack ?? 0;
+      })() : 0,
       preBattle: myTurn && (phase === PHASE.MAIN1 || battlePhase),
       afterBattle: myTurn && phase === PHASE.MAIN2,
       inBattle: battlePhase && (myTurn ? !!this.#declaredAttacker : !!this.#attack),
@@ -635,6 +664,17 @@ export class HeuristicBot {
       oppPlanLethal: !myTurn && replyPosition(this.#boardPosition()).myLp <= 0,
       trapLock: this.#trapLock(),
       oppCanNormalSummon: !myTurn && !this.#oppNormalSummoned && phase <= PHASE.MAIN1,
+      oppLockActive: opp.szone.some((c) => c && c.code && !isFaceDown(c.position) && LOCKS.test(this.#nameOf(c.code))),
+      normalSummonLeft: myTurn && !this.#normalSummoned,
+      mySetFlipMon: myMon.some((m) => m.faceDown && !!m.code && !!this.#cards.brain.get(m.code)?.is_flip),
+      oppLethalThrough: !myTurn && replyPosition(this.#boardPosition()).myLp <= 0,
+      removalValue: Math.max(0, ...([[opp.mzone, LOCATION.MZONE], [opp.szone, LOCATION.SZONE]] as [(BoardCard | null)[], number][])
+        .flatMap(([zone, location]) => zone.flatMap((c, i): CardRef[] => (c ? [{ controller: 1 - this.seat, location, sequence: i, code: c.code, position: c.position }] : [])))
+        .map((c) => this.#removalValue(c))),
+      myHandDead: me.hand.filter((c) => c && (discardBenefit(c) === 1 || (isMon(c) && (this.#cards.brain.get(c)?.tributes() ?? 0) > myMon.length))).length,
+      myHandDiscardPayoff: me.hand.filter((c) => c && (discardBenefit(c) === 2 || / of dark world$|^dark world /.test(this.#nameOf(c)))).length,
+      myCounterTraps: [...me.hand, ...me.szone.filter((c): c is BoardCard => !!c).map((c) => c.code)].filter((c) => c && (type(c) & TYPE_COUNTER) !== 0).length,
+      myReviveCards: [...me.hand, ...me.szone.filter((c): c is BoardCard => !!c).map((c) => c.code)].filter((c) => c && !isMon(c) && (this.#cards.brain.get(c)?.has("revive") ?? false)).length,
       oppLinkedMonsters: Math.min(oppMon.filter((m) => !m.faceDown).length,
         opp.szone.filter((c) => c && c.code && !isFaceDown(c.position) && LINKED_REVIVAL.test(this.#nameOf(c.code))).length),
       attackerLevel: oppAttack ? oppAttack.level ?? (oppAttack.code ? this.#stat(oppAttack.code).level : 0) : 0,
@@ -1522,7 +1562,8 @@ export class HeuristicBot {
     if (this.#chainedThisWindow.size > 0 && !newLink) return respChain(null);
     const ctx = this.#ctx();
     const own = this.#turnPlayer === this.seat;
-    if (own && !ctx.oppChained) return respChain(null);
+    // on my own turn: negations of the opponent's link, and the cards whose rule asks to answer there (ownTurn)
+    if (own && !ctx.oppChained && !ev.chains.some((c) => this.#ruleFor(c.code)?.ownTurn)) return respChain(null);
     // a fool springs the first card it can
     if (this.#style.fool) {
       const c = ev.chains[0]!;
@@ -1539,7 +1580,7 @@ export class HeuristicBot {
       const key = `${c.code}:${c.description}`;
       if (this.#chainedThisWindow.has(key)) continue;
       if (this.#locked(c.code)) continue;
-      if (own && !this.#cards.brain.get(c.code)?.has("negate")) continue;
+      if (own && !this.#ruleFor(c.code)?.ownTurn && !(ctx.oppChained && this.#cards.brain.get(c.code)?.has("negate"))) continue;
       const rule = this.#ruleFor(c.code);
       if (rule?.chainReact && !rule.chainReact(this.#withSelf(ctx, c.code, c, { prompt: ev, resp: respChain(i) }))) continue;
       // (No what-if veto: Master Duel has none on its responses, only "would this be negated" (#locked). Rev 6 held a
@@ -1644,6 +1685,21 @@ export class HeuristicBot {
       isTrap: (type & TYPE_TRAP) !== 0, name: code ? this.#nameOf(code) : "",
       copyInHand: !!code && (this.#me()?.hand.filter((h) => h === code).length ?? 0) > ((L & LOCATION.HAND) !== 0 && c.controller === this.seat ? 1 : 0),
       chainHit: c.controller === this.seat && this.#liveOppLinks().some((l) => l.targets.includes(`${L}:${c.sequence}`)),
+      canAttack: c.controller === this.seat && (L & LOCATION.MZONE) !== 0 && (pos & POS.ATTACK) !== 0 && !isFaceDown(pos)
+        && this.#turnPlayer === this.seat && (this.#board?.phase ?? 0) < PHASE.MAIN2 && !this.#attackedThisTurn.has(c.sequence),
+      alreadyHave: !!code && (() => {
+        const me = this.#me(); if (!me) return false;
+        const mine = [...me.hand, ...[...me.mzone, ...me.szone].filter((x): x is BoardCard => !!x).map((x) => x.code)];
+        const here = c.controller === this.seat && (L & (LOCATION.HAND | LOCATION.MZONE | LOCATION.SZONE)) !== 0 ? 1 : 0;
+        return mine.filter((x) => x === code).length > here;
+      })(),
+      copyOnField: !!code && (() => {
+        const me = this.#me(); if (!me) return false;
+        const ups = [...me.mzone.map((x, i) => ({ x, loc: LOCATION.MZONE, i })), ...me.szone.map((x, i) => ({ x, loc: LOCATION.SZONE, i }))]
+          .filter(({ x }) => x && x.code === code && !isFaceDown(x.position));
+        return ups.some(({ loc, i }) => !(c.controller === this.seat && (L & loc) !== 0 && c.sequence === i));
+      })(),
+      worth: code ? this.#worth(code, (L & LOCATION.HAND) !== 0) : 0,
     } as RuleCard;
   }
 
