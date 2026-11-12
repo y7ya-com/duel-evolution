@@ -15,6 +15,10 @@ export interface EvalMon {
   known?: boolean;
   /** Estimated value lost by turning this set monster face-up (FLIP removal/search, floaters, etc.). */
   flipRisk?: number;
+  /** Cannot be destroyed by battle (Spirit Reaper, Marshmallon: battleProof.json): battle damage still applies. */
+  battleProof?: boolean;
+  /** What its owner gets back when it is destroyed (a search, a summon, a revival: aiCategories.json). */
+  afterlife?: number;
 }
 export interface Position {
   myMon: EvalMon[];

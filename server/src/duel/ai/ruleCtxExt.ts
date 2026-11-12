@@ -16,9 +16,15 @@ export const EXT_NUM = [
   /** The battle under way: damage to my LP from the opponent's attack, my battler's ATK, the opposing battler's
    *  ATK (attack position) or DEF. */
   "incomingDamage", "myBattlerAtk", "oppBattlerValue",
+  /** The Level of the opponent's monster attacking me (0 none / unknown). */
+  "attackerLevel",
   /** The card the rule is about: its current ATK / DEF and its value (ATK in attack position, else DEF), if it is a
    *  monster on my field (else its printed stats, value 0). */
   "selfAtk", "selfDef", "selfValue",
+  /** What-if, under the real rules (an engine fork: simSearch.ts whatIf): the board's value after this card's activation
+   *  has played out minus its value now; and the ATK of the monsters it brought to my field minus the ATK of mine it
+   *  took away. Computed only when a rule reads them, with the lookahead (0 without it). */
+  "effectGain", "effectSummonGain",
 ] as const;
 export const EXT_BOOL = [
   /** My turn, before my Battle Phase is over (Main Phase 1 or the Battle Phase); my Main Phase 2; a battle under way. */
@@ -33,8 +39,8 @@ export const EXT_BOOL = [
   /** My attacking monsters (face-up, attack position) would be lethal with the opponent's field empty; my attacks
    *  this turn are lethal on the board as it is (the battle plan, set cards aside). */
   "lethalOnEmpty", "lethalThrough",
-  /** The opponent's attack would destroy the monster of mine it targets. */
-  "attackTargetLoses",
+  /** The opponent's attack would destroy the monster of mine it targets; its attacker came from the Extra Deck. */
+  "attackTargetLoses", "attackerExtra",
   /** The card the rule is about is hit by a live opponent link; a face-up copy of it is already on the field. */
   "selfThreatened", "sameCardActive",
 ] as const;

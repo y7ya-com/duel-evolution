@@ -8,6 +8,9 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { NpcAi, TIERS, cardInfo, simStats, tierFor, type LoggedCmd, type Tier } from "../src/duel/ai/index.ts";
+import { HeuristicBot } from "../src/duel/ai/heuristicBot.ts";
+import { toPrompt } from "../src/duel/ai/prompt.ts";
+import { whatIf, type SearchAccess } from "../src/duel/ai/simSearch.ts";
 import { NpcBrain, loadNpcProfile } from "../src/duel/brain/index.ts";
 import { brainDb, npcDeck, NPC_PROFILES, toCodes } from "../src/duel/data.ts";
 import { PY_DUEL_RULE, type DuelCore, type Json, type NewOptions } from "../src/duel/engine/core.ts";
@@ -102,6 +105,38 @@ describe.skipIf(!haveData)("NPC AI duels", () => {
     duel(dc, 53, "elite", 0, 0, 77);
     expect(simStats.forks).toBeGreaterThan(forks);
     expect(simStats.drift).toBe(before);
+  }, 120_000);
+
+  it("a what-if plays one action out under the real rules, on a fork (the live duel is untouched)", () => {
+    const d = npcDeck(53)!;
+    const deck = { main: toCodes(d.main), extra: toCodes(d.extra) };
+    const decks = [deck, deck];
+    const opts: NewOptions = { first: 0, seed: 99, shuffle: true, rule: PY_DUEL_RULE, brain: [true, true], auto_chain: true };
+    const id = "whatif-1", log: LoggedCmd[] = [];
+    const cards = cardInfo(dc.cardDB, brainDb());
+    const access: SearchAccess = { link: () => ({ dc, decks, opts, log }), makePolicy: (seat, _own, peek) => new HeuristicBot(seat, cards, { peek }),
+      budgetMs: 1000, maxCandidates: 6, spy: false };
+    let evs = dc.new(id, decks, opts);
+    try {
+      for (let n = 0; n < 200; n++) {
+        const last = evs[evs.length - 1]!;
+        if (last.ev !== "select") break;
+        if (last.type === "SELECT_IDLECMD" && Number(last.player) === 0 && Array.isArray(last.summons) && last.summons.length > 0) {
+          const before = JSON.stringify(dc.query(id));
+          const mons = (st: Json) => ((st.players as Json[])[0]!.mzone as unknown[]).filter(Boolean).length;
+          const bot = new HeuristicBot(0, cards);
+          const st = whatIf(access, 0, last, toPrompt(last, 0, false), { type: "SELECT_IDLECMD", action: "SELECT_SUMMON", index: 0 }, bot);
+          expect(st).not.toBeNull();
+          expect(typeof st).toBe("object");
+          expect(mons(st as Json)).toBe(mons(JSON.parse(before)) + 1);
+          expect(JSON.stringify(dc.query(id))).toBe(before);
+          return;
+        }
+        log.push({});
+        evs = dc.auto(id);
+      }
+      throw new Error("no summon offered to seat 0");
+    } finally { dc.end(id); }
   }, 120_000);
 
   // The duel host (OcgSession): the NPC AI by default, the parity brain with NPC_AI=py. The NPC (53, elite) goes first

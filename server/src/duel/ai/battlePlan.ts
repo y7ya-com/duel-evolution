@@ -4,12 +4,16 @@
 //   1. a line where our own LP reaches 0 is never taken;
 //   2. lethal wins, with the fewest attacks (fewer attacks walk into fewer traps);
 //   3. a board the opponent's next Battle Phase kills us from loses to one it does not;
-//   4. then the board, evaluate(), counting what the opponent's next Battle Phase would take from it (the reply ply);
+//   3b. Master Duel's battle verdict on the end board (outcomeScore): who is ahead, by how much ATK and how immediately
+//      (3: lethal on the board, 1: an attacker that wins a battle, 0: raw ATK only), the tier first;
+//   4. then the board, evaluate(), after what the opponent's next Battle Phase would take from it (the reply ply: its
+//      attackers are already on the field, so it counts in full: at half, a body sure to die still counted half);
 //   5. then fewer attacks; then the strongest attacker first (a lead with the weakest into set backrow was tried: the
 //      opponent's trap waits for the big attacker anyway, and the weak lead only gave up damage).
 // The reply ply is a shallow, honest opponent: only the face-up attackers it already has, each hitting what it beats
-// for the most damage (it summons nothing, springs nothing, and never suicides). The planner re-runs at every battle
-// command, so after each real attack (a trap, a flip effect) the rest of the plan is rebuilt from what happened.
+// for the most damage (it summons nothing, springs nothing, and never suicides). A monster that cannot be destroyed by
+// battle (EvalMon.battleProof) survives every attack on it, in both directions; the damage still applies. The planner
+// re-runs at every battle command, so after each real attack (a trap, a flip effect) the rest of the plan is rebuilt.
 import { evaluate, type EvalMon, type Position } from "./evaluate.ts";
 
 /** A monster with its Monster Zone (the planner removes the right one when it dies). */
@@ -23,6 +27,8 @@ export interface Outcome {
   dies: boolean;
   lethal: boolean;
   diesToReply: boolean;
+  /** Master Duel's battle verdict on the end board (outcomeScore). */
+  verdict: number;
   value: number;
   attacks: number;
   /** ATK of the first attacker (the order tie-break). */
@@ -46,13 +52,14 @@ export interface PlanOpts {
   /** Search cap (nodes). */
   maxNodes: number;
 }
-export const PLAN_DEFAULTS: PlanOpts = { reply: true, replyWeight: 0.5, maxNodes: 20000 };
+export const PLAN_DEFAULTS: PlanOpts = { reply: true, replyWeight: 1, maxNodes: 20000 };
 
 interface State { myLp: number; oppLp: number; my: PlanMon[]; opp: PlanMon[]; used: number; flipCost: number }
 
 const EPS = 1;
-/** What an unknown face-down monster is taken to hold: a wall of at least this DEF. */
-export const UNKNOWN_WALL = 1500;
+/** What an unknown face-down monster is taken to hold: a wall of at least this DEF (Master Duel's estimate for a set
+ *  Level 4 or lower monster, the band a set monster nearly always is; it peeks at the real level, we do not). */
+export const UNKNOWN_WALL = 1600;
 
 /** The stat a target defends with (an unknown face-down is a ~1500 DEF wall). */
 function guardOf(t: EvalMon): number {
@@ -64,17 +71,20 @@ function guardOf(t: EvalMon): number {
 function resolve(s: State, a: PlanAttacker, t: PlanMon | null, bit: number): State {
   let { myLp, oppLp, my, opp, flipCost } = s;
   const used = s.used | bit;
-  const atk = my.find((m) => m.seq === a.seq)?.atk ?? a.atk;
+  const me = my.find((m) => m.seq === a.seq);
+  const atk = me?.atk ?? a.atk;
   if (t === null) return { myLp, oppLp: oppLp - atk, my, opp, used, flipCost };
   const guard = guardOf(t);
-  const dropOpp = () => { opp = opp.filter((m) => m.seq !== t.seq); };
-  const dropMine = () => { my = my.filter((m) => m.seq !== a.seq); };
+  const dropOpp = () => { if (!t.battleProof) opp = opp.filter((m) => m.seq !== t.seq); };
+  const dropMine = () => { if (!me?.battleProof) my = my.filter((m) => m.seq !== a.seq); };
   if (t.faceDown) flipCost += t.flipRisk ?? 0;
+  // a kill that hands the opponent its afterlife (Sangan's search, Treeborn Frog's return) is worth that much less
+  const kill = () => { if (!t.battleProof) flipCost += t.afterlife ?? 0; };
   if (t.attackPos) {
-    if (atk > guard) { oppLp -= atk - guard; dropOpp(); }
-    else if (atk === guard) { dropOpp(); dropMine(); }
+    if (atk > guard) { oppLp -= atk - guard; dropOpp(); kill(); }
+    else if (atk === guard) { dropOpp(); dropMine(); kill(); }
     else { myLp -= guard - atk; dropMine(); }
-  } else if (atk > guard) dropOpp();
+  } else if (atk > guard) { dropOpp(); kill(); }
   else {
     if (atk < guard) myLp -= guard - atk;
     // a face-down that survived is face-up now: its DEF is what it showed
@@ -101,13 +111,15 @@ export function replyPosition(p: Position): Position {
       // our own face-down monsters are known to us
       const guard = m.faceDown ? m.def : m.attackPos ? m.atk : m.def;
       if (atk <= guard) return;
-      const loss = bodyValue(m) + (m.attackPos && !m.faceDown ? (atk - guard) * 0.05 : 0);
+      const damage = m.attackPos && !m.faceDown ? atk - guard : 0;
+      // a battle-proof monster only costs the damage through it; one with an afterlife costs less
+      const loss = (m.battleProof ? 0 : Math.max(0, bodyValue(m) - (m.afterlife ?? 0))) + damage * 0.05;
       if (loss > bestLoss) { bestLoss = loss; best = i; }
     });
     if (best < 0) continue;
     const m = my[best]!;
     if (m.attackPos && !m.faceDown) myLp -= atk - m.atk;
-    my = [...my.slice(0, best), ...my.slice(best + 1)];
+    if (!m.battleProof) my = [...my.slice(0, best), ...my.slice(best + 1)];
   }
   return { ...p, myMon: my, myLp };
 }
@@ -120,6 +132,62 @@ export function valueWithReply(p: Position, weight: number): number {
   return after <= -1e9 ? now - 5e5 : now + weight * (after - now);
 }
 
+/** The stat a monster holds its zone with (attack position: ATK; defence: DEF, an unknown set one the wall estimate). */
+const holdOf = (m: EvalMon): number => (m.faceDown && !m.known ? Math.max(m.def, UNKNOWN_WALL) : m.attackPos ? m.atk : m.def);
+
+/**
+ * Master Duel's battle verdict on a board (its CPU's outcome score), from my side once my Battle Phase is over: the sign
+ * says who is ahead, the size the ATK that puts them ahead, rounded down to 4, the low 2 bits how immediately:
+ * 3 = a monster that is lethal on its own against the board, 1 = a best attacker that wins a battle there, 0 = raw ATK
+ * only. +-1 / 0: even. Its attacks are spent, so only the opponent's lethal counts (theirs comes next).
+ */
+export function outcomeScore(p: Position): number {
+  const side = (mine: EvalMon[], theirs: EvalMon[], theirLp: number) => {
+    const attackers = mine.filter((m) => m.attackPos && !m.faceDown);
+    const best = attackers.reduce((n, m) => Math.max(n, m.atk), 0);                               // S1
+    const wins = (a: number) => theirs.length === 0 || theirs.some((t) => !t.battleProof && a > holdOf(t));
+    const productive = attackers.filter((m) => wins(m.atk)).reduce((n, m) => Math.max(n, m.atk), 0);   // S3
+    const hold = mine.reduce((n, m) => Math.max(n, holdOf(m)), 0);                                 // S6
+    const lethal = attackers.some((m) => (theirs.length === 0 ? m.atk >= theirLp
+      : theirs.some((t) => t.attackPos && !t.faceDown && !t.battleProof && m.atk - t.atk >= theirLp && theirs.length === 1)));
+    return { best, productive, hold, lethal };
+  };
+  const S = side(p.myMon, p.oppMon, p.oppLp), O = side(p.oppMon, p.myMon, p.myLp);
+  const tag = (v: number, t: number, min: number) => Math.max(min, (v & ~3) + t);
+  if (O.productive && O.lethal) return -tag(O.productive, 3, 2);
+  if (S.productive > O.best || (S.productive > O.hold && S.hold >= O.hold)) return tag(S.productive, 1, 1);
+  if (O.productive > S.best || (O.productive > S.hold && O.hold >= S.hold)) return -tag(O.productive, 1, 2);
+  if ((S.productive === 0 && (O.productive === 0 || S.best > O.productive)) || (S.best > 0 && S.best <= O.best)) {
+    if (p.myLp <= 0 && p.oppLp > 0) return -Math.max(3, O.best & ~3);
+    if (p.myLp > 0 && p.oppLp <= 0) return Math.max(2, S.best & ~3);
+    if (S.best > O.best) return Math.max(1, S.best & ~3);
+    if (S.best < O.best) return -Math.max(2, O.best & ~3);
+    return -1;
+  }
+  return 0;
+}
+
+/** Master Duel's comparison of two verdicts: > 0 when x is the better. The tier decides before the size, except that
+ *  a lead of 2000 ATK or more beats a tier; leaving the opponent lethal on the board is the worst. */
+export function compareVerdicts(x: number, y: number): number {
+  const near = (v: number) => (v >= -2 && v <= 1 ? 0 : v);
+  x = near(x); y = near(y);
+  if (x === y) return 0;
+  const tx = Math.abs(x) & 3, ty = Math.abs(y) & 3;
+  if (x >= 2 && y >= 2) {
+    if (x > y && tx < ty) return -1;
+    if (x < y && tx > ty) return x < 2000 && y >= 2000 ? x - y : 1;
+    return x - y;
+  }
+  if (x <= -3 && y <= -3) {
+    if (tx === 3 && ty !== 3) return -32767;
+    if (ty === 3 && tx !== 3) return 32767;
+    if (y < x && ty < tx) return -1;
+    if (x <= y && tx < ty) return 1;
+  }
+  return x - y;
+}
+
 function outcomeOf(input: PlanInput, s: State, attacks: PlannedAttack[], opts: PlanOpts): Outcome {
   const end: Position = { ...input.base, myLp: s.myLp, oppLp: s.oppLp, myMon: s.my, oppMon: s.opp };
   const lethal = s.oppLp <= 0, dies = s.myLp <= 0;
@@ -130,7 +198,7 @@ function outcomeOf(input: PlanInput, s: State, attacks: PlannedAttack[], opts: P
     diesToReply = after.myLp <= 0;
     if (!diesToReply) value += opts.replyWeight * (evaluate(after) - evaluate(end));
   }
-  return { dies, lethal, diesToReply, value, attacks: attacks.length, lead: attacks[0]?.atk ?? 0 };
+  return { dies, lethal, diesToReply, verdict: outcomeScore(end), value, attacks: attacks.length, lead: attacks[0]?.atk ?? 0 };
 }
 
 /** > 0 when `a` is the better outcome. */
@@ -139,6 +207,8 @@ export function compareOutcomes(a: Outcome, b: Outcome): number {
   if (a.lethal !== b.lethal) return a.lethal ? 1 : -1;
   if (a.lethal) return b.attacks - a.attacks;
   if (a.diesToReply !== b.diesToReply) return a.diesToReply ? -1 : 1;
+  const v = compareVerdicts(a.verdict, b.verdict);
+  if (v !== 0) return v;
   if (Math.abs(a.value - b.value) > EPS) return a.value - b.value;
   if (a.attacks !== b.attacks) return b.attacks - a.attacks;
   if (a.attacks > 0 && a.lead !== b.lead) return a.lead - b.lead;

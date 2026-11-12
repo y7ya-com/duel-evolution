@@ -17,6 +17,11 @@
 //     (true / false), oppTopAtk (the opponent's strongest face-up ATK, any position)
 //     and the board facts of cardRules.ts EXT_NUM / EXT_BOOL (myDeck, chainLen, boardEdge, preBattle, oppChainThreat...)
 //   inside a "where" / "of" (one monster): atk, def, level, faceDown, attackPos, fusion, chainHit, and the names above
+//   pick: { "score": <number>, "min": <number> }: the card's picks (targets, costs, searches, revivals, discards): each
+//     offered card scored (higher first; under min: not taken unless the prompt needs it). Inside score, the card:
+//     the monster names above, plus mine, onField, inHand, inGrave, inDeck, inExtra, banished, isMonster, isSpell,
+//     isTrap, copyInHand (another copy is in my hand) (true / false) and {"is": "card name"} (its name starts with this,
+//     lowercase)
 //   {"all": [...]} {"any": [...]} {"not": x}
 //   {">=": [a, b]} {">": [a, b]} {"<=": [a, b]} {"<": [a, b]} {"==": [a, b]} {"!=": [a, b]}
 //   {"+": [...]} {"*": [...]} {"-": [a, b]} {"/": [a, b]} (x / 0 = 0) {"max": [...]} {"min": [...]} {"floor": x}
@@ -29,7 +34,7 @@
 //
 // Example: { "premature burial": { "idleActivate": { "all": [{ ">=": ["myGraveMaxAtk", 1700] },
 //   { ">=": ["myGraveMaxAtk", "oppMaxAtk"] }, { "canPay": 800 }] }, "idlePriority": 90 } }
-import type { CardRule, RuleCtx, RuleMon } from "./cardRules.ts";
+import type { CardRule, RuleCard, RuleCtx, RuleMon } from "./cardRules.ts";
 import { EXT_BOOL, EXT_NUM } from "./ruleCtxExt.ts";
 
 export type Expr = number | boolean | string | { [op: string]: unknown };
@@ -45,6 +50,7 @@ const NUM_FIELDS = ["myLp", "oppLp", "myMaxAtk", "oppMaxAtk", "myBackrow", "oppB
   "oppHand", "myHand", "myHandTributes", "myRemoved", "attackAtk"] as const;
 const BOOL_FIELDS = ["myTurn", "oppEndPhase", "attackLethal", "attackOnDefense", "oppChained"] as const;
 const MON_NUM = ["atk", "def", "level"] as const, MON_BOOL = ["faceDown", "attackPos", "fusion", "chainHit", "blocksLethal"] as const;
+const CARD_BOOL = ["mine", "onField", "inHand", "inGrave", "inDeck", "inExtra", "banished", "isMonster", "isSpell", "isTrap", "copyInHand"] as const;
 
 // the helpers of cardRules.ts, as names
 const attackers = (m: RuleMon[]): number => m.filter((x) => x.attackPos).length;
@@ -67,7 +73,8 @@ const MAX_NAME = 80;
 
 export class RuleError extends Error {}
 
-interface Scope { mon: boolean }
+/** mon: inside a where / of (one monster); card: inside a pick's score (one offered card, a RuleCard). */
+interface Scope { mon: boolean; card?: boolean }
 type Kind = "num" | "bool";
 
 /** Compiles one expression to a total function, checking its type against `want`. */
@@ -85,8 +92,9 @@ function compile(e: unknown, want: Kind, at: string, scope: Scope, budget: { n: 
   }
   if (typeof e === "string") {
     let kind: Kind, fn: Fn;
-    if (scope.mon && (MON_NUM as readonly string[]).includes(e)) { kind = "num"; fn = (_c, m) => (m ? m[e as "atk"] ?? 0 : 0); }
-    else if (scope.mon && (MON_BOOL as readonly string[]).includes(e)) { kind = "bool"; fn = (_c, m) => (m ? m[e as "faceDown"] === true : false); }
+    if (scope.card && !scope.mon && (CARD_BOOL as readonly string[]).includes(e)) { kind = "bool"; fn = (_c, m) => (m ? (m as RuleCard)[e as (typeof CARD_BOOL)[number]] === true : false); }
+    else if ((scope.mon || scope.card) && (MON_NUM as readonly string[]).includes(e)) { kind = "num"; fn = (_c, m) => (m ? m[e as "atk"] ?? 0 : 0); }
+    else if ((scope.mon || scope.card) && (MON_BOOL as readonly string[]).includes(e)) { kind = "bool"; fn = (_c, m) => (m ? m[e as "faceDown"] === true : false); }
     else if ((EXT_NUM as readonly string[]).includes(e)) { kind = "num"; fn = (c) => c.ext?.[e as (typeof EXT_NUM)[number]] ?? 0; }
     else if ((EXT_BOOL as readonly string[]).includes(e)) { kind = "bool"; fn = (c) => c.ext?.[e as (typeof EXT_BOOL)[number]] === true; }
     else if ((NUM_FIELDS as readonly string[]).includes(e)) { kind = "num"; fn = (c) => c[e as "myLp"]; }
@@ -167,6 +175,13 @@ function compile(e: unknown, want: Kind, at: string, scope: Scope, budget: { n: 
         ? (c, m) => c.attackAtk >= (f(c, m) as number) || c.attackLethal
         : (c, m) => c.myLp > (f(c, m) as number) + 1000);
     }
+    case "is": {
+      only(op);
+      if (!scope.card || scope.mon) throw new RuleError(`${at}: "is" names the card a pick scores (only inside pick.score)`);
+      if (typeof arg !== "string" || !arg || arg.length > MAX_NAME) throw new RuleError(`${at}: "is" takes a card name`);
+      const name = arg.toLowerCase();
+      return result("bool", (_c, m) => !!m && (m as RuleCard).name.startsWith(name));
+    }
     case "named": {
       only(op);
       if (typeof arg !== "string" || !arg || arg.length > MAX_NAME) throw new RuleError(`${at}: "named" takes a card name`);
@@ -197,6 +212,13 @@ export function compileRule(r: unknown, at: string): CardRule {
     } else if (k === "keepInHand") {
       if (typeof v !== "boolean") throw new RuleError(`${where}: true or false`);
       out.keepInHand = v;
+    } else if (k === "pick") {
+      if (!v || typeof v !== "object" || Array.isArray(v)) throw new RuleError(`${where}: { "score": <number>, "min": <number> }`);
+      for (const kk of Object.keys(v)) if (kk !== "score" && kk !== "min") throw new RuleError(`${where}: unknown "${kk}"`);
+      const o = v as Record<string, unknown>;
+      if (o.min !== undefined && (typeof o.min !== "number" || !Number.isFinite(o.min))) throw new RuleError(`${where}.min: a number`);
+      const f = compile(o.score ?? 0, "num", `${where}.score`, { mon: false, card: true }, { n: MAX_NODES });
+      out.pick = { score: (c: RuleCtx, card: RuleCard) => f(c, card) as number, ...(o.min !== undefined ? { min: o.min as number } : {}) };
     } else if (k === "number") {
       if (!v || typeof v !== "object" || Array.isArray(v)) throw new RuleError(`${where}: { "cover": <number>, "keep": <number> }`);
       for (const kk of Object.keys(v)) if (kk !== "cover" && kk !== "keep") throw new RuleError(`${where}: unknown "${kk}"`);

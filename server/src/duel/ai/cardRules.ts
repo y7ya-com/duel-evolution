@@ -28,6 +28,14 @@ export interface RuleMon { atk: number; def: number; faceDown: boolean; attackPo
   level?: number; fusion?: boolean; chainHit?: boolean; blocksLethal?: boolean }
 
 
+/** A candidate card in a pick (CardRule.pick): where it is, whose it is, what it is, and its name (lowercase). */
+export interface RuleCard extends RuleMon {
+  mine: boolean; onField: boolean; inHand: boolean; inGrave: boolean; inDeck: boolean; inExtra: boolean; banished: boolean;
+  isMonster: boolean; isSpell: boolean; isTrap: boolean; name: string;
+  /** Another copy of it is in my hand already. */
+  copyInHand: boolean;
+}
+
 export interface RuleCtx {
   myLp: number;
   oppLp: number;
@@ -91,6 +99,9 @@ export interface CardRule {
   /** Among several cards that could answer the same chain window: higher goes first (default: a negation of the
    *  opponent's link 50, else 0). */
   chainPriority?: number;
+  /** Its card picks (a target, a cost, a search, a revival, a discard): each offered card's score (higher first);
+   *  cards under `min` are not taken unless the prompt needs them. No rule = the generic pick (chooseTargets). */
+  pick?: { score: (ctx: RuleCtx, card: RuleCard) => number; min?: number };
   /** Its own number to declare (a cost to pay, say): the index among the values offered. No rule = the first. */
   number?: (ctx: RuleCtx, values: number[]) => number;
 }

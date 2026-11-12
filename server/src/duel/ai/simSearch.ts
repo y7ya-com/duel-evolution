@@ -74,11 +74,14 @@ function passive(pilot: HeuristicBot, sel: Json): Json | null {
   }
 }
 
+/** Where a fork stops: the default rollout horizon (searchable decisions), or a what-if's (the action's consequences). */
+type Horizon = (sel: Json, events: Json[], live: Json) => boolean;
+
 /**
- * Fork + replay + inject + roll out. The end-of-horizon score for `seat` (+-1e9 on a decided duel), or null when the
- * fork failed structurally (the replay did not reach the live select): the caller falls back to the heuristic.
+ * Fork + replay + inject + play forward to the horizon. The fork's state at the horizon (duelcore `query`), a number
+ * (+-1e9: the duel ended), or null when the fork failed structurally (the replay did not reach the live select).
  */
-export function rolloutScore(access: SearchAccess, seat: number, live: Json, prompt: Prompt, inject: Json, liveBot: HeuristicBot): number | null {
+function forkPlay(access: SearchAccess, seat: number, live: Json, prompt: Prompt, inject: Json, liveBot: HeuristicBot, stopAt: Horizon): Json | number | null {
   const t0 = performance.now();
   const L = access.link();
   if (!L) return null;
@@ -107,16 +110,45 @@ export function rolloutScore(access: SearchAccess, seat: number, live: Json, pro
       const last = evs[evs.length - 1]!;
       if (last.ev === "end") { open = false; return last.winner === seat ? WIN : last.winner === 1 - seat ? -WIN : 0; }
       if (stop || last.ev !== "select") break;
-      if (!access.spy && last.turn !== live.turn) break;
+      if (stopAt(last, evs, live)) break;
       if (++prompts > SIM_PROMPT_CAP) break;
       const p = Number(last.player);
       const r = last.retry ? null : !access.spy && p !== seat ? passive(pol[p]!, last) : pol[p]!.choose(last);
       evs = r ? dc.respond(id, r, p) : dc.auto(id);
     }
-    return pol[seat]!.valueOf(dc.query(id));
+    return dc.query(id);
   } finally {
     if (open) dc.end(id);
     simStats.forks++;
     simStats.ms += performance.now() - t0;
   }
+}
+
+/**
+ * Fork + replay + inject + roll out. The end-of-horizon score for `seat` (+-1e9 on a decided duel), or null when the
+ * fork failed structurally (the replay did not reach the live select): the caller falls back to the heuristic.
+ */
+export function rolloutScore(access: SearchAccess, seat: number, live: Json, prompt: Prompt, inject: Json, liveBot: HeuristicBot): number | null {
+  const pilot = access.makePolicy(seat, true, () => ({}));
+  // honest: the end of the NPC's own turn (spy: its next turn, stopped in forkPlay)
+  const r = forkPlay(access, seat, live, prompt, inject, liveBot, (sel, _events, l) => !access.spy && sel.turn !== l.turn);
+  if (r === null || typeof r === "number") return r;
+  pilot.copyTurnState(liveBot);
+  return pilot.valueOf(r);
+}
+
+/**
+ * What-if: the duel right after this one action has played out under the real rules (the engine resolves it: its
+ * chain, its summons, its targets as the pilots pick them), stopped when control is back with the NPC at its next main
+ * or battle command, when that chain is over, or at the end of the turn. The fork's state (duelcore `query`), +-1e9 if
+ * the duel ended, or null.
+ */
+export function whatIf(access: SearchAccess, seat: number, live: Json, prompt: Prompt, inject: Json, liveBot: HeuristicBot): Json | number | null {
+  let chained = false;
+  return forkPlay(access, seat, live, prompt, inject, liveBot, (sel, events, l) => {
+    if (events.some((e) => e.ev === "msg" && e.type === "CHAIN_END")) chained = true;
+    if (sel.turn !== l.turn) return true;
+    const mine = Number(sel.player) === seat && (sel.type === "SELECT_IDLECMD" || sel.type === "SELECT_BATTLECMD");
+    return mine || (chained && Number(sel.player) !== seat);
+  });
 }

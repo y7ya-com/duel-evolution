@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { HeuristicBot, chooseTargets, type CardInfo } from "../src/duel/ai/heuristicBot.ts";
 import { tagRule, type RuleCtx } from "../src/duel/ai/cardRules.ts";
-import { bundledRules } from "../src/duel/ai/ruleSet.ts";
+import { buildRules, bundledRules } from "../src/duel/ai/ruleSet.ts";
 import { brainDb } from "../src/duel/data.ts";
 import { deckNpc } from "../src/duel/npcRules.ts";
 import { nrCompWins } from "../src/game/npcs.ts";
@@ -45,6 +45,20 @@ describe("NPC battle replays", () => {
     const bot = new HeuristicBot(0, cards);
     bot.choose(battle());
     expect(bot.choose(select("SELECT_YESNO", undefined, [], { description: 31 }))?.yes).toBe(true);
+  });
+
+  it("a card's pick rule chooses its target (and declines an optional pick under its min)", () => {
+    const REBORN = 83764718;
+    const named: CardInfo = { ...cards, name: (c) => (c === REBORN ? "monster reborn" : "") };
+    const rules = buildRules({ staples: { "monster reborn": { pick: { score: { "-": [0, "atk"] }, min: -1500 } } } }, 1);
+    const bot = new HeuristicBot(0, named, { rules });
+    bot.observe({ ev: "msg", type: "CHAINING", code: REBORN, controller: 0, location: 8, sequence: 0 });
+    bot.observe({ ev: "msg", type: "CHAIN_SOLVING", chain_size: 1 });
+    const grave = (atk: number) => ({ code: atk, controller: 0, location: 16, sequence: 0, position: 0 });
+    // lowest ATK first, as the (deliberately odd) rule says
+    expect(bot.choose(select("SELECT_CARD", undefined, undefined, { min: 1, max: 1, selects: [grave(2500), grave(1200), grave(1800)] }))?.indicies).toEqual([1]);
+    // optional, and every card under min (-1500): none taken
+    expect(bot.choose(select("SELECT_CARD", undefined, undefined, { min: 0, max: 1, selects: [grave(2500), grave(1800)] }))?.indicies).toEqual([]);
   });
 
   it("a boost (Rush Recklessly) goes on our own monster in the battle, never the player's", () => {
