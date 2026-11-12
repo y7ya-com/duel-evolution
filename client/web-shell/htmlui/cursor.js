@@ -10,7 +10,7 @@ const imgs = new Map();    // file name -> loaded Image (null while loading or f
 // the HD redraw of the cursor art (ui/hd/, HD x the original, same layout): drawn in place of the 1x art at any size but
 // the engine's exact 1x; a file it lacks (or a tree without hd/) keeps the original
 export const HD = 4;
-const hds = new Map();     // file name -> loaded HD Image (null while loading or missing)
+const hds = new Map();     // file name -> loaded HD Image (null while loading, false when missing)
 const cache = new Map();   // state + size -> { v: CSS value } once decoded ({} while building)
 const name = tex => tex.slice(tex.lastIndexOf('/') + 1).toLowerCase();
 const drawn = s => s.shown && s.a > 0;
@@ -68,12 +68,14 @@ export function cursorCss(c, base, scale, dpr) {
   for (const s of c.sprites) {   // every state's art loads the first time the manager is seen (all are built up front)
     const n = name(s.tex);
     if (n && !imgs.has(n)) { imgs.set(n, null); const i = new Image(); i.onload = () => imgs.set(n, i); i.src = base + n; }
-    if (n && !hds.has(n)) { hds.set(n, null); const i = new Image(); i.onload = () => hds.set(n, i); i.src = base + 'hd/' + n; }
+    if (n && !hds.has(n)) { hds.set(n, null); const i = new Image(); i.onload = () => hds.set(n, i); i.onerror = () => hds.set(n, false); i.src = base + 'hd/' + n; }
   }
   if (!c.shown) return 'auto';
   const on = c.sprites.filter(s => drawn(s) && !isRipple(s)).sort((a, b) => a.wz - b.wz);   // back to front: the hand
   if (!on.length) return 'none';
   if (!on.every(s => imgs.get(name(s.tex)) && (s.mode === 2 || s.mode === 6))) return null;
+  // an HD redraw still loading: the first image built would be cached without it for good (the key names no HD)
+  if (on.some(s => hds.get(name(s.tex)) === null)) return null;
   const at = on.map(s => ({ s, x: s.wx - c.mx, y: s.wy - c.my, w: s.src[2] * s.wsx, h: s.src[3] * s.wsy }));
   const bw = BOX.w, bh = BOX.h;
   const css = Math.min(scale, MAX / bw, MAX / bh);   // CSS px per game px

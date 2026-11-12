@@ -53,7 +53,7 @@ export class PoseCache {
       });
       this.pending.set(key, pending);
       void pending.then(strip => { if (this.pending.get(key) !== pending) { strip.release(); return; } this.pending.delete(key); this.entries.set(key, { strip, refs: 0, used: ++this.clock }); this.trim(); },
-        () => { if (this.pending.get(key) === pending) { this.pending.delete(key); if (!signal.aborted) this.failed.add(key); } });
+        (e: unknown) => { if (this.pending.get(key) === pending) { this.pending.delete(key); if (!signal.aborted) { this.failed.add(key); console.warn('avatar art', key, e); } } });
     }
     void pending.then(() => { if (!this.abort.signal.aborted) ready(); }, () => {});
     return null;
