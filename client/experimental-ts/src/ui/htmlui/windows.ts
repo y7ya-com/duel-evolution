@@ -8,7 +8,7 @@ import { Ids, WindowBuilder, levelText } from './snapshot';
 import { AREA_FALLBACK, AREA_TEXT, WORLD_TEXT } from './lobby';
 import { titleName } from '../../features/titles';
 import type { HtmlControl, WindowSpec } from './snapshot';
-import { avatarSwitch, freeChoices, starterLook, type AvatarDeps } from './avatar';
+import { avatarSwitch, freeChoices, starterLook, FIRST_CATEGORY, type AvatarDeps } from './avatar';
 import playerSelectLive from './templates/playerselect-live.json';
 import dialogInput1 from './templates/dialog-input1.json';
 import { wrapDialogText } from './dialog-text';
@@ -141,7 +141,7 @@ export function nameDialog(ctx: BuildContext, dialog: Extract<HtmlDialog, { kind
   const cs = b.fromTemplate(t, true);
   const close = () => { ctx.ui.dialog = null; ctx.rerender(); };
   // the original dresses the new character next (CHANGE_AVATAR's first dressing), then creates it
-  const ok = () => { const name = dialog.name.trim(); if (!name || ctx.state.busy) return; ctx.ui.dialog = { kind: 'avatar', slot: dialog.slot, name, look: starterLook(), category: 0, page: 0 }; ctx.rerender(); };
+  const ok = () => { const name = dialog.name.trim(); if (!name || ctx.state.busy) return; ctx.ui.dialog = { kind: 'avatar', slot: dialog.slot, name, look: starterLook(false, Math.random), category: FIRST_CATEGORY, page: 0 }; ctx.rerender(); };
   const input = named(cs, 'CWindowTaskInput'), okButton = named(cs, 'CWindowTaskTextSwitch', 'OK'), cancel = named(cs, 'CWindowTaskTextSwitch', 'Cancel');
   // the mock is hand-made; the live game's prompt (main's create capture): its text centred at 0, 8, 336 wide, the
   // field 8, 56, 320 x 32

@@ -16,7 +16,7 @@ import { duelConfigWindow, titleOptionsWindow, DUEL_OPTIONS_TEXTS, type OptionsD
 import { closeAudioPage, openAudioPage } from './htmlui/audio-page';
 import { renderTradeTrunk } from './extra/social';
 import { renderTagLobby, TAG_CSS } from './extra/tag';
-import { changeAvatarAction, freeChoices } from './htmlui/avatar';
+import { changeAvatarAction, freeChoices, FIRST_CATEGORY } from './htmlui/avatar';
 import { Ids } from './htmlui/snapshot';
 import type { ControlHandlers, WindowSpec } from './htmlui/snapshot';
 import { htmlUiLocal, htmlWindows, stockDialog, DELETE_TEXT } from './htmlui/windows';
@@ -194,7 +194,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const self = state.lobby?.avatars.find(a => a.self), look = state.online?.cosmetics?.appearance.parts ?? (self?.parts?.length === 16 ? Array.from(self.parts) : null);
     send({ type: 'onlineAction', action: { type: 'refresh' } });
     if (!look) { local.message = 'Your avatar has not loaded yet.'; requestRender(); return; }
-    htmlUiState.dialog = { kind: 'avatar', slot: null, look: [...look], category: 0, page: 0 }; showHtml();
+    htmlUiState.dialog = { kind: 'avatar', slot: null, look: [...look], category: FIRST_CATEGORY, page: 0 }; showHtml();
   };
   const changeAvatar = () => ({ busy: !!state.online?.pending,
     choices: (index: number, look: number[]) => {

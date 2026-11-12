@@ -21,10 +21,13 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
     t.find('character-slot:1')!.click!(); expect(t.sent).toEqual([{ type: 'selectCharacter', slot: 1 }]);
     t.find('character-create:0')!.click!();
     expect(t.windows().map(s => s.win.cls)).toEqual(['CWindowModelInput1']);
-    t.find('character-name')!.text!('Bob Duelist'); t.find('character-create-ok')!.click!();
+    t.find('character-name')!.text!('Bob Duelist');
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0); t.find('character-create-ok')!.click!(); random.mockRestore();
     // the original's first dressing (Change Avatar, main's screens/avatar.js): a body, a hair, Confirm sends the look
     expect(t.windows().map(s => s.win.cls)).toEqual(['CWindowDialogAvatarSwitch']);
-    t.find('avatar-item:0:1')!.click!(); t.find('avatar-category:1')!.click!(); t.find('avatar-item:1:2')!.click!();
+    // live's window opens on Duel Disk (its last plate)
+    expect(t.find('avatar-item:8:176')).toBeTruthy();
+    t.find('avatar-category:0')!.click!(); t.find('avatar-item:0:1')!.click!(); t.find('avatar-category:1')!.click!(); t.find('avatar-item:1:2')!.click!();
     t.find('avatar-confirm')!.click!();
     expect(t.sent.at(-1)).toEqual({ type: 'createCharacter', slot: 0, name: 'Bob Duelist', appearance: [1, 2, 32, 48, 64, 96, 0x80, 144, 176, 32, 0, 0, 0, 0, 0, 0] });
     t.find('character-delete:1')!.click!();
@@ -170,7 +173,7 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
     applyPointer([spec], prev.id, prev.id); expect(shown(prev.id).tex).toMatch(/shop_arrow_10_/);
     // the labels (main's textBox colours them from an [r, g, b, a] array: a CSS string came out transparent)
     const labels = spec.win.controls.filter(c => c.cls === 'CWindowTaskText');
-    expect(labels.map(c => c.text)).toEqual(expect.arrayContaining(['Body', 'Duel Disk', 'Part 0', 'Part 13', 'Confirm', 'Back']));
+    expect(labels.map(c => c.text)).toEqual(expect.arrayContaining(['Gender', 'Hair Style (Front)', 'Duel Disk', 'Part 0', 'Part 13', 'Confirm', 'Back']));
     for (const c of labels) expect(c.color).toEqual([0, 0, 0, 1]);
   });
 });
