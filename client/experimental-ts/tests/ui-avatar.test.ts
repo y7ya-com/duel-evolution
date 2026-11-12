@@ -6,13 +6,14 @@ import { TestDocument } from './ui-dom-fixture';
 
 const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
 function fixture() {
-  const document = new TestDocument(), contexts: any[] = [];
+  const document = new TestDocument(), contexts: any[] = []; let pictures = 0;
   const create = document.createElement.bind(document);
   document.createElement = tag => {
     const node = create(tag);
     if (tag === 'canvas') {
       const ctx = { clearRect: vi.fn(), drawImage: vi.fn() }; contexts.push(ctx);
       node.getContext = () => ctx as never;
+      (node as unknown as { toDataURL(): string }).toDataURL = () => `data:image/png;base64,${++pictures}`;
     }
     return node;
   };
@@ -37,20 +38,21 @@ describe('persistent layered avatar view', () => {
   it('paints source foot geometry at a fixed anchor in both mirror directions', async () => {
     const f = fixture(), view = new AvatarView(f.options), a = resource(), b = resource(true);
     view.show(defaultAvatar(), 0, 'stand', 0); f.loads[0].resolve(a); await flush();
-    expect([view.element.width, view.element.height]).toEqual([128, 160]);
-    expect(a.draw).toHaveBeenCalledWith(f.contexts[1], { x: 70, y: 144, frame: 0 });
+    expect([view.element.width, view.element.height]).toEqual([128, 160]); expect(view.element.tagName).toBe('IMG');
+    expect(f.contexts).toHaveLength(1); expect((view.element as unknown as { src: string }).src).toMatch(/^data:image\/png/);
+    expect(a.draw).toHaveBeenCalledWith(f.contexts[0], { x: 70, y: 144, frame: 0 });
     expect(view.element.dataset.avatarReady).toBe('true'); expect(f.callbacks.size).toBe(0);
     view.show(defaultAvatar(), 0, 'stand', 5); f.loads[1].resolve(b); await flush();
-    expect(b.draw).toHaveBeenCalledWith(f.contexts[1], { x: 58, y: 144, frame: 0 });
+    expect(b.draw).toHaveBeenCalledWith(f.contexts[0], { x: 58, y: 144, frame: 0 });
     expect(a.dispose).toHaveBeenCalledOnce(); expect(view.element.dataset.footY).toBe('144'); view.dispose();
   });
   it('retains the original world origin and its direction-dependent foot offset', async () => {
     const f = fixture(), view = new AvatarView({ ...f.options, sourceOrigin: true }), normal = resource(), mirrored = resource(true);
     view.show(defaultAvatar(), 0, 'stand', 0); f.loads[0].resolve(normal); await flush();
-    expect(normal.draw).toHaveBeenCalledWith(f.contexts[1], { x: 64, y: 144, frame: 0 }); expect(64 + normal.pose.offset[0] + normal.pose.foot[0]).toBe(58);
+    expect(normal.draw).toHaveBeenCalledWith(f.contexts[0], { x: 64, y: 144, frame: 0 }); expect(64 + normal.pose.offset[0] + normal.pose.foot[0]).toBe(58);
     expect(view.element.dataset.footX).toBe('58');
     view.show(defaultAvatar(), 0, 'stand', 5); f.loads[1].resolve(mirrored); await flush();
-    expect(mirrored.draw).toHaveBeenCalledWith(f.contexts[1], { x: 64, y: 144, frame: 0 }); expect(64 - mirrored.pose.offset[0] - mirrored.pose.foot[0]).toBe(70); expect(view.element.dataset.footX).toBe('70'); view.dispose();
+    expect(mirrored.draw).toHaveBeenCalledWith(f.contexts[0], { x: 64, y: 144, frame: 0 }); expect(64 - mirrored.pose.offset[0] - mirrored.pose.foot[0]).toBe(70); expect(view.element.dataset.footX).toBe('70'); view.dispose();
   });
   it('snapshots appearances, avoids duplicate loads and coalesces arbitrary rapid updates into one latest request', async () => {
     const f = fixture(), view = new AvatarView(f.options), parts = defaultAvatar();
@@ -71,11 +73,11 @@ describe('persistent layered avatar view', () => {
     view.show(defaultAvatar(), 1, 'stand', 0); expect(old.dispose).not.toHaveBeenCalled(); expect(view.element.dataset.avatarReady).toBe('false'); expect(view.element.dataset.avatarPainted).toBe('true');
     f.loads[1].reject(new Error('Missing source bitmap')); await flush();
     expect(view.element.dataset.avatarError).toBe('Missing source bitmap'); expect(old.dispose).not.toHaveBeenCalled();
-    const visibleDraws = f.contexts[0].drawImage.mock.calls.length;
+    const shown = (view.element as unknown as { src: string }).src;
     view.show(defaultAvatar(), 1, 'stand', 1); const bad = resource(); bad.draw.mockImplementation(() => { throw new Error('Unsupported paint'); });
     f.loads[2].resolve(bad); await flush();
     expect(bad.dispose).toHaveBeenCalledOnce(); expect(old.dispose).not.toHaveBeenCalled();
-    expect(f.contexts[0].drawImage).toHaveBeenCalledTimes(visibleDraws); expect(view.element.dataset.avatarReady).toBe('false');
+    expect((view.element as unknown as { src: string }).src).toBe(shown); expect(view.element.dataset.avatarReady).toBe('false');
     view.show(defaultAvatar(), 1, 'stand', 2); const good = resource();
     good.draw.mockImplementation(() => { expect(old.dispose).not.toHaveBeenCalled(); });
     f.loads[3].resolve(good); await flush();
@@ -101,7 +103,7 @@ describe('persistent layered avatar view', () => {
     expect(f.loads[1].options.signal?.aborted).toBe(true); expect(a.dispose).toHaveBeenCalledOnce(); expect(f.callbacks.size).toBe(0);
     const late = resource(); f.loads[1].resolve(late); await flush();
     expect(late.dispose).toHaveBeenCalledOnce(); expect(late.draw).not.toHaveBeenCalled();
-    expect([view.element.width, view.element.height]).toEqual([0, 0]);
+    expect((view.element as unknown as { src: string }).src ?? '').toBe('');
     view.show(defaultAvatar(), 0, 'walk', 2); expect(f.loads).toHaveLength(2);
   });
   it('rejects already cancelled frame callbacks and keeps very long walk sessions within evaluator bounds', async () => {
@@ -125,7 +127,7 @@ describe('persistent layered avatar view', () => {
     expect(() => view.show(defaultAvatar(), 0, 'walk', -1)).toThrow();
     expect(f.loads).toHaveLength(0); view.dispose();
   });
-  it('reports a missing canvas context without loading or substituting an image', () => {
+  it('reports a missing drawing context without loading or substituting an image', () => {
     const f = fixture(); vi.stubGlobal('document', new TestDocument());
     const view = new AvatarView(f.options); view.show(defaultAvatar(), 0, 'stand', 0);
     expect(view.element.dataset.avatarError).toContain('unavailable'); expect(view.element.dataset.avatarReady).toBe('false');

@@ -21,6 +21,8 @@ export const CLIENT_CSS = `
 .de-status { font-size:12px; text-align:right; }
 .de-stage { position:relative; width:100%; aspect-ratio:4/3; min-height:400px; overflow:hidden; background:radial-gradient(ellipse at 48% 20%,#8ce8ff,#41a9e5 44%,#1167b3); border:1px solid #104eaa; }
 .de-stage canvas { display:block; width:100%; height:100%; }
+/* the lobby's press target under the PixiJS world: its plain backdrop (index.ts lobbyBackground) shows while the map loads */
+.de-stage>.de-lobby-map { display:block; width:100%; height:100%; background:center/100% 100% no-repeat; }
 .de-world-view { position:absolute; overflow:hidden; pointer-events:none; isolation:isolate; z-index:0; }
 .de-world-avatars { position:absolute; inset:0; pointer-events:none; }
 .de-world-avatars .de-avatar { pointer-events:auto; }
@@ -60,12 +62,12 @@ export const CLIENT_CSS = `
 .de-avatar.self .de-avatar-placeholder { border-color:#ffe56d; }
 .de-avatar-name { display:block; color:white; background:#073e91bb; padding:1px 5px; border-radius:2px; font-size:11px; white-space:nowrap; }
 .de-avatar.has-original { width:12.5%; height:auto; aspect-ratio:4/5; min-width:0; transform:translate(-50%,-90%); }
-.de-avatar-canvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+.de-avatar-view { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
 /* the name over the head as the game draws it (main's live lobby: its left edge on the avatar's centre line, where the
  * flag ends; its middle about 21 px over the head's top, 13% of the 160-px box) */
 .de-avatar.has-original .de-avatar-name { position:absolute; top:13%; left:50%; transform:translateY(-50%); }
 .de-avatar.has-original .de-avatar-placeholder { position:absolute; bottom:10%; left:50%; transform:translateX(-50%); }
-.de-avatar-canvas[data-avatar-painted="true"]~.de-avatar-placeholder { visibility:hidden; }
+.de-avatar-view[data-avatar-painted="true"]~.de-avatar-placeholder { visibility:hidden; }
 .de-lobby-places { z-index:6; position:absolute; right:12px; top:65px; width:205px; max-height:40%; overflow:auto; }
 .de-room-row { border-top:1px solid #75a8c5; padding-top:5px; margin-top:5px; }
 .de-room-row>strong { display:block; }
@@ -168,7 +170,7 @@ button.de-card { padding:2px; min-height:0; color:#fff; background:linear-gradie
 button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zone-pulse 1s ease-in-out infinite alternate; z-index:3; }
 @keyframes de-zone-pulse { from { box-shadow:0 0 6px #ffe14a; } to { box-shadow:0 0 18px #fff38a; } }
 .de-duel-board { position:absolute; left:0; top:0; width:100%; aspect-ratio:4/3; overflow:hidden; }
-.de-duel-board>canvas { position:absolute; inset:0; }
+.de-duel-board>.de-duel-field { position:absolute; inset:0; background:center/100% 100% no-repeat; }
 .de-duel-bg { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; pointer-events:none; }
 .de-duel-frames { position:absolute; left:25%; width:50%; height:33.3333%; overflow:hidden; pointer-events:none; }
 .de-duel-frames img { position:absolute; left:-100%; width:200%; height:200%; max-width:none; }
@@ -210,7 +212,7 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 /* the bar's own keys (a spectator's Leave Duel, Surrender with no deck left) between the ring and the help line, clear of
    the wrench, which now stands at the bar's left edge as live's */
 .de-duel-bar>.de-duel-actions { position:absolute; left:${300 / 1024 * 100}%; top:0; bottom:0; align-items:center; z-index:1; }
-.de-duel-bar>canvas.de-duel-ring { position:absolute; left:${232 / 1024 * 100}%; top:${-16 / 32 * 100}%; width:${64 / 1024 * 100}%; height:200%; pointer-events:none; }
+.de-duel-bar>.de-duel-ring { position:absolute; left:${232 / 1024 * 100}%; top:${-16 / 32 * 100}%; width:${64 / 1024 * 100}%; height:200%; pointer-events:none; }
 .de-duel-help-run { display:inline-block; padding-left:100%; animation:de-help-run 16s linear infinite; }
 @keyframes de-help-run { from { transform:translateX(0); } to { transform:translateX(-100%); } }
 @media (prefers-reduced-motion: reduce) { .de-duel-help-run { padding-left:8px; animation:none; } }

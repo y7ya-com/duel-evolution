@@ -123,3 +123,11 @@ export class WaistUpComposer {
     return canvas;
   }
 }
+
+/** A composition made off screen as a picture the page shows (<img>): an object URL of its PNG, the caller's to revoke. */
+export function canvasUrl(canvas: HTMLCanvasElement): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (typeof canvas.toBlob !== 'function') { reject(new Error('Canvas export is unavailable')); return; }
+    canvas.toBlob(blob => blob ? resolve(URL.createObjectURL(blob)) : reject(new Error('Canvas export failed')), 'image/png');
+  });
+}

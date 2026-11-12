@@ -149,10 +149,10 @@ describe('UI ownership and semantic interaction', () => {
   });
   it('updates walking avatars in place and keyboard navigation reads the latest position', async () => {
     const f = fixture(), lobby: NonNullable<ClientView['lobby']> = { name: 'Academy', width: 1024, height: 768, avatars: [{ id: 1, name: 'A', x: 100, y: 100, self: true }], chat: [], channels: ['global'], connected: true };
-    f.update({ scene: 'lobby', player: { id: 1, name: 'A' }, lobby }); await Promise.resolve(); const avatar = f.root.querySelectorAll('button').find(n => n.dataset.key === 'avatar:1')!, canvas = f.root.querySelectorAll('canvas')[0];
+    f.update({ scene: 'lobby', player: { id: 1, name: 'A' }, lobby }); await Promise.resolve(); const avatar = f.root.querySelectorAll('button').find(n => n.dataset.key === 'avatar:1')!, map = f.root.querySelectorAll('[data-key]').find(n => n.dataset.key === 'lobby-map')!;
     f.update({ lobby: { ...lobby, avatars: [{ ...lobby.avatars[0], x: 200, y: 200 }] } }); await Promise.resolve();
     expect(f.root.querySelectorAll('button').find(n => n.dataset.key === 'avatar:1')).toBe(avatar); expect(avatar.style.left).toBe(`${200 / 1024 * 100}%`);
-    canvas.onkeydown?.({ key: 'ArrowRight', preventDefault() {} }); expect(f.commands.at(-1)).toEqual({ type: 'move', x: 232, y: 200 }); f.mounted.dispose();
+    map.onkeydown?.({ key: 'ArrowRight', preventDefault() {} }); expect(f.commands.at(-1)).toEqual({ type: 'move', x: 232, y: 200 }); f.mounted.dispose();
   });
   it('updates animation transforms and LP in place without replacing field nodes', async () => {
     const f = fixture(), card = { id: 'c1', name: 'Card', controller: 0 as const, zone: 'monster' as const, index: 0, faceUp: true };

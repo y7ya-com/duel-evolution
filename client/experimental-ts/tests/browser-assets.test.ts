@@ -86,7 +86,7 @@ describe.skipIf(!process.env.YO2_ASSET_URL)('optional real original-asset browse
       const directions = [{key:'ArrowRight',code:39,x:32,y:0},{key:'ArrowLeft',code:37,x:-32,y:0},{key:'ArrowDown',code:40,x:0,y:32},{key:'ArrowUp',code:38,x:0,y:-32}];
       const direction = directions.find(d=>map.grid&&findPath(map.grid,before,{x:before.x+d.x,y:before.y+d.y}));
       expect(direction,'Original spawn must have a reachable nearby destination').toBeDefined();
-      await evaluate(browser,`document.querySelector('canvas[aria-label="Lobby map"]').focus()`);
+      await evaluate(browser,`document.querySelector('[aria-label="Lobby map"]').focus()`);
       await browser.send('Input.dispatchKeyEvent',{type:'keyDown',key:direction!.key,code:direction!.key,windowsVirtualKeyCode:direction!.code});
       await browser.send('Input.dispatchKeyEvent',{type:'keyUp',key:direction!.key,code:direction!.key,windowsVirtualKeyCode:direction!.code});
       for (let attempt=0;attempt<100&&position().x===before.x&&position().y===before.y;attempt++) await new Promise(r=>setTimeout(r,50));
@@ -137,7 +137,7 @@ describe.skipIf(!process.env.YO2_ASSET_URL)('optional real original-asset browse
 
       await verifyMovement(); evidence.movement.after = position();
       await writeFile('/tmp/duel-ts-original-assets-evidence.json',JSON.stringify(evidence,null,2));
-      await until(browser,`document.querySelector('canvas[data-avatar-ready="true"][data-avatar-painted="true"]')`,30000); evidence.avatarDecoded = true;
+      await until(browser,`document.querySelector('.de-avatar-view[data-avatar-ready="true"][data-avatar-painted="true"]')`,30000); evidence.avatarDecoded = true;
       await click(browser,'Return to Title'); await until(browser,`[...document.querySelectorAll('button')].some(b=>b.textContent==='Go Online')`);
       // A synchronous same-origin storage witness survives destruction of the old CDP context.
       // Register after the app's listener, then reload to require a real non-BFCache pagehide.

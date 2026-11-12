@@ -15,13 +15,13 @@ interface Displayed { key: string; resource: AvatarResource; request: Request; s
 export const AVATAR_VIEW_WIDTH = 128, AVATAR_VIEW_HEIGHT = 160;
 export const AVATAR_FOOT_X = 64, AVATAR_FOOT_Y = 144;
 
-/** Persistent canvas, one displayed resource and at most one outstanding load.
+/** A persistent picture (an <img>: each frame is painted off screen and shown as its PNG), one displayed resource and
+ * at most one outstanding load.
  * Aborted loads must settle before the latest coalesced request starts; even an
  * uncooperative decoder cannot accumulate an unbounded queue of replacements. */
 export class AvatarView {
-  readonly element = document.createElement('canvas');
+  readonly element = document.createElement('img');
   private readonly scratch = document.createElement('canvas');
-  private readonly context: CanvasRenderingContext2D | null;
   private readonly scratchContext: CanvasRenderingContext2D | null;
   private readonly now: () => number;
   private readonly requestFrame: (callback: FrameRequestCallback) => number;
@@ -36,11 +36,11 @@ export class AvatarView {
   constructor(private readonly options: AvatarViewOptions) {
     this.element.width = this.scratch.width = AVATAR_VIEW_WIDTH;
     this.element.height = this.scratch.height = AVATAR_VIEW_HEIGHT;
-    this.element.className = 'de-avatar-canvas'; this.element.setAttribute('aria-hidden', 'true');
+    this.element.className = 'de-avatar-view'; this.element.alt = ''; this.element.draggable = false; this.element.setAttribute('aria-hidden', 'true');
     this.element.dataset.avatarReady = 'false';
     this.element.dataset.avatarPainted = 'false';
     this.element.dataset.footX = String(AVATAR_FOOT_X); this.element.dataset.footY = String(AVATAR_FOOT_Y);
-    this.context = this.element.getContext('2d'); this.scratchContext = this.scratch.getContext('2d');
+    this.scratchContext = this.scratch.getContext('2d');
     this.now = options.now ?? (() => performance.now());
     this.requestFrame = options.requestFrame ?? (callback => requestAnimationFrame(callback));
     this.cancelFrame = options.cancelFrame ?? (handle => cancelAnimationFrame(handle));
@@ -60,7 +60,7 @@ export class AvatarView {
   }
   private loadLatest(): void {
     if (this.closed || this.pending || !this.desired || this.desired.key === this.displayed?.key || this.desired.key === this.failedKey) return;
-    if (!this.context || !this.scratchContext) { this.fail('Canvas rendering is unavailable'); this.failedKey = this.desired.key; return; }
+    if (!this.scratchContext) { this.fail('Canvas rendering is unavailable'); this.failedKey = this.desired.key; return; }
     const request = this.desired, abort = new AbortController();
     this.pending = { request, abort }; this.element.dataset.avatarLoading = 'true';
     let promise: Promise<AvatarResource>;
@@ -72,7 +72,7 @@ export class AvatarView {
       try { this.paint(next, 0); }
       catch (error) { resource.dispose(); throw error; }
       const old = this.displayed; this.displayed = next;
-      // Release the previous decoded images only after the replacement reaches the visible canvas.
+      // Release the previous decoded images only after the replacement reaches the visible picture.
       old?.resource.dispose(); this.element.dataset.avatarReady = 'true'; delete this.element.dataset.avatarError;
       this.animate();
     }).catch(error => {
@@ -85,14 +85,14 @@ export class AvatarView {
     });
   }
   private paint(displayed: Displayed, frame: number): void {
-    const { resource } = displayed, ctx = this.scratchContext!, visible = this.context!;
+    const { resource } = displayed, ctx = this.scratchContext!;
     ctx.clearRect(0, 0, AVATAR_VIEW_WIDTH, AVATAR_VIEW_HEIGHT);
     const sign = resource.pose.mirrored ? -1 : 1;
     // The source movie's root offset is (-46,-116), foot probe (40,116).
     // Previews center that probe; world actors retain its original -6/+6 offset.
     resource.draw(ctx, { x: this.options.sourceOrigin ? AVATAR_FOOT_X : AVATAR_FOOT_X - sign * (resource.pose.offset[0] + resource.pose.foot[0]),
       y: AVATAR_FOOT_Y - resource.pose.offset[1] - resource.pose.foot[1], frame });
-    visible.clearRect(0, 0, AVATAR_VIEW_WIDTH, AVATAR_VIEW_HEIGHT); visible.drawImage(this.scratch, 0, 0); this.element.dataset.avatarPainted = 'true'; this.element.dataset.avatarDrawn = displayed.key;
+    this.element.src = this.scratch.toDataURL(); this.element.dataset.avatarPainted = 'true'; this.element.dataset.avatarDrawn = displayed.key;
     this.element.dataset.footX = String(this.options.sourceOrigin ? AVATAR_FOOT_X + sign * (resource.pose.offset[0] + resource.pose.foot[0]) : AVATAR_FOOT_X);
     displayed.frame = frame;
   }
@@ -125,8 +125,8 @@ export class AvatarView {
     this.displayed?.resource.dispose(); this.displayed = null; this.desired = null;
     this.element.dataset.avatarReady = 'false'; delete this.element.dataset.avatarLoading;
     this.element.dataset.avatarPainted = 'false';
-    // Release backing surfaces. AvatarResource owns/revokes its own decoded leases.
-    this.element.width = this.element.height = this.scratch.width = this.scratch.height = 0;
+    // Release the picture and the drawing surface. AvatarResource owns/revokes its own decoded leases.
+    this.element.removeAttribute('src'); this.scratch.width = this.scratch.height = 0;
     this.element.remove();
   }
 }

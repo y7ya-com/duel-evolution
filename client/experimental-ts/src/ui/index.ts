@@ -83,6 +83,35 @@ function textField(key: string, value: string, placeholder = ''): HTMLInputEleme
   const i = el('input'); i.dataset.key = key; i.name = key; i.value = value; i.placeholder = placeholder; return i;
 }
 const CARD_BACK = 'data/card/0000.png', FIELD_SHEET = 'data/y/duel/field/duelfield_01_c01.png';
+/** A drawing for a CSS background (fills its box as a stretched 1024 x 768 screen). */
+const svgBackground = (body: string) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="768" viewBox="0 0 1024 768" preserveAspectRatio="none">${body}</svg>`)}")`;
+/** Under the world while its map art loads (or without it): the plain sky with its lattice and the notice. */
+let lobbyBackdrop = '';
+function lobbyBackground(): string {
+  if (lobbyBackdrop) return lobbyBackdrop;
+  let lines = '';
+  for (let x = -768; x < 1800; x += 96) lines += `M${x} 0L${x + 768} 768M${x} 0L${x - 768} 768`;
+  return lobbyBackdrop = svgBackground(`<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#a7e4fa"/><stop offset="1" stop-color="#4a93b0"/></linearGradient></defs>`
+    + `<rect width="1024" height="768" fill="url(#g)"/><path d="${lines}" stroke="#e2f8ff" stroke-opacity="${0x55 / 255}" stroke-width="1" fill="none"/>`
+    + `<text x="512" y="345" fill="#07519b" font-family="Arial" font-size="16" text-anchor="middle">Map artwork is not loaded</text>`);
+}
+/** Under the original field art (shown while it loads, or without it): the zone outlines of the original sheet. */
+let fieldBackdrop = '';
+function fieldBackground(): string {
+  if (fieldBackdrop) return fieldBackdrop;
+  // each outline its own stroke, as strokeRect drew them (neighbours' shared edges painted twice)
+  let zones = '';
+  for (const side of [0, 1] as const) {
+    const rect = (x: number, y: number, w: number, h: number) => { zones += `<rect x="${x}" y="${y}" width="${w}" height="${h}" stroke="${side ? '#ff4f7b' : '#1d7cf2'}" stroke-width="3" fill="none"/>`; };
+    for (const row of ['monster', 'spell'] as const) for (let k = 0; k < 5; k++) {
+      const x = side ? 1024 - FIELD_LAYOUT.cellX(k) : FIELD_LAYOUT.cellX(k), y = FIELD_LAYOUT.rows[row][side];
+      rect(x - 38, y - 52, 76, 104);
+    }
+    for (const pile of Object.values(FIELD_LAYOUT.piles)) { const [x, y] = pile[side]; rect(x - 28, y - 39, 56, 78); }
+  }
+  return fieldBackdrop = svgBackground(`<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#07315b"/><stop offset=".5" stop-color="#176e8c"/><stop offset="1" stop-color="#0b426a"/></linearGradient></defs>`
+    + `<rect width="1024" height="768" fill="url(#g)"/>${zones}`);
+}
 const lpWidth = (lp: number) => `${Math.max(0, Math.min(100, lp / 80))}%`;
 /** A face-down card on the player's own field whose identity the server gave its owner. */
 const isOwnSetCard = (c: DuelCardView) => !c.faceUp && c.controller === 0 && c.passcode !== undefined && ['monster', 'spell', 'field'].includes(c.zone);
@@ -143,10 +172,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // a mouse button (or a finger) held on the world walks toward it, steered by moving, as live
   // on the stage, which outlives the lobby's redraws, so a long walk survives them
   const walkTo = (x: number, y: number): void => {
-    const current = controller.getState(), lobby = current.lobby, canvas = stage.querySelector('canvas[data-key="lobby-map"]') as HTMLCanvasElement | null;
-    if (current.scene !== 'lobby' || !lobby?.connected || current.busy || !canvas) return;
+    const current = controller.getState(), lobby = current.lobby, map = stage.querySelector('[data-key="lobby-map"]') as HTMLElement | null;
+    if (current.scene !== 'lobby' || !lobby?.connected || current.busy || !map) return;
     const useScene = !!worldRenderer && lobby.mapId !== undefined; if (useScene && !worldRenderer!.ready) return;
-    const p = useScene ? gamePoint(x, y, worldRenderer!.element.getBoundingClientRect()) : gamePoint(x, y, canvas.getBoundingClientRect(), lobby.width ?? 1024, lobby.height ?? 768);
+    const p = useScene ? gamePoint(x, y, worldRenderer!.element.getBoundingClientRect()) : gamePoint(x, y, map.getBoundingClientRect(), lobby.width ?? 1024, lobby.height ?? 768);
     if (p) { const target = useScene ? worldRenderer!.screenToWorld(p) : p; send({ type: 'move', x: Math.round(target.x), y: Math.round(target.y) }); }
   };
   let worldWalk: HoldWalk | null = null;
@@ -286,7 +315,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   let flagAtlas: Promise<string | null> | null = null;
   const nationFlag = (cell: readonly [number, number]): HTMLElement => {
     const f = el('i', 'de-avatar-flag'); f.setAttribute('aria-hidden', 'true'); f.style.backgroundPosition = `${-cell[0]}px ${-cell[1]}px`;
-    flagAtlas ??= pictureArt.resolve({ archive: FLAG_ATLAS }, new AbortController().signal).then(v => typeof v === 'string' ? v : v.toDataURL(), () => null);
+    flagAtlas ??= pictureArt.resolve({ archive: FLAG_ATLAS }, new AbortController().signal).catch(() => null);
     void flagAtlas.then(url => { if (url) f.style.backgroundImage = `url("${url}")`; else flagAtlas = null; });
     return f;
   };
@@ -587,7 +616,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       requestRender();
     }).catch((e: unknown) => { worldLoading = false; console.warn('world renderer', e); });
   };
-  worldWalk = typeof stage.addEventListener === 'function' ? holdToWalk(stage, walkTo, t => { const e = t as Element | null; if (!e?.closest || e.closest('button, input, textarea, a, [data-key^="avatar:"]')) return false; return !!e.closest('canvas[data-key="lobby-map"]') || !!worldRenderer?.element.contains(e); }) : null;
+  worldWalk = typeof stage.addEventListener === 'function' ? holdToWalk(stage, walkTo, t => { const e = t as Element | null; if (!e?.closest || e.closest('button, input, textarea, a, [data-key^="avatar:"]')) return false; return !!e.closest('[data-key="lobby-map"]') || !!worldRenderer?.element.contains(e); }) : null;
   const drafts = new Map<string, string>();
   const expanded = new Map<string, boolean>();
   let renderedIdentity = '';
@@ -806,27 +835,19 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     // the ring turns as live's engine turns it, whatever the reduced-motion setting
     void ch; startScene.show({ logo: true, portrait: null, reducedMotion: false });
   }
-  function drawLobby(canvas: HTMLCanvasElement): void {
-    const ctx = canvas.getContext('2d'); if (!ctx) return;
-    ctx.fillStyle = '#77b6ca'; ctx.fillRect(0, 0, 1024, 768);
-    const g = ctx.createLinearGradient(0, 0, 0, 768); g.addColorStop(0, '#a7e4fa'); g.addColorStop(1, '#4a93b0'); ctx.fillStyle = g; ctx.fillRect(0, 0, 1024, 768);
-    ctx.strokeStyle = '#e2f8ff55'; ctx.lineWidth = 1;
-    for (let x = -768; x < 1800; x += 96) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + 768, 768); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x - 768, 768); ctx.stroke(); }
-    ctx.fillStyle = '#07519b'; ctx.font = '16px Arial'; ctx.textAlign = 'center';
-    ctx.fillText('Map artwork is not loaded', 512, 345);
-  }
   function renderLobby(): void {
     if (!state.lobby) return emptyPanel('lobby', 'Lobby', 'Waiting for the online world.');
     const lobby = state.lobby;
-    const canvas = el('canvas'); canvas.width = 1024; canvas.height = 768; canvas.setAttribute('aria-label', 'Lobby map'); canvas.tabIndex = 0; canvas.dataset.key = 'lobby-map';
-    stage.append(canvas); drawLobby(canvas);
+    // the world's press target (a click walks there, a held button walks on: phone.ts holdToWalk), under the PixiJS world
+    const map = el('div', 'de-lobby-map'); map.setAttribute('role', 'application'); map.setAttribute('aria-label', 'Lobby map'); map.tabIndex = 0; map.dataset.key = 'lobby-map';
+    map.style.backgroundImage = lobbyBackground(); stage.append(map);
     ensureWorld(); const world = worldRenderer, useScene = !!world && lobby.mapId !== undefined;
     if (useScene) { stage.append(world!.element); world!.avatars.replaceChildren(); const self = lobby.avatars.find(a => a.self); world!.show(lobby.mapId!, self ?? { x: (lobby.width ?? 1024) / 2, y: (lobby.height ?? 768) / 2 }); }
     const mapUrl = safeImageUrl(lobby.mapImage);
     if (mapUrl && !useScene) { const image = el('img', 'de-stage-layer'); image.src = mapUrl; image.alt = lobby.name; image.style.width = '100%'; image.style.height = '100%'; image.style.objectFit = 'fill'; image.style.pointerEvents = 'none'; stage.append(image); }
     const worldW = lobby.width ?? 1024, worldH = lobby.height ?? 768;
-    canvas.onclick = e => { if (worldWalk?.consumeClick()) return; const card = state.profileDetail; if (card && card.selectedPid !== null && card.selectedPid !== card.selfPid) { send({ type: 'profileAction', action: { type: 'close' } }); return; } if (lobby.connected && !state.busy) { if (useScene && !world!.ready) { local.message = 'Map artwork is still loading.'; requestRender(); return; } const p = useScene ? gamePoint(e.clientX, e.clientY, world!.element.getBoundingClientRect()) : gamePoint(e.clientX, e.clientY, canvas.getBoundingClientRect(), worldW, worldH); if (p) { const target = useScene ? world!.screenToWorld(p) : p; send({ type: 'move', x: Math.round(target.x), y: Math.round(target.y) }); } } };
-    canvas.onkeydown = e => {
+    map.onclick = e => { if (worldWalk?.consumeClick()) return; const card = state.profileDetail; if (card && card.selectedPid !== null && card.selectedPid !== card.selfPid) { send({ type: 'profileAction', action: { type: 'close' } }); return; } if (lobby.connected && !state.busy) { if (useScene && !world!.ready) { local.message = 'Map artwork is still loading.'; requestRender(); return; } const p = useScene ? gamePoint(e.clientX, e.clientY, world!.element.getBoundingClientRect()) : gamePoint(e.clientX, e.clientY, map.getBoundingClientRect(), worldW, worldH); if (p) { const target = useScene ? world!.screenToWorld(p) : p; send({ type: 'move', x: Math.round(target.x), y: Math.round(target.y) }); } } };
+    map.onkeydown = e => {
       const currentLobby = controller.getState().lobby, self = currentLobby?.avatars.find(a => a.self); if (!self || !currentLobby?.connected) return;
       const delta: Record<string, [number, number]> = { ArrowLeft: [-32, 0], ArrowRight: [32, 0], ArrowUp: [0, -32], ArrowDown: [0, 32] };
       const d = delta[e.key]; if (!d) return; e.preventDefault(); send({ type: 'move', x: Math.max(0, Math.min(worldW, self.x + d[0])), y: Math.max(0, Math.min(worldH, self.y + d[1])) });
@@ -935,25 +956,12 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     }
     if (shop.opening) { const opening = renderCardGet(shop.opening, { drawCard, art: controller.loadArchiveImage ? (path, className = '') => { const image = el('img', className); image.alt = ''; image.draggable = false; loadArchiveArt(path, image); return image; } : null, reducedMotion: state.settings.reducedMotion, rerender: requestRender }); if (opening) n.append(opening); }
   }
-  /** Fallback field without original art: the same zone geometry as the original sheet. */
-  function drawField(canvas: HTMLCanvasElement): void {
-    const ctx = canvas.getContext('2d'); if (!ctx) return;
-    const g = ctx.createLinearGradient(0, 0, 0, 768); g.addColorStop(0, '#07315b'); g.addColorStop(.5, '#176e8c'); g.addColorStop(1, '#0b426a'); ctx.fillStyle = g; ctx.fillRect(0, 0, 1024, 768);
-    ctx.lineWidth = 3;
-    for (const side of [0, 1] as const) {
-      ctx.strokeStyle = side ? '#ff4f7b' : '#1d7cf2';
-      for (const row of ['monster', 'spell'] as const) for (let k = 0; k < 5; k++) {
-        const x = side ? 1024 - FIELD_LAYOUT.cellX(k) : FIELD_LAYOUT.cellX(k), y = FIELD_LAYOUT.rows[row][side];
-        ctx.strokeRect(x - 38, y - 52, 76, 104);
-      }
-      for (const pile of Object.values(FIELD_LAYOUT.piles)) { const [x, y] = pile[side]; ctx.strokeRect(x - 28, y - 39, 56, 78); }
-    }
-  }
   function renderDuel(): void {
     const duel = state.duel; if (!duel) return emptyPanel('duel', 'Duel', 'Waiting for duel state.');
     // The field keeps the original 4:3 geometry on every screen; on a tall phone the log, actions and prompts sit below it.
     const board = el('div', 'de-duel-board'); stage.append(board);
-    const canvas = el('canvas'); canvas.width = 1024; canvas.height = 768; canvas.setAttribute('aria-label', 'Duel field'); board.append(canvas); drawField(canvas);
+    // under the original field art (while it loads, or without it): the zone outlines of the original sheet
+    const field = el('div', 'de-duel-field'); field.setAttribute('role', 'img'); field.setAttribute('aria-label', 'Duel field'); field.style.backgroundImage = fieldBackground(); board.append(field);
     const archive = controller.loadArchiveImage ? (path: string, className = '') => { const image = el('img', className); image.alt = ''; image.draggable = false; image.decoding = 'async'; image.style.visibility = 'hidden'; image.onload = () => { image.style.visibility = ''; }; loadArchiveArt(path, image); return image; } : null;
     if (archive) {
       // The original backdrop, then the plain halves of the zone sheet: the opponent's red half above, the player's blue half below.
@@ -1107,7 +1115,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const run = el('span', 'de-duel-help-run', helpText), help = el('div', 'de-duel-help', run); help.setAttribute('aria-label', helpText);
     if (local.helpText !== helpText) { local.helpText = helpText; local.helpFrom = performance.now(); }
     run.style.animationDelay = `${-(performance.now() - local.helpFrom) / 1000}s`;
-    board.append(el('div', 'de-duel-bar', wrench, duelScene.fx.ringCanvas, help, actions));
+    board.append(el('div', 'de-duel-bar', wrench, duelScene.fx.ringElement, help, actions));
     const log = el('div', 'de-duel-log de-sr'); log.setAttribute('role', 'log'); log.setAttribute('aria-label', 'Duel log');
     for (const line of duel.log.slice(-80)) log.append(el('div', '', line)); board.append(log);
     if (!duel.notice) local.noticeSeen = 0;
@@ -1373,7 +1381,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         ...(world ? { duel: () => { duelKey(state, lobbyUi); showHtml(); }, move: () => { moveKey(lobbyUi); showHtml(); }, duelOpen: () => ['duel', 'find', 'wait'].includes(lobbyUi.open ?? ''), moveOpen: () => lobbyUi.open === 'move' } : {}) };
       nav.replaceChildren(status);
       // Extension panels also get stable keyboard focus when their data changes.
-      for (const tag of ['button', 'input', 'textarea', 'select', 'canvas']) for (const [i, control] of Array.from(host.querySelectorAll<HTMLElement>(tag)).entries()) {
+      for (const tag of ['button', 'input', 'textarea', 'select']) for (const [i, control] of Array.from(host.querySelectorAll<HTMLElement>(tag)).entries()) {
         if (!control.dataset.key && !secretField(control)) control.dataset.key = `focus:${tag}:${i}:${control.getAttribute('aria-label') ?? control.textContent?.slice(0, 80) ?? ''}`;
       }
       const detailsKeys = new Set<string>();
