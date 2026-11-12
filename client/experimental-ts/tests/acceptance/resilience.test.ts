@@ -17,7 +17,7 @@ const F=window.fetch;N.http={fail:null,delay:null,log:[]};window.fetch=async(inp
 if(h.fail&&h.fail.test(url)){h.log.push('fail '+url);return new Response(JSON.stringify({error:'Internal error'}),{status:500,headers:{'content-type':'application/json'}});}
 if(h.delay&&h.delay.test(url)){h.log.push('delay '+url);await new Promise(r=>{(h.held=h.held||[]).push(r);h.release=()=>h.held.splice(0).forEach(f=>f());});}return F(input,init);};
 setInterval(()=>{const c=window.__deApp?.getState?.().connection??(document.querySelector('[data-key="net-reconnecting"]')?'reconnecting':null);if(c&&N.statuses.at(-1)!==c)N.statuses.push(c);},10);})()`;
-/** The client's connection state (the app's, which its reconnect notice "Connection lost. Reconnecting…" shows). */
+/** The client's connection state (the app's, which live's note "Connection lost: reconnecting…" shows: data-key net-reconnecting). */
 const CONN = `window.__deApp?.getState?.().connection`;
 const live = `window.__net.sockets.at(-1)`;
 const connection = (page:Page) => page.ev(`${CONN}`) as Promise<string>;
