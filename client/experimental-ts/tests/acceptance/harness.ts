@@ -316,10 +316,18 @@ export async function claimStarter(page:Page,index = 0) {
  * Yami Marik to a Duel!"): OK on each. */
 export const unlockShown = `document.querySelector('#htmlui-host [data-window-class="CWindowModelItemGet"]')`;
 const unlockOk = `[...document.querySelectorAll('#htmlui-host [data-window-class="CWindowModelItemGet"] *')].find(e=>e.textContent.trim()==='OK'&&!e.children.length)`;
-export async function closeUnlocks(page:Page,wait = 8000) {
+export async function closeUnlocks(page:Page,wait = 25000) {
   // it comes once the world's ITEMGET(1) is answered
   await until(page,unlockShown,wait).catch(() => {});
-  for (let i = 0; i < 4 && await page.ev(`Boolean(${unlockShown})`); i++) { await press(page,unlockOk); await sleep(300); }
+  // its OK is the window's own text (the click lands on the window, which finds the control under it): the pointer at it
+  for (let i = 0; i < 4 && await page.ev(`Boolean(${unlockShown})`); i++) {
+    const point = await page.ev(`(()=>{const e=${unlockOk};if(!e)return null;const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`) as { x:number; y:number } | null;
+    if (!point) break;
+    await page.send('Input.dispatchMouseEvent',{ type:'mouseMoved',...point });
+    await page.send('Input.dispatchMouseEvent',{ type:'mousePressed',...point,button:'left',clickCount:1 });
+    await page.send('Input.dispatchMouseEvent',{ type:'mouseReleased',...point,button:'left',clickCount:1 });
+    await sleep(400);
+  }
 }
 
 /** Evidence: one JSON line per asserted flow, with the client commit and run time. */
