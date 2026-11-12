@@ -108,7 +108,11 @@ overlay.follow(() => root.querySelector('.de-stage'));
 // the boot veil fades once the first screen's windows are up (or after 8 s whatever happens)
 { const t0 = performance.now(); const ready = () => { if (closed) return; if (document.querySelector('#htmlui-host:not([hidden]) > *') || performance.now() - t0 > 8000) requestAnimationFrame(() => overlay?.booted()); else setTimeout(ready, 50); }; setTimeout(ready, 0); }
 // Development only: browser acceptance runs read the duel model when a duel stalls (tests/acceptance/duel.test.ts).
-if ((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV) (window as unknown as { __deApp?: ClientApp }).__deApp = app;
+// (and the wire codec, which the resilience run uses to rewrite server frames: a built dev bundle has no /src/ to import)
+if ((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV) {
+  (window as unknown as { __deApp?: ClientApp }).__deApp = app;
+  void import('./network/codec').then(codec => { (window as unknown as { __deCodec?: unknown }).__deCodec = codec; });
+}
 void app.initialize();
 // Browsers start audio only from a user gesture: the first press or key that finds audio audible unlocks it, inside
 // that event (the original plays from the first screen). Muted volumes leave it locked until a later gesture.

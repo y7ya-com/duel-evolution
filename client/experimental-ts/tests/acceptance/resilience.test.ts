@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createServer, type Socket } from 'node:net';
 import { surrenderRow, RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, reenterWorld, click, until, press, type, sleep, screenshot, record, byKey, byText, goOnlineButton, startNpcDuel, duelBot, claimNpcReward, type Page, createCharacter, freeSlot, say, chatLines, lobbyShown, openDeckEditor, exitDeckEditor, deckShown, SHOP, openShop, leaveShop, shopWallet, shopPacks, shopBuyKey, takeReveal } from './harness';
-import { resultShown } from './harness';
+import { resultShown, closeUnlocks } from './harness';
 /** Main Menu entries (Lobby, Edit Deck, Shop, Disconnect, ...) live behind the menu bar's Menu key; a click without
  * the pointer, for steps where a reply is being held and the pointer guard must not delay the click. */
 async function openMenu(page:Page) { if (!(await page.ev(`Boolean(${byText('Return to Lobby')}||${byText('Edit Deck')})`))) await press(page,`document.querySelector('[data-key="main-menu"]')`); }
@@ -62,7 +62,7 @@ async function giveUp(page:Page):Promise<number> {
  * the client's own codec and packed again; the first message matching `match` is replaced by `change` (same sequence
  * number, fresh valid digest), so the client sees a well-formed packet with a malformed or unknown payload. */
 async function tamper(page:Page,match:string,change:string) {
-  await page.ev(`(async()=>{const c=await import('/src/network/codec.ts');const ws=${live},h=ws.onmessage,readers=new Map();let done=false;window.__net.tampered=null;
+  await page.ev(`(async()=>{const c=window.__deCodec??await import('/src/network/codec.ts');const ws=${live},h=ws.onmessage,readers=new Map();let done=false;window.__net.tampered=null;
     const match=${match},change=${change};
     ws.onmessage=e=>{if(!(e.data instanceof ArrayBuffer))return h(e);const b=new Uint8Array(e.data);if(b[0]!==1)return h(e);const id=new DataView(e.data).getUint32(1);
       let r=readers.get(id);if(!r)readers.set(id,r=new c.PacketReader());const msgs=r.feed(b.slice(5));if(!msgs.length)return;
@@ -71,7 +71,7 @@ async function tamper(page:Page,match:string,change:string) {
 }
 /** One raw frame on the channel that last carried server data. */
 async function inject(page:Page,build:string) {
-  await page.ev(`(async()=>{const c=await import('/src/network/codec.ts');const ids=[...window.__net.frames.keys()];const id=ids.at(-1);const bytes=(${build})(c);
+  await page.ev(`(async()=>{const c=window.__deCodec??await import('/src/network/codec.ts');const ids=[...window.__net.frames.keys()];const id=ids.at(-1);const bytes=(${build})(c);
     const f=new Uint8Array(bytes.length+5);f[0]=1;new DataView(f.buffer).setUint32(1,id);f.set(bytes,5);${live}.onmessage(new MessageEvent('message',{data:f.buffer}));})()`);
 }
 const alerts = (page:Page) => page.ev(`[...document.querySelectorAll('[role=alert]')].map(a=>a.textContent).join(' | ')`) as Promise<string>;
@@ -153,8 +153,9 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       const log = await page.ev(`[...document.querySelectorAll('.de-duel-log div')].map(d=>d.textContent)`) as string[];
       // the NPC's own turn can pass between two looks on a fast stack: then the turn shown is the player's next one (an
       // End Turn sent twice would have ended that one too)
-      const newest = [...log].reverse().find(l => /^Turn \d+ - /.test(l));
-      if (t1 === t0 + 2) expect(newest).toBe(`Turn ${t1} - ${me}'s turn`); else expect(t1).toBe(t0 + 1);
+      // (whose turn it is: the phase bar's, "Turn n, <phase>, <name>'s turn")
+      const bar = await page.ev(`document.querySelector('.de-phase-bar')?.getAttribute('aria-label')??''`) as string;
+      if (t1 === t0 + 2) expect(bar).toMatch(new RegExp(`^Turn ${t1}\\b.*, ${me}'s turn$`)); else expect(t1).toBe(t0 + 1);
       const ends = log.filter(l => l === `${me} ends the turn.`).length;
       await screenshot(page,'resilience-duel-resumed');
       const presses = await giveUp(page);
@@ -369,7 +370,8 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       // Missing art: the asset bridge is unreachable; cards and packs draw their own fallbacks, never broken images.
       await page.send('Network.setBlockedURLs',{ urls:['*/game-assets/*'] });
       await page.go(`${CLIENT}/?portOffset=1000&assets=/game-assets/`,`document.querySelector('.de-client')`);
-      await reenterWorld(page,me);
+      // (without the map's art the character stays in My Room, where it comes online: its collision is missing too)
+      await reenterWorld(page,me); await dismissError(page);
       await openShop(page); await sleep(3000);
       const broken = `[...document.querySelectorAll('.de-client img')].filter(i=>i.getAttribute('src')&&i.complete&&i.naturalWidth===0&&getComputedStyle(i).visibility!=='hidden'&&i.getClientRects().length).length`;
       const shopBroken = await page.ev(broken) as number;
@@ -424,6 +426,8 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
         await until(page,sbtn('OK'),30000); await press(page,sbtn('OK')); await until(page,`!document.getElementById('starter')`,10000);
         await sleep(1500); expect(await page.ev(`Boolean(document.getElementById('starter'))`)).toBe(false);
       }
+      // the picker is My Room's (live): out to the lobby, where a new character is first told of its challenge (its OK)
+      await until(page,lobbyShown,60000); await closeUnlocks(page);
       // A double click on Buy (main's card shop) buys once; the busy shop says so.
       await openShop(page); await press(page,`${SHOP}.querySelector('[data-k=tab-packs]')`); await sleep(600);
       const before = (await shopWallet(page)).total, pack = (await shopPacks(page)).find(p => p.unit === 'pack' && !p.disabled)!;
