@@ -1,6 +1,6 @@
 import type { CardView, DuelCardView, DuelView } from './contracts';
 import { DuelFx, type ArchiveLoader } from './duel-fx';
-import { WaistUpComposer, blinkSchedule, type EyeFrame } from './duel-portrait';
+import { WaistUpComposer, blinkSchedule, type EyeFrame, type Expression } from './duel-portrait';
 import { fieldCardPosition } from './helpers';
 
 /** The original duel screen's furniture around the field, with its art: the two waist-up portraits between the backdrop
@@ -135,7 +135,9 @@ export class DuelPresentation {
     if (!this.load) return;
     this.fx.update(duel, reducedMotion);
     this.fx.thinking = thinkingSide(duel);
-    for (const side of [0, 1] as const) this.portrait(side, duel.players[side].parts);
+    // the loser's face at the duel's end (live: the result screen's sweating, gritted-teeth portrait)
+    const loser = duel.ended === 'Victory' ? 1 : duel.ended === 'Defeat' ? 0 : -1;
+    for (const side of [0, 1] as const) this.portrait(side, duel.players[side].parts, side === loser ? 'lose' : 'normal');
     this.renderInfo(); this.drawStats();
   }
   private lastCue: number | null = null;
@@ -157,15 +159,15 @@ export class DuelPresentation {
       for (const ch of atk) glyph(ch); at += 4; glyph('/'); at += 4; for (const ch of def) glyph(ch);
     }
   }
-  private portrait(side: 0 | 1, parts: Uint8Array | undefined): void {
-    const canvas = this.portraits[side], key = parts ? Array.from(parts).join('.') : '';
+  private portrait(side: 0 | 1, parts: Uint8Array | undefined, expression: Expression = 'normal'): void {
+    const canvas = this.portraits[side], key = parts ? `${Array.from(parts).join('.')}:${expression}` : '';
     if (key === this.portraitKeys[side]) return;
     this.portraitKeys[side] = key;
     const face = this.faces[side]; face.frames = {}; if (face.timer !== null) this.clearTimer(face.timer); face.timer = null;
     if (!parts || !this.composer) { canvas.hidden = true; return; }
-    void this.composer.composeFrames(parts, side === 0 ? 1 : 0, this.abort.signal).then(frames => {
+    void this.composer.composeFrames(parts, side === 0 ? 1 : 0, this.abort.signal, expression).then(frames => {
       if (this.portraitKeys[side] !== key || !frames[1]) return;
-      face.frames = frames; canvas.dataset.parts = key;
+      face.frames = frames; canvas.dataset.parts = key.replace(/:.*$/, ''); canvas.dataset.expression = expression;
       this.showEyes(side, 1); canvas.hidden = false;
       this.blink(side);
     }).catch(() => { canvas.hidden = true; });

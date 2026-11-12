@@ -165,6 +165,8 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 .de-duel-wrench-art { position:absolute; left:0; top:-400%; width:300%; height:600%; pointer-events:none; }
 .de-duel-wrench.has-art:hover .de-duel-wrench-art { left:-100%; } .de-duel-wrench.has-art:active .de-duel-wrench-art { left:-200%; }
 .de-duel-wrench svg { width:20px; height:20px; fill:#1d5fa8; stroke:#fff; stroke-width:.8; }
+/* the result screen (main's result.js boards) covers the card box at the bottom left, as live's does */
+html:has(.yo2r-board) .de-duel-info { display:none; }
 .de-duel-help { position:absolute; left:${388 / 1024 * 100}%; right:${8 / 1024 * 100}%; top:0; bottom:0; overflow:hidden; white-space:nowrap; font:15px Arial,sans-serif; letter-spacing:.04em; color:#0b1f3a; display:flex; align-items:center; }
 /* the ring keeps its own 64 px box: .de-stage canvas (every stage canvas at 100%) stretched it 1024 wide across the bar */
 /* the bar's own keys (a spectator's Leave Duel, Surrender with no deck left) between the ring and the help line, clear of

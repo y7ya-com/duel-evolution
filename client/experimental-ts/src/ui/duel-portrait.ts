@@ -59,11 +59,21 @@ export function waistUpLayers(raw: Uint8Array, variant: 0 | 1, data: Part[]): { 
 }
 
 /** The eye parts (eye whites 3, eyes 5, eyebrows 7) are drawn in frames: `_01` open, `_02` half shut, `_03` shut
- * (04..07 the same with a sweat drop). A blink swaps them in the composition; nothing else moves. */
+ * (04..07 the same with a sweat drop). A blink swaps them in the composition; nothing else moves.
+ * The loser's face on the result screen (live: the duel's end) is the sweating set (04 open, 05 half shut, 06 shut,
+ * the brows lowered) over the gritted-teeth mouth (`wm_mo_NN_02`, the mouth's only other frame). */
 export type EyeFrame = 1 | 2 | 3;
-export function eyeFrameLayers(layers: { path: string; rect: Part['rect'] }[], frame: EyeFrame): { path: string; rect: Part['rect'] }[] {
-  if (frame === 1) return layers;
-  return layers.map(layer => ({ ...layer, path: layer.path.replace(/^(data\/avatar\/wu\/w[mw]_(?:es|ey|eb)_\d+)_01(_c\d+\.png)$/i, `$1_0${frame}$2`) }));
+export type Expression = 'normal' | 'lose';
+type Layer = { path: string; rect: Part['rect']; fallback?: string };
+export function eyeFrameLayers(layers: { path: string; rect: Part['rect'] }[], frame: EyeFrame, expression: Expression = 'normal'): Layer[] {
+  if (frame === 1 && expression === 'normal') return layers;
+  const eyes = expression === 'lose' ? frame + 3 : frame;
+  return layers.map(layer => {
+    const path = layer.path.replace(/^(data\/avatar\/wu\/w[mw]_(?:es|ey|eb)_\d+)_01(_c\d+\.png)$/i, `$1_0${eyes}$2`)
+      .replace(/^(data\/avatar\/wu\/w[mw]_mo_\d+)_01(_c\d+\.png)$/i, expression === 'lose' ? '$1_02$2' : '$1_01$2');
+    // a face part the archive lacks in that expression falls back to the part as it is
+    return path === layer.path ? layer : { ...layer, path, fallback: layer.path };
+  });
 }
 
 /** The original's blink, measured on its duel screen (a 30 fps screencast, 2026-11-04): the eyes stay open a random
@@ -89,12 +99,12 @@ export class WaistUpComposer {
     return known;
   }
   /** The composed portrait with its eyes open, half shut and shut (768×768 canvases; a frame whose parts do not load
-   * is left out). */
-  async composeFrames(parts: Uint8Array, variant: 0 | 1, signal: AbortSignal): Promise<Partial<Record<EyeFrame, HTMLCanvasElement>>> {
+   * is left out), in an expression (the loser's on the result screen). */
+  async composeFrames(parts: Uint8Array, variant: 0 | 1, signal: AbortSignal, expression: Expression = 'normal'): Promise<Partial<Record<EyeFrame, HTMLCanvasElement>>> {
     const layers = waistUpLayers(parts, variant, await this.dictionary(parts[0] === 1, signal));
     const frames: Partial<Record<EyeFrame, HTMLCanvasElement>> = {};
     for (const frame of [1, 2, 3] as const) {
-      const canvas = await this.draw(eyeFrameLayers(layers, frame), signal, frame === 1);
+      const canvas = await this.draw(eyeFrameLayers(layers, frame, expression), signal, frame === 1);
       if (canvas) frames[frame] = canvas;
     }
     return frames;
@@ -105,9 +115,9 @@ export class WaistUpComposer {
     return (await this.draw(layers, signal, true))!;
   }
   /** Draw `layers`; null when a part fails and `partial` is false (a blink frame missing a part is not shown). */
-  private async draw(layers: { path: string; rect: Part['rect'] }[], signal: AbortSignal, partial: boolean): Promise<HTMLCanvasElement | null> {
+  private async draw(layers: Layer[], signal: AbortSignal, partial: boolean): Promise<HTMLCanvasElement | null> {
     const images = await Promise.all(layers.map(async layer => {
-      const lease = await this.load(layer.path, signal).catch(() => null);
+      const lease = await this.load(layer.path, signal).catch(() => layer.fallback ? this.load(layer.fallback, signal).catch(() => null) : null);
       if (!lease) return null;
       try {
         const image = new Image(); image.src = lease.url;

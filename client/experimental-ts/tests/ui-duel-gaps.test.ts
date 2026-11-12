@@ -115,6 +115,12 @@ describe('blinking portraits', () => {
       { path: 'data/avatar/wu/wm_mo_01_01_c01.png', rect: [0, 0, 1, 1] as [number, number, number, number] }];
     expect(eyeFrameLayers(layers, 3).map(l => l.path.slice(15))).toEqual(['wm_bo_01_c01_r.png', 'wm_ey_02_03_c03.png', 'ww_eb_01_03_c01.png', 'wm_mo_01_01_c01.png']);
     expect(eyeFrameLayers(layers, 1)).toBe(layers);
+    // the loser's face: the sweating eye set (04 open .. 06 shut) and the gritted-teeth mouth, each falling back to the
+    // part as it is when the archive lacks it
+    const lose = eyeFrameLayers(layers, 1, 'lose');
+    expect(lose.map(l => l.path.slice(15))).toEqual(['wm_bo_01_c01_r.png', 'wm_ey_02_04_c03.png', 'ww_eb_01_04_c01.png', 'wm_mo_01_02_c01.png']);
+    expect(lose[3]!.fallback).toBe(layers[3]!.path); expect(lose[0]).toBe(layers[0]);
+    expect(eyeFrameLayers(layers, 3, 'lose').map(l => l.path.slice(15))[1]).toBe('wm_ey_02_06_c03.png');
   });
   it('blinks with the original timing: a random open while, then half, shut, half for 8 frames each', () => {
     expect(blinkSchedule(() => 0)).toEqual([[1, BLINK.minOpen], [2, 133], [3, 133], [2, 133]]);
