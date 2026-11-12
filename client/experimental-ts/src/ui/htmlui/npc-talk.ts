@@ -1,12 +1,12 @@
 // An NPC's talk as live shows it (the engine draws it on main; main's Legacy screens leave it alone): the NPC's picture
-// full height on the right (the duel's waist-up portrait, duel-scene.ts PORTRAIT_PLACE side 1), the speech balloon
+// full height on the right (the duel's waist-up portrait, duel-scene.ts portraitLeft side 1), the speech balloon
 // (CWindowModelBalloon: the speaker's name, the line, the next mark; a click goes on), the green card with the NPC's
 // record (Win%, Wins / Losses, Deck Name) on the left and, once the NPC has said yes, the "Start Duel?" question
 // (CUYesNoDialog: Yes / No). Places measured from live's capture (live-npc-talk2 / live-npc-next, 2048 x 1536 = 2x).
 // The ways out live has: No, Escape (index.ts) and the balloon's own clicks to the end of a line run.
 import type { NpcState } from '../../features/npc';
 import type { ClientCommand } from '../contracts';
-import { PORTRAIT_PLACE, PORTRAIT_SCALE } from '../duel-scene';
+import { portraitLeft } from '../duel-scene';
 import { WindowBuilder, type Ids, type WindowSpec } from './snapshot';
 import { dialogLines } from './dialog-text';
 import { npcWaistUpSet } from '../npc-waistup';
@@ -38,9 +38,9 @@ export function npcTalkWindows(npc: Readonly<NpcState> | null | undefined, d: Np
     out.push(new WindowBuilder(d.ids, 'npc-talk:pictures', 'CEnginePictures', { x: 0, y: 0, w: 1024, h: 768 }, { z: 51000,
       pics: [{ key: 'npc', source: { canvas: `npc:${set}` }, x: 0, y: 0, w: 1024, h: 768, z: 0, shown: true }] }).spec());
   } else if (d.parts && d.parts.length === 16) {
-    const at = PORTRAIT_PLACE[1], size = 768 * PORTRAIT_SCALE;
+    // live's CWaistUpAvatar on the right at full size (duel-scene.ts portraitLeft: 548 for a female look, 529 a male)
     out.push(new WindowBuilder(d.ids, 'npc-talk:pictures', 'CEnginePictures', { x: 0, y: 0, w: 1024, h: 768 }, { z: 51000,
-      pics: [{ key: 'npc', source: { canvas: `portrait:${Array.from(d.parts).join('.')}` }, x: at.x, y: at.y, w: size, h: size, z: 0, shown: true }] }).spec());
+      pics: [{ key: 'npc', source: { canvas: `portrait:${Array.from(d.parts).join('.')}` }, x: portraitLeft(1, d.parts[0] === 1), y: 0, w: 768, h: 768, z: 0, shown: true }] }).spec());
   }
   out.push(infoCard(s, d));
   const waiting = s.stage === 'after-duel' && !s.settlementReceived;

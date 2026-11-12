@@ -37,7 +37,8 @@ export class PictureArt {
     if ('archive' in source) return this.archive(source.archive, signal);
     if ('card' in source) { const load = this.loaders.loadCardImage; if (!load) throw new Error('No card art.'); return this.keep(await load(source.card, signal)); }
     const [kind, arg = ''] = source.canvas.split(':');
-    if (kind === 'portrait' && this.composer) return this.picture(await this.composer.compose(Uint8Array.from(arg.split('.').map(Number)), 1, signal));
+    // an NPC's talk portrait from parts: the right side's pose (0, `_r`), as the duel's opponent and live's talk draw it
+    if (kind === 'portrait' && this.composer) return this.picture(await this.composer.compose(Uint8Array.from(arg.split('.').map(Number)), 0, signal));
     if (kind === 'clerk') return this.picture(await this.clerk(arg, signal));
     if (kind === 'npc') return this.picture(await this.npcPicture(arg, signal));
     if (kind === 'itemline') return this.picture(itemLineCanvas(decodeURIComponent(arg)));

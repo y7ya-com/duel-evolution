@@ -14,16 +14,22 @@ import { npcWaistUpCanvases, type NpcWaistUpFrame } from './npc-waistup';
 const RACES = ['Dragon', 'Zombie', 'Fiend', 'Pyro', 'Sea Serpent', 'Rock', 'Machine', 'Fish', 'Dinosaur', 'Insect', 'Beast', 'Beast-Warrior',
   'Plant', 'Aqua', 'Warrior', 'Winged Beast', 'Fairy', 'Spellcaster', 'Thunder', 'Reptile', 'Divine-Beast'];
 const ATTRIBUTES = ['light', 'dark', 'water', 'fire', 'earth', 'wind', 'divine'];
-/** Where the composed 768×768 portrait sits on the 1024×768 screen, measured from captures of the original. */
-export const PORTRAIT_PLACE: Record<0 | 1, { x: number; y: number }> = { 0: { x: -230, y: 26 }, 1: { x: 562, y: 24 } };
-/** The original draws the 768-pixel composition at about 0.9 (eye spacing 52-54 px on the 1024×768 screen). */
-export const PORTRAIT_SCALE = 0.9;
+/** Where a duelist's waist-up portrait composed from parts sits (yo2.exe's CWaistUpAvatar, the same in the NPC talk,
+ * janken, the duel and its result): the 768 x 768 composition at full size, top at 0, its base at the side's home,
+ * 874 on the right and 150 on the left (0x009ebd70), plus the look's offset (0x009eb7b0: 345 for the male wm_data
+ * look, 326 for the female ww_data, away from the side's edge). The left one is mirrored about its base, so the base
+ * is its right edge. Measured live (the engine's sprites): the player (male) 495 mirrored, a female NPC from parts
+ * (Miss Shadow) 548. Returns the composition's left edge on the 1024 x 768 screen. */
+export function portraitLeft(side: 0 | 1, female: boolean): number {
+  const offset = female ? 326 : 345;
+  return side === 1 ? 874 - offset : 150 + offset - 768;
+}
 
 const CSS = `
 /* the card box where live's duel screen has it: the bottom left beside the chat, over the bar (6 lines of the engine's
    16 px Arial: name, kind, 3 of text, the stats) */
 .de-duel-board>.de-duel-info { top:${614 / 768 * 100}%; height:${120 / 768 * 100}%; left:${4 / 1024 * 100}%; width:${248 / 1024 * 100}%; font:15px/16px Arial,'Segoe UI',sans-serif; letter-spacing:.03em; }
-:is(.de-duel-board,.de-janken-scene)>.de-duel-portrait { position:absolute; inset:auto; width:${768 * PORTRAIT_SCALE / 1024 * 100}%; height:${768 * PORTRAIT_SCALE / 768 * 100}%; pointer-events:none; z-index:0; }
+:is(.de-duel-board,.de-janken-scene)>.de-duel-portrait { position:absolute; inset:auto; top:0; width:${768 / 1024 * 100}%; height:100%; pointer-events:none; z-index:0; }
 .de-duel-portrait>img { position:absolute; inset:0; width:100%; height:100%; display:block; }
 .de-duel-fx { position:absolute; inset:0; pointer-events:none; z-index:7; }
 .de-duel-fx>.de-duel-fx-layer { position:absolute; inset:0; }
@@ -101,7 +107,7 @@ export class DuelPresentation {
     this.composer = load ? new WaistUpComposer(load) : null;
     this.portraits = [0, 1].map((side): HTMLElement => {
       const c = document.createElement('div'); c.className = `de-duel-portrait side-${side}`; c.setAttribute('aria-hidden', 'true');
-      const at = PORTRAIT_PLACE[side as 0 | 1]; c.style.left = `${at.x / 1024 * 100}%`; c.style.top = `${at.y / 768 * 100}%`; c.hidden = true;
+      c.style.left = `${portraitLeft(side as 0 | 1, false) / 1024 * 100}%`; c.hidden = true;
       // The art faces left: the player's portrait is the mirrored composition of the other pose.
       if (side === 0) c.style.transform = 'scaleX(-1)';
       return c;
@@ -209,9 +215,8 @@ export class DuelPresentation {
     if (!set && (!parts || !this.composer) || set && !this.load) { this.dropFrames(side); box.hidden = true; return; }
     // a famous NPC's own picture: where its talk shows it (live keeps the one picture from the talk to the result), on
     // the whole screen (its art reaches past the portrait's box), unmirrored
-    const at = PORTRAIT_PLACE[side];
     Object.assign(box.style, set ? { left: '0', top: '0', width: '100%', height: '100%', transform: '' }
-      : { left: `${at.x / 1024 * 100}%`, top: `${at.y / 768 * 100}%`, width: '', height: '', transform: side === 0 ? 'scaleX(-1)' : '' });
+      : { left: `${portraitLeft(side, parts![0] === 1) / 1024 * 100}%`, top: '', width: '', height: '', transform: side === 0 ? 'scaleX(-1)' : '' });
     const frames = set ? npcPortraitFrames(this.load!, set, expression, this.abort.signal) : this.composer!.composeFrames(parts!, side === 0 ? 1 : 0, this.abort.signal, expression);
     void frames.then(async composed => {
       if (this.portraitKeys[side] !== key || !composed[1]) return;
