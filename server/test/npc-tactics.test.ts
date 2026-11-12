@@ -213,7 +213,8 @@ describe("NPC gaps found in duel traces", () => {
   });
 
   it("pays Messenger of Peace's upkeep (every card question was answered no)", () => {
-    const ask = (lp: number[]) => new HeuristicBot(0, named).choose(select("SELECT_YESNO", [], [], { description: 102 * 0x100000, lp }))?.yes;
+    // (the live rule since overlay v4: the upkeep is paid while the opponent has a 1500+ monster to stop)
+    const ask = (lp: number[]) => new HeuristicBot(0, named).choose(select("SELECT_YESNO", [], [mon(1800)], { description: 102 * 0x100000, lp }))?.yes;
     expect([ask([8000, 8000]), ask([500, 8000])]).toEqual([true, false]);
   });
 
@@ -274,10 +275,13 @@ describe("NPC decisions from the first production duel", () => {
   const atk = (a: number) => ({ atk: a, def: 0, faceDown: false, attackPos: true });
   // turn 3's Snatch Steal into face-down backrow (answered by Dust Tornado) stays: holding it for a bigger target
   // measured worse in the lab (2026-11-11, 1,152 duels: 44.2% -> 43.7%); the tempo matters more than the risk
-  it("turn 7: no Premature Burial of a 2500 into a 2800; yes when it holds the field", () => {
+  it("turn 7: Premature Burial of a 2500 into a 2800 only as a blocker on an empty field; yes when it holds the field", () => {
     const t7 = { ...ctx, myLp: 2500, oppMon: [atk(1700), atk(2800), atk(1700)], oppMaxAtk: 2800, myGraveMaxAtk: 2500 };
     const burial = STAPLE_RULES["premature burial"]!.idleActivate!, reborn = STAPLE_RULES["monster reborn"]!.idleActivate!;
-    expect([burial(t7), reborn(t7)]).toEqual([false, false]);
+    // (overlay v4 and Master Duel: a blocker for an empty field facing attackers; with a monster of mine out, no)
+    expect([burial(t7), reborn(t7)]).toEqual([true, true]);
+    const guarded = { ...t7, myMon: [atk(1000)], myMaxAtk: 1000 };
+    expect([burial(guarded), reborn(guarded)]).toEqual([false, false]);
     expect([burial({ ...t7, oppMon: [atk(1700)], oppMaxAtk: 1700 }), reborn({ ...t7, oppMon: [atk(1700)], oppMaxAtk: 1700 })]).toEqual([true, true]);
   });
   it("turn 1: Spiral Spear Strike waits for Gaia; a continuous spell tagged draw doesn't lead like Pot of Greed", () => {
@@ -312,10 +316,10 @@ describe("NPC decisions from the first day of production duels", () => {
     expect(ask("Destroy a card?")).toBe(false);
   });
 
-  it("Wall of Revealing Light pays over the strongest attacker, keeping 1000 LP", () => {
+  it("Wall of Revealing Light pays over the strongest attacker, at least 3000, keeping 1 LP (Master Duel)", () => {
     const pay = STAPLE_RULES["wall of revealing light"]!.number!, values = [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000];
     expect(values[pay({ ...ctx, myLp: 7400, oppMon: [atk(2300), atk(1700)], oppMaxAtk: 2300 }, values)]).toBe(3000);
-    expect(values[pay({ ...ctx, myLp: 2500, oppMon: [atk(2300)], oppMaxAtk: 2300 }, values)]).toBe(1000);
+    expect(values[pay({ ...ctx, myLp: 2500, oppMon: [atk(2300)], oppMaxAtk: 2300 }, values)]).toBe(2000);
   });
 
   it("Poison of the Old Man burns; it heals only when the NPC's own LP is in danger", () => {
