@@ -26,6 +26,7 @@
 // the opponent's next Battle Phase, the board, then the fewest attacks.
 import { ATTACK_CLASS, attackClass, compareVerdicts, nextAttack, outcomeScore, planAttacks, planBattle, planEnd, PLAN_DEFAULTS, replyPosition, UNKNOWN_WALL, type PlanInput, type PlannedAttack, valueWithReply, type PlanAttacker, type PlanMon } from "./battlePlan.ts";
 import BATTLE_PROOF_JSON from "./battleProof.json";
+import ON_SUMMON_JSON from "./onSummon.json";
 import CATEGORIES from "./aiCategories.json";
 import { type CardRule, type RuleCard, type RuleCtx, type RuleMon, tagRule } from "./cardRules.ts";
 import type { RuleCtxExt } from "./ruleCtxExt.ts";
@@ -64,6 +65,8 @@ const LASTING = TYPE_CONTINUOUS | TYPE_EQUIP | TYPE_FIELD;
 const LOCKS = /^(swords of revealing light|swords of concealing light|nightmare's steelcage|messenger of peace|level limit - area b|gravity bind)$/;
 /** Monsters that cannot be destroyed by battle (scripts/ai_battle_proof.mjs). */
 const BATTLE_PROOF = new Set<number>(BATTLE_PROOF_JSON.codes);
+/** Monsters whose own effect a Normal Summon triggers (scripts/ai_on_summon.mjs): summoned face-up for it. */
+const ON_SUMMON = new Set<number>(ON_SUMMON_JSON.codes);
 const CATEGORY = Object.fromEntries(Object.entries(CATEGORIES.codes).map(([k, v]) => [k, new Set<number>(v)])) as Record<keyof typeof CATEGORIES.codes, Set<number>>;
 /** What a monster's owner gets back when it dies (Master Duel's CPU card categories): a search or a summon, a revival
  *  of itself, any other leave-the-field effect. */
@@ -213,8 +216,9 @@ export class HeuristicBot {
   #stored: { turn: number; seqs: ReadonlySet<number> } | null = null;
   /** The chain length once our last answer in this window is on it (a later opponent link may be answered again). */
   #answeredAt = 0;
-  /** This seat Normal Summoned this turn (the cost picker keeps a summonable monster until then). */
+  /** This seat Normal Summoned this turn (the cost picker keeps a summonable monster until then); the opponent did. */
   #normalSummoned = false;
+  #oppNormalSummoned = false;
 
   constructor(seat: number, cards: CardInfo, opts: BotOpts = {}) {
     this.seat = seat;
@@ -258,10 +262,14 @@ export class HeuristicBot {
           for (const c of (Array.isArray(ev.cards) ? ev.cards : []) as Json[]) if (top && Number(c.controller) === this.seat) top.targets.push(`${Number(c.location)}:${Number(c.sequence)}`);
         }
         break;
-      case "NEW_PHASE": case "NEW_TURN": this.#attack = null; this.#oppSummonAtk = 0; if (ev.type === "NEW_TURN") this.#normalSummoned = false; break;
+      case "NEW_PHASE": case "NEW_TURN": this.#attack = null; this.#oppSummonAtk = 0; if (ev.type === "NEW_TURN") { this.#normalSummoned = false; this.#oppNormalSummoned = false; } break;
       case "SUMMONING": case "SPSUMMONING": case "FLIPSUMMONING":
-        if (ev.type === "SUMMONING" && Number(ev.controller) === this.seat) this.#normalSummoned = true;
+        if (ev.type === "SUMMONING") { if (Number(ev.controller) === this.seat) this.#normalSummoned = true; else this.#oppNormalSummoned = true; }
         this.#oppSummonAtk = Number(ev.controller) !== this.seat && Number(ev.code) ? Math.max(1, this.#stat(Number(ev.code)).atk) : 0;
+        break;
+      case "SET":
+        // a monster Set uses the Normal Summon too
+        if ((Number(ev.location) & LOCATION.MZONE) !== 0) { if (Number(ev.controller) === this.seat) this.#normalSummoned = true; else this.#oppNormalSummoned = true; }
         break;
       case "ATTACK": {
         const a = ev.card as Json | undefined, t = ev.target as Json | null | undefined;
@@ -626,6 +634,7 @@ export class HeuristicBot {
       attackerIsStrongest: !!oppAttack && oppMon.every((m) => m.seq === this.#attack!.sequence || !m.attackPos || m.atk <= attackAtk),
       oppPlanLethal: !myTurn && replyPosition(this.#boardPosition()).myLp <= 0,
       trapLock: this.#trapLock(),
+      oppCanNormalSummon: !myTurn && !this.#oppNormalSummoned && phase <= PHASE.MAIN1,
       oppLinkedMonsters: Math.min(oppMon.filter((m) => !m.faceDown).length,
         opp.szone.filter((c) => c && c.code && !isFaceDown(c.position) && LINKED_REVIVAL.test(this.#nameOf(c.code))).length),
       attackerLevel: oppAttack ? oppAttack.level ?? (oppAttack.code ? this.#stat(oppAttack.code).level : 0) : 0,
@@ -664,6 +673,7 @@ export class HeuristicBot {
       atk: (c) => this.#stat(c).atk,
       canNormalSummon: (c) => myMain && !this.#normalSummoned && (this.#cards.brain.get(c)?.tributes() ?? 0) <= monsters,
       keep: (c) => !!this.#ruleFor(c)?.keepInHand,
+      worth: (c) => this.#worth(c, true),
     };
   }
 
@@ -1110,11 +1120,11 @@ export class HeuristicBot {
     return input.opp.some((o) => !o.faceDown && attackClass(one, att, o) === ATTACK_CLASS.NOTHING);
   }
 
-  /** The strongest ATK that can come at one of my monsters next turn: the opponent's face-up monsters, a set one at the
-   *  halved estimate, and the Normal Summon it may still make (the unknown-monster estimate). */
+  /** The strongest ATK that can come at one of my monsters next turn: the opponent's face-up monsters and a set one at
+   *  the halved estimate. Only what is on the board (A1-summon.md §11.2: an honest CPU does not guess the hand: adding
+   *  an unknown Normal Summon to every threat set nearly every monster under 1600 face-down, and lost lab duels). */
   #threatAtk(): number {
-    const opp = this.#opp();
-    let t = (opp?.hand.length ?? 1) > 0 ? UNKNOWN_WALL : 0;
+    let t = 0;
     for (const o of this.#oppMonsters()) t = Math.max(t, o.faceDown && !o.known ? UNKNOWN_WALL / 2 : o.atk);
     return t;
   }
@@ -1246,8 +1256,9 @@ export class HeuristicBot {
     const st = this.#stat(code);
     const { atk, def } = st;
     if (this.#cards.brain.get(code)?.is_flip && atk < 2000 && !(atk >= 1200 && def <= atk + 200)) return "set";
-    // a card rule that wants it on the field for its effect (a Monarch, an on-summon effect)
-    if (bonus > 0) return "up";
+    // a card rule that wants it on the field for its effect (a Monarch), or an effect that only a Normal Summon
+    // triggers (Manju of the Ten Thousand Hands: set, it never searches): Master Duel's per-card effect-use table
+    if (bonus > 0 || ON_SUMMON.has(code)) return "up";
     const T = this.#threatAtk(), lp = this.#me()?.lp ?? 8000;
     if (atk === 0) return "set";
     if (this.#turn <= 1 && def >= atk) return "set";

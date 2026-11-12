@@ -51,5 +51,7 @@ export const EXT_BOOL = [
   "attackHurts", "attackerIsStrongest", "oppPlanLethal",
   /** A face-up card negates Trap effects (Royal Decree, Jinzo): a Trap activated now does nothing. */
   "trapLock",
+  /** The opponent's turn and it has not Normal Summoned or Set a monster yet (one more summon may follow). */
+  "oppCanNormalSummon",
 ] as const;
 export type RuleCtxExt = Partial<Record<(typeof EXT_NUM)[number], number> & Record<(typeof EXT_BOOL)[number], boolean>>;

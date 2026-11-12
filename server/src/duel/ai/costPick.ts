@@ -33,6 +33,9 @@ export interface CostView {
   canNormalSummon: (code: number) => boolean;
   /** A piece of the deck's plan its card rule keeps in hand (Exodia): given up last of all. */
   keep?: (code: number) => boolean;
+  /** Our own worth of a hand card: breaks Master Duel's ties (it falls back to hand order, which threw away Mystical
+   *  Space Typhoon before a spare Field Spell: every spell has ATK 0). */
+  worth?: (code: number) => number;
 }
 
 /** 0 = expendable; 1 / 2 / 3 = kept, 1 the strongest (D-costs.md §1.2). */
@@ -65,12 +68,13 @@ export function discardBenefit(code: number): number {
  */
 export function costOrder(v: CostView, o: { exclude?: number; safe?: boolean } = {}): number[] | null {
   const idx = v.hand.map((c, i) => i).filter((i) => i !== o.exclude && v.hand[i]);
-  const key = (i: number): [number, number, number, number] => {
+  const key = (i: number): [number, number, number, number, number] => {
     const c = v.hand[i]!;
     const imp = importance(c, v);
+    const worth = v.worth?.(c) ?? 0;
     // benefit first; then plain cards; then kept ones, the weakest keep (3) before 2 before 1; a plan piece last
-    if (v.keep?.(c)) return [0, 9, v.atk(c), i];
-    return [-discardBenefit(c), imp === 0 ? 0 : 4 - imp, v.atk(c), i];
+    if (v.keep?.(c)) return [0, 9, v.atk(c), worth, i];
+    return [-discardBenefit(c), imp === 0 ? 0 : 4 - imp, v.atk(c), worth, i];
   };
   idx.sort((a, b) => {
     const x = key(a), y = key(b);

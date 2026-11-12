@@ -293,17 +293,22 @@ export function attackerOrder(input: PlanInput): PlanAttacker[] {
 /** The attack to make now, Master Duel's way, or null: no attack gains anything (go to Main Phase 2). */
 export function nextAttack(input: PlanInput): PlannedAttack | null {
   const openDirect = input.opp.length === 0;
-  let best: { attack: PlannedAttack; cls: number; order: number; worth: number } | null = null;
+  let best: { attack: PlannedAttack; cls: number; gain: number; order: number; worth: number } | null = null;
+  const s0: State = { myLp: input.base.myLp, oppLp: input.base.oppLp, my: input.my, opp: input.opp, used: 0, flipCost: 0 };
   attackerOrder(input).forEach((a, order) => {
     const targets: (PlanMon | null)[] = [...input.opp, ...(openDirect || a.canDirect ? [null] : [])];
     for (const t of targets) {
       const cls = attackClass(input, a, t);
       if (cls === ATTACK_CLASS.NOTHING) continue;
-      // among equal classes: the earlier attacker, then the target worth the most to the opponent (an attack-position
-      // monster before a wall of the same worth), a direct attack last
+      // among equal classes Master Duel takes the bigger net gain (what the opponent loses: damage and the monster's
+      // worth), then the earlier attacker, then the target worth the most (an attack-position monster first)
+      const r = resolve(s0, a, t, 1);
+      const killed = t !== null && !r.opp.some((m) => m.seq === t.seq);
+      const gain = (s0.oppLp - r.oppLp) + (killed ? bodyWorth(t!) : 0) - (s0.myLp - r.myLp);
       const worth = t ? bodyWorth(t) + (t.attackPos ? 1 : 0) : -1;
-      const better = !best || cls > best.cls || (cls === best.cls && (order < best.order || (order === best.order && worth > best.worth)));
-      if (better) best = { attack: { index: a.index, seq: a.seq, atk: a.atk, target: t ? t.seq : null }, cls, order, worth };
+      const better = !best || cls > best.cls || (cls === best.cls && (gain > best.gain + EPS
+        || (Math.abs(gain - best.gain) <= EPS && (order < best.order || (order === best.order && worth > best.worth)))));
+      if (better) best = { attack: { index: a.index, seq: a.seq, atk: a.atk, target: t ? t.seq : null }, cls, gain, order, worth };
     }
   });
   return best ? (best as { attack: PlannedAttack }).attack : null;
