@@ -272,7 +272,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   };
   // the deck editor: main's deck screen (src/ui/htmlui/deck-scene.ts), its engine side on the layer (deck-stage.ts)
   let deckDom: DeckDom | null = null, deckFile: HTMLInputElement | null = null;
-  const deckScene = new DeckScene({ state: () => state, send: command => send(command), rerender: () => showHtml(), leave: () => open('lobby'),
+  let deckFromTitle = false;
+  const deckScene = new DeckScene({ state: () => state, send: command => send(command), rerender: () => showHtml(), leave: () => { if (deckFromTitle) { deckFromTitle = false; send({ type: 'disconnect' }); } else open('lobby'); },
     notice: message => { local.message = message; requestRender(); },
     pickFile: (accept, then) => {
       deckFile ??= Object.assign(el('input'), { type: 'file' }); deckFile.accept = accept; deckFile.setAttribute('aria-label', 'Import YDC, YDK or JSON deck');
@@ -292,7 +293,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // online: the world server's connection (state.online is the HTTP account's presence, unset in the overworld)
   const pageMods = pageModules({ online: () => !!state.player && state.connection === 'online' && state.mode !== 'free',
     overworld: () => state.scene === 'lobby' && !!state.player && htmlUiState.dialog?.kind !== 'avatar',
-    trade: () => !!state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene), veil: sceneVeilUp });
+    trade: () => !!state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene), veil: sceneVeilUp,
+    free: () => !!state.player && state.connection === 'online' && state.mode === 'free' });
   // main's card shop talks HTTP itself (bridge.js mounts it on onYo2ShopOpen): it opens before the cosmetics state has
   // loaded or the app's own catalogue fetch answered (a failed one is its own "Couldn't open the shop" / Try again), and
   // a tunnel resume underneath (reconnecting) keeps it, its tab and an open pack reveal in place.
@@ -752,6 +754,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // the title's movie buttons (htmlui/title-scene.ts), as live: ONLINE signs in (the sign-in window, signed out) and
   // goes online, OPTIONS opens its OPTIONS window (COptionDlg), DECK EDITOR and FREE DUEL start free mode (ovr/freemode.c)
   let freeTarget: 'deck' | null = null;
+  // the deck editor opened by the title's DECK EDITOR: its EXIT goes back to the title (live), not into the free lobby
   const titlePress = (name: TitleButton) => {
     if (state.busy) return;
     // signed out, every way online starts at the sign-in window (free mode goes online too); an error from before it
@@ -762,7 +765,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     } else if (name === 'options') { optionsUi = { kind: 'title' }; showHtml(); }
     else {
       freeTarget = name === 'deck' ? 'deck' : null;
-      if (state.connection === 'online' && state.mode === 'free') { if (freeTarget) { freeTarget = null; open('deck'); } else open(state.player ? 'lobby' : 'characters'); }
+      if (state.connection === 'online' && state.mode === 'free') { if (freeTarget) { freeTarget = null; deckFromTitle = true; open('deck'); } else open(state.player ? 'lobby' : 'characters'); }
       else send({ type: 'connect', freeMode: true });
     }
   };
@@ -1251,7 +1254,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       else if (leaveShop && !state.busy) { leaveShop = false; queueMicrotask(() => open('lobby')); }
       if (state.scene !== 'title') titleScene?.hide();
       if (state.auth?.signedIn || state.scene !== 'title') loginUi.open = false;
-      if (freeTarget && state.mode === 'free' && state.connection === 'online' && state.player && !state.busy && state.scene !== 'deck' && state.scene !== 'characters') { freeTarget = null; queueMicrotask(() => open('deck')); }
+      if (state.scene === 'lobby' || state.scene === 'title') deckFromTitle = false;
+      if (freeTarget && state.mode === 'free' && state.connection === 'online' && state.player && !state.busy && state.scene !== 'deck' && state.scene !== 'characters') { freeTarget = null; deckFromTitle = true; queueMicrotask(() => open('deck')); }
       if (!available(state.scene)) emptyPanel(state.scene, state.scene === 'deck' ? 'Edit Deck' : state.scene[0].toUpperCase() + state.scene.slice(1), 'This feature is unavailable.');
       else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': if (state.sideboarding) renderSideboarding(); else renderDuel(); break; }
       if (state.preparation && !state.sideboarding && !htmlUi) renderPreparation();

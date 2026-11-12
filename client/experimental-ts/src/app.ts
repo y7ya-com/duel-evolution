@@ -345,7 +345,7 @@ export class ClientApp implements ClientController {
     this.rarities = api.cardRarities({ signal: this.scope.signal }).then(table => {
       if (this.disposed) return;
       this.catalog.installRarities(table); this.catalogCards = null; this.collectionRef = null; this.projections.clear();
-      const game = this.game?.state; if (game) this.collection = [...game.collection].map(([pc, n]) => this.catalog.card(pc, n));
+      const game = this.game?.state; if (game) this.collection = this.cardsHeld(game.collection);
       this.editor?.setCollection(this.collection); this.syncEditor(); this.emit();
     }).catch(() => { this.rarities = null; });
   }
@@ -476,7 +476,8 @@ export class ClientApp implements ClientController {
     }
     if (state.collection !== this.collectionRef) {
       this.collectionRef = state.collection;
-      this.collection = [...state.collection].map(([pc, n]) => this.catalog.card(pc, n));
+      // free mode's trunk is the whole card pool, three of each (live's free mode: 9681 cards), not the account's cards
+      this.collection = this.cardsHeld(state.collection);
       this.editor?.setCollection(this.collection);
     }
     const selected = state.characters.find(c => c.slot === state.selectedSlot);
@@ -861,6 +862,11 @@ export class ClientApp implements ClientController {
       collection: this.collection, allCards: this.catalogCards ??= this.catalog.allCards(),
       recipes:this.project('recipes',this.game?.state.pbin,pbin=>this.options.recipes?.available(pbin ?? null,this.freeMode) ?? []),
       dirty: this.editor?.dirty ?? false, loading: this.services.decks.state.loading } };
+  }
+  /** The trunk: the account's cards, or in free mode the whole card pool, three of each (live's free mode: 9681). */
+  private cardsHeld(collection: ReadonlyMap<number, number>): CardView[] {
+    if (this.freeMode) return (this.catalogCards ??= this.catalog.allCards()).filter(c => c.passcode !== undefined).map(c => this.catalog.card(c.passcode!, 3));
+    return [...collection].map(([pc, n]) => this.catalog.card(pc, n));
   }
   private get deckMode(): 'world' | 'free' { return this.freeMode ? 'free' : 'world'; }
   private async connect(freeMode = this.freeMode): Promise<void> {

@@ -785,7 +785,8 @@ export function htmlWindows(ctx: BuildContext): WindowSpec[] {
   else if (state.scene === 'characters' && !account) out.push(playerSelect(ctx));
   if (state.scene === 'lobby' && state.connection === 'online') {
     const place = !ctx.covered && placeBanner(ctx); if (place) out.push(place);
-    const chat = chatWindow(ctx); if (chat) out.push(chat);
+    // live's free-mode lobby has the player list alone, no chat window
+    const chat = state.mode !== 'free' ? chatWindow(ctx) : null; if (chat) out.push(chat);
     const list = !ctx.covered && (ctx.lobby ? ctx.lobby.list(ctx) : ctx.openPlayer && playerList(ctx, ctx.openPlayer)); if (list) out.push(list);
     const profile = profileWindow(ctx); if (profile) out.push(profile);
     const card = playerCard(ctx, ctx.cardActions ?? {}); if (card) { out.push(card); const flag = cardFlag(ctx, card); if (flag) out.push(flag); }

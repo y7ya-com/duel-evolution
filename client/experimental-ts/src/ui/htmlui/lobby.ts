@@ -45,8 +45,8 @@ export interface LobbyLocal {
   moveTop: number;
 }
 export const lobbyLocal = (): LobbyLocal => ({ open: null, searching: false, search: null, find: { style: 3, similar: false },
-  // Create Duel opens on Match (best of 3), On, Allowed, Allowed, as live's
-  wait: { style: 4, timeLimit: true, watch: true, surrender: true, password: '' }, join: null, cancel: false, moveTop: 0 });
+  // Create Duel opens on Single, On, Allowed, Allowed, as live's (the tour's capture: a new character's Create Duel)
+  wait: { style: 3, timeLimit: true, watch: true, surrender: true, password: '' }, join: null, cancel: false, moveTop: 0 });
 
 export interface LobbyDeps {
   ui: LobbyLocal;
