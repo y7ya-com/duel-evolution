@@ -46,7 +46,7 @@ import { DeckDom } from './htmlui/deck-dom';
 import { shopLocal, shopWindows } from './htmlui/shop';
 import { cardShopHost } from './htmlui/card-shop';
 import { pageModules } from './htmlui/page-modules';
-import { sceneVeilUp } from './htmlui/scene-loading';
+import { sceneVeilUp, SCENE_LOADING_ATTR } from './htmlui/scene-loading';
 import { installLazyShim } from './htmlui/lazy-shim';
 import { FLAG_ATLAS, flagCell } from './nation-flag';
 import { NPC_STAR_BIG, NPC_STAR_SMALL } from '../avatars/npc';
@@ -788,10 +788,21 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const sceneRoot = (heading: string): HTMLElement => {
     const n = el('section', 'de-scene'); n.setAttribute('aria-label', heading); stage.append(n); return n;
   };
-  const emptyPanel = (scene: Scene, heading: string, message: string) => {
-    const n = sceneRoot(heading), panel = el('section', 'de-panel de-center de-stack', title(heading), el('p', '', state.unavailable?.[scene] || message));
-    if (!state.unavailable?.[scene]) panel.append(button('Refresh', () => send({ type: 'refresh', scene }), !!state.busy));
-    panel.append(button('Back', () => open(state.player ? 'lobby' : 'title'))); n.append(panel);
+  // A scene whose data has not come yet (the deck editor's decks, the duel's first state, the lobby's world, the shop's
+  // catalogue): live's loader veil stays over it until it has (htmlui/scene-loading.ts SCENE_LOADING_ATTR), as over a
+  // scene the runtime is loading. A load that failed is main's error dialog (duelPrompts); its OK leaves the scene.
+  const loadingScene = (scene: Scene, heading: string) => {
+    const n = sceneRoot(heading), failed = !state.busy && (state.error || local.message);
+    if (!failed) { n.setAttribute(SCENE_LOADING_ATTR, 'true'); n.setAttribute('aria-busy', 'true'); return; }
+    if (failed === errorSeen && scene !== 'lobby') queueMicrotask(() => { if (!disposed && controller.getState().scene === scene) open(state.player ? 'lobby' : 'title'); });
+  };
+  // a scene this mode lacks (Free Duel's shop door): the reason in main's error dialog, its OK back to the lobby
+  let unavailableShown: Scene | null = null;
+  const unavailableScene = (scene: Scene, heading: string) => {
+    sceneRoot(heading);
+    const reason = state.unavailable?.[scene] ?? 'This feature is unavailable.';
+    if (unavailableShown !== scene) { unavailableShown = scene; local.message = reason; return; }
+    if (errorSeen === reason) queueMicrotask(() => { if (!disposed && controller.getState().scene === scene) { unavailableShown = null; open(state.player ? 'lobby' : 'title'); } });
   };
   // the title's movie buttons (htmlui/title-scene.ts), as live: ONLINE signs in (the sign-in window, signed out) and
   // goes online, OPTIONS opens its OPTIONS window (COptionDlg), DECK EDITOR and FREE DUEL start free mode (ovr/freemode.c)
@@ -872,7 +883,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     void ch; startScene.show({ logo: true, portrait: null, reducedMotion: false });
   }
   function renderLobby(): void {
-    if (!state.lobby) return emptyPanel('lobby', 'Lobby', 'Waiting for the online world.');
+    if (!state.lobby) return loadingScene('lobby', 'Lobby');
     const lobby = state.lobby;
     // the world's press target (a click walks there, a held button walks on: phone.ts holdToWalk), under the PixiJS world
     const map = el('div', 'de-lobby-map'); map.setAttribute('role', 'application'); map.setAttribute('aria-label', 'Lobby map'); map.tabIndex = 0; map.dataset.key = 'lobby-map';
@@ -931,7 +942,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         { from: 'No', key: 'duel-decline', aria: 'Decline', click: () => { if (!busy) send({ type: 'replyChallenge', accept: false }); } }]));
     // main's card shop says its own failures in its page ("Couldn't open the shop", Try again): the app's catalogue
     // refresh behind it failing is no dialog of its own (one would sit under the shop, out of reach)
-    const message = state.scene === 'deck' || useCardShop() && !local.message ? '' : state.error || local.message;
+    // (the deck screen says its refusals in its own OK dialog: not before it is drawn, a failed load of its decks is this one)
+    const message = state.scene === 'deck' && state.deckEditor || useCardShop() && !local.message ? '' : state.error || local.message;
     // the sign-in window says its own refusals on its status line (live session.cpp status): no dialog over its button
     const onLogin = showsLogin() && (message === state.error || message === state.accountDetail?.error);
     if (message && message !== errorSeen && !onLogin) out.push(stockDialog({ ids: htmlIds }, 'error', 'error', message,
@@ -944,7 +956,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // The deck editor is main's deck screen (src/ui/htmlui/deck-scene.ts: its windows on the layer, the card pictures and
   // the mouse on the layer's engine side); the stage keeps only the scene's name, and a refusal shows in main's dialog
   function renderDeck(): void {
-    const editor = state.deckEditor; if (!editor) return emptyPanel('deck', 'Edit Deck', 'Loading your decks and collection.');
+    const editor = state.deckEditor; if (!editor) return loadingScene('deck', 'Edit Deck');
     sceneRoot('Edit Deck');
     if (editor.error) local.message ||= editor.error;
     deckScene.notice(state.error || local.message);
@@ -980,7 +992,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   function renderShop(): void {
     if (useCardShop()) { sceneRoot('Card Shop').append(cardShop.node()); return; }
     cardShop.dispose();
-    const shop = state.shop; if (!shop) return emptyPanel('shop', 'Card Shop', state.error && !state.busy ? 'The shop catalogue could not be loaded. Refresh to try again.' : 'Loading the shop catalogue.');
+    const shop = state.shop; if (!shop) return loadingScene('shop', 'Card Shop');
     // entering the shop: Item Selection, an empty cart (the windows themselves are main's: htmlui/shop.ts)
     if (!shopScene) { Object.assign(shopUi, shopLocal()); shopCosmetics = null; shopScene = true; }
     const n = sceneRoot('Card Shop');
@@ -994,7 +1006,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (shop.opening) { const opening = renderCardGet(shop.opening, { drawCard, art: controller.loadArchiveImage ? (path, className = '') => { const image = el('img', className); image.alt = ''; image.draggable = false; loadArchiveArt(path, image); return image; } : null, reducedMotion: state.settings.reducedMotion, rerender: requestRender }); if (opening) n.append(opening); }
   }
   function renderDuel(): void {
-    const duel = state.duel; if (!duel) return emptyPanel('duel', 'Duel', 'Waiting for duel state.');
+    const duel = state.duel; if (!duel) return loadingScene('duel', 'Duel');
     // The field keeps the original 4:3 geometry on every screen; on a tall phone the log, actions and prompts sit below it.
     const board = el('div', 'de-duel-board'); stage.append(board);
     // under the original field art (while it loads, or without it): the zone outlines of the original sheet
@@ -1304,7 +1316,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (state.scene !== 'title') titleScene?.hide();
       if (state.auth?.signedIn || state.scene !== 'title') loginUi.open = false;
       if (freeTarget && state.mode === 'free' && state.connection === 'online' && state.player && !state.busy && state.scene !== 'deck' && state.scene !== 'characters') { freeTarget = null; queueMicrotask(() => open('deck')); }
-      if (!available(state.scene)) emptyPanel(state.scene, state.scene === 'deck' ? 'Edit Deck' : state.scene[0].toUpperCase() + state.scene.slice(1), 'This feature is unavailable.');
+      if (!available(state.scene)) unavailableScene(state.scene, state.scene === 'deck' ? 'Edit Deck' : state.scene[0].toUpperCase() + state.scene.slice(1));
       else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': if (state.sideboarding) renderSideboarding(); else renderDuel(); break; case 'settings': renderSettings(); break; }
       if (state.preparation && !state.sideboarding && !htmlUi) renderPreparation();
       // the trade scene's ground and the rewrite's trunk under main's trade windows (htmlui/trade.ts)

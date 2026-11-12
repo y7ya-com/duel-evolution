@@ -258,6 +258,12 @@ export function pendingPictures(roots: Element[]): number {
   return n;
 }
 
+/** A scene still waiting for its own data from the server (the deck editor's decks, the duel's first state, the
+ * lobby's world) marks its root with this attribute: the veil stays over it however long that takes, as live's loader
+ * stays over a scene the runtime is still loading (its Reload offer after STUCK_MS). */
+export const SCENE_LOADING_ATTR = 'data-scene-loading';
+export const sceneWaiting = (roots: Element[]): boolean => roots.some(r => r.matches?.(`[${SCENE_LOADING_ATTR}]`) || !!r.querySelector?.(`[${SCENE_LOADING_ATTR}]`));
+
 export const SCENE_SETTLE_POLL_MS = 50;
 /** The longest a scene's own pictures can hold its veil (a picture that never comes must not keep it up). */
 export const SCENE_SETTLE_MAX_MS = 15_000;
@@ -270,8 +276,8 @@ export interface SceneWatchOptions {
   frame?: (fn: () => void) => void;
   now?: () => number;
 }
-/** Begins a scene load on each scene change and ends it when the new scene has settled: drawn (two frames) and
- * nothing it asked for still coming, two polls in a row. Returns observe(view) for each view. */
+/** Begins a scene load on each scene change and ends it when the new scene has settled: drawn (two frames), its data
+ * come (no SCENE_LOADING_ATTR left) and nothing it asked for still coming, two polls in a row. Returns observe(view) for each view. */
 export function watchSceneChanges(opts: SceneWatchOptions): { observe(key: string): void; dispose(): void } {
   const frame = opts.frame ?? ((fn: () => void) => requestAnimationFrame(() => fn())), now = opts.now ?? (() => performance.now());
   let key: string | null = null, end: (() => void) | null = null, timer: ReturnType<typeof setTimeout> | null = null, token = 0;
@@ -286,9 +292,9 @@ export function watchSceneChanges(opts: SceneWatchOptions): { observe(key: strin
       let quiet = 0;
       const poll = () => {
         timer = null; if (my !== token) return;
-        const busy = opts.pending.pending + pendingPictures(opts.roots());
+        const roots = opts.roots(), waiting = sceneWaiting(roots), busy = opts.pending.pending + pendingPictures(roots) + (waiting ? 1 : 0);
         quiet = busy ? 0 : quiet + 1;
-        if (quiet >= 2 || now() - at > SCENE_SETTLE_MAX_MS) { finish(); return; }
+        if (quiet >= 2 || !waiting && now() - at > SCENE_SETTLE_MAX_MS) { finish(); return; }
         timer = setTimeout(poll, SCENE_SETTLE_POLL_MS);
       };
       frame(() => frame(() => { if (my === token) poll(); }));

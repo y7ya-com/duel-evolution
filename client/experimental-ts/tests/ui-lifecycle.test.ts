@@ -94,7 +94,18 @@ describe('UI ownership and semantic interaction', () => {
   it('shows unavailable features as unavailable and never renders their controls', async () => {
     const f = fixture(); f.update({ scene: 'shop', unavailable: { shop: 'Shop protocol is not implemented.' } }); await Promise.resolve();
     expect(f.root.textContent).toContain('Shop protocol is not implemented.');
-    expect(f.root.querySelectorAll('button').some(b => b.textContent === 'Purchase')).toBe(false); f.mounted.dispose();
+    expect(f.root.querySelectorAll('button').some(b => b.textContent === 'Purchase')).toBe(false);
+    // the reason is main's error dialog, its OK goes back to the lobby; no rewrite panel (Refresh / Back)
+    expect(f.mounted.htmlUi.text()).toContain('Shop protocol is not implemented.'); expect(f.root.querySelectorAll('button').some(b => ['Refresh', 'Back'].includes(b.textContent ?? ''))).toBe(false);
+    f.update({ player: { id: 1, name: 'A' } }); await Promise.resolve();
+    expect(f.mounted.htmlUi.press('error-ok')).toBe(true); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(f.commands.at(-1)).toEqual({ type: 'openScene', scene: 'lobby' }); f.mounted.dispose();
+  });
+  it("leaves a scene still waiting for its data under live's loading veil, no rewrite panel", async () => {
+    const f = fixture(); f.update({ scene: 'deck', deckEditor: null, busy: true }); await Promise.resolve();
+    const root = f.root.querySelectorAll('section').find(n => n.className === 'de-scene')!;
+    expect(root.getAttribute('data-scene-loading')).toBe('true');
+    expect(f.root.querySelectorAll('button').some(b => ['Refresh', 'Back'].includes(b.textContent ?? ''))).toBe(false); f.mounted.dispose();
   });
   it('exposes actions on a face-down card without revealing its identity', async () => {
     const f = fixture(); f.update({ scene: 'duel', duel: { players: [{ name: 'A', lp: 8000 }, { name: 'B', lp: 8000 }], turn: 1, turnPlayer: 0, phase: 'Main', log: [], prompt: null, cards: [{ id: 'set1', name: 'Secret Trap', controller: 0, zone: 'spell', index: 0, faceUp: false }], actions: [{ id: 'activate', cardId: 'set1', label: 'Activate trap' }] } }); await Promise.resolve();
