@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, type, text, sleep, stageShot, record, earnCards, ownedCopies, openDeckEditor, exitDeckEditor, byKey, type Page } from './harness';
 
-/** Card Swap is main's trade windows (src/ui/htmlui/trade.ts: CWindowModelTrade, its card areas, main's dialogs) over
- * the rewrite's trunk picker (.de-trade-trunk). */
+/** Card Swap is main's trade windows (src/ui/htmlui/trade.ts: CWindowModelTrade, its card areas, main's dialogs) and
+ * the deck screen's trunk (CWindowModelKaban, htmlui/trade-trunk.ts: its rows .htmlui-deck-row, a press offers). */
 const scene = `document.querySelector('.de-trade-scene')`;
 /** The text of main's dialog holding this button (the invitation, the final confirmation, the result). */
 const dialogText = (key:string) => `(document.querySelector('[data-key="${key}"]')?.closest('.win')?.innerText ?? '')`;
@@ -23,9 +23,16 @@ async function invite(from:Page,to:Page,name:string) {
   await press(from,`document.querySelector('[data-key="find-trade"]')`);
   await until(to,`${dialogText('trade-accept')}.includes('You have a Trade Request!')`,30000);
 }
-/** The trunk's offer count for a card (its Offer (×n) button). */
-const trunk = (page:Page,name:string) => page.ev(`Number(/×(\\d+)/.exec([...document.querySelectorAll('.de-trade-trunk .de-trade-card')].find(c=>c.title===${JSON.stringify(name)})?.querySelector('button')?.textContent ?? '×0')?.[1] ?? 0)`) as Promise<number>;
-const offer = (page:Page,name:string) => press(page,`[...document.querySelectorAll('.de-trade-trunk button')].find(b=>b.getAttribute('aria-label')===${JSON.stringify(`Offer ${name}`)})`);
+/** The trunk's copies left of a card (its row's figure), 0 when it has no row. */
+const trunk = (page:Page,name:string) => page.ev(`(window.yo2Html.tradeTrunk?.()??[]).find(r=>r.name===${JSON.stringify(name)})?.left ?? 0`) as Promise<number>;
+/** The trunk shown (its window and its rows' layer). */
+const trunkShown = `Boolean(document.querySelector('#htmlui-host .win[data-window-class="CWindowModelKaban"]'))`;
+/** Offer a card: its row scrolled into view (the wheel's way), pressed. */
+async function offer(page:Page,name:string) {
+  await page.ev(`(()=>{const r=(window.yo2Html.tradeTrunk?.()??[]).find(r=>r.name===${JSON.stringify(name)});if(r)window.yo2Html.tradeTrunkReveal(r.row);})()`);
+  const row = `[...document.querySelectorAll('.htmlui-deck-row[data-zone="trunk"]')].find(e=>e.getAttribute('aria-label')===${JSON.stringify(name)})`;
+  await until(page,row,10000); await press(page,row);
+}
 /** The partner's offered card shown in their (upper) area, by name. */
 const offered = (name?:string) => `[...document.querySelectorAll('[data-picture^="trade-card:o:"]')].find(e=>${name ? `e.title===${JSON.stringify(name)}` : 'true'})`;
 /** This side ready: main's own lamp lit, Ready to Trade. gone. */
@@ -38,7 +45,7 @@ async function ready(page:Page) {
   }
   throw new Error('Ready did not take');
 }
-const offerable = (page:Page) => page.ev(`[...document.querySelectorAll('.de-trade-trunk .de-trade-card')].map(c=>({name:c.title,key:c.querySelector('button')?.getAttribute('aria-label')}))`) as Promise<{ name:string }[]>;
+const offerable = (page:Page) => page.ev(`(window.yo2Html.tradeTrunk?.()??[]).filter(r=>r.left>0).map(r=>({name:r.name}))`) as Promise<{ name:string }[]>;
 const shot = (page:Page,name:string) => stageShot(page,`${process.env.SKIN_SHOT ?? 'trade'}-${name}`);
 
 describe.skipIf(!enabled)('card trades between two real players',() => {
@@ -66,7 +73,7 @@ describe.skipIf(!enabled)('card trades between two real players',() => {
       // then accept.
       await invite(a,b,names.b);
       await press(b,byKey('trade-accept'));
-      for (const p of [a,b]) await until(p,`document.querySelector('.de-trade-trunk')`,30000);
+      for (const p of [a,b]) await until(p,trunkShown,30000);
       await sleep(1500); await shot(a,'open');
       record('trade.invite',{ actions:'Invite by name; partner declines; invite again; partner accepts', expected:'Invite, accept, decline and cancel without stale state', observed:`decliner's request dialog closed; inviter saw "${names.b} declined the trade." and closed it; second invite opened the trade on both sides` });
       // trade.offers: A offers a card; B sees it live. B offers one; A sees it.
@@ -106,18 +113,16 @@ describe.skipIf(!enabled)('card trades between two real players',() => {
       const collectionA = (await openDeckEditor(a)).collection; await exitDeckEditor(a);
       await click(a,'Return to Lobby'); await click(b,'Return to Lobby');
       await invite(a,b,names.b); await press(b,byKey('trade-accept'));
-      for (const p of [a,b]) await until(p,`document.querySelector('.de-trade-trunk')`,30000);
+      for (const p of [a,b]) await until(p,trunkShown,30000);
       // A soul-bound starter card: the server sends its copies in the trade's limit table (trade.ts limitPairs) and the
       // trunk holds them back, so it can't be offered at all (the server would also refuse it at the confirmation:
       // server/test/anti-alt.test.ts). A owns it; searching the trunk for it finds nothing to offer.
       const offerableA = new Set((await offerable(a)).map(c => c.name));
       const bound = collectionA.find(c => c.owned > 0 && ![...offerableA].some(n => n.toLowerCase().includes(c.name.toLowerCase())) && !rewardA.includes(c.name) && c.name !== take)!;
       expect(bound).toBeTruthy();
-      await type(a,`document.querySelector('[data-key="trade-search"]')`,bound.name);
-      await until(a,`[...document.querySelectorAll('.de-trade-trunk .de-note')].some(n=>n.textContent==='No matching cards.')&&!document.querySelector('.de-trade-trunk .de-trade-card')`,10000);
+      // the trunk lists it nowhere (no row, no copies to offer)
+      expect(await trunk(a,bound.name)).toBe(0);
       await sleep(500); await shot(a,'bound-held');
-      await type(a,`document.querySelector('[data-key="trade-search"]')`,'');
-      await until(a,`Boolean(document.querySelector('.de-trade-trunk .de-trade-card'))`,10000);
       const offerAgain = (await offerable(a))[0]!.name;
       await offer(a,offerAgain);
       await until(b,offered(),30000);

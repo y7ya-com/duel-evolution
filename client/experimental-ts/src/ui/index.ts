@@ -19,7 +19,6 @@ import { duelConfigWindow, titleOptionsWindow, DUEL_OPTIONS_TEXTS, type OptionsD
 import { closeAudioPage, openAudioPage } from './htmlui/audio-page';
 import type { AudioAction } from '../features/audio';
 import { renderLanguageSettings } from './extra/language';
-import { renderTradeTrunk } from './extra/social';
 import { renderTagLobby, TAG_CSS } from './extra/tag';
 import { renderCardGet, cardGetClosed, CARD_GET_CSS } from './extra/card-get';
 import { accessoryName } from './extra/wallet';
@@ -53,6 +52,7 @@ import { NPC_STAR_BIG, NPC_STAR_SMALL } from '../avatars/npc';
 import { barReserve, onBarReserve } from '@htmlui/screens/lobby_icons.js';
 import { titleName } from '../features/titles';
 import { tradeLocal, tradeWindows, tradeScene, trunkOpen } from './htmlui/trade';
+import { TradeTrunk, isTradeTrunk } from './htmlui/trade-trunk';
 import { deckBackdrop } from '@htmlui/screens/deck.js';
 import { PictureArt } from './htmlui/art';
 import { setPictureResolver, disposePictures } from './htmlui/pictures';
@@ -322,11 +322,19 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   };
   // the trade (src/ui/htmlui/trade.ts): main's trade windows and dialogs over any scene but the title and Select Player
   const tradeUi = tradeLocal();
+  // the trade's trunk: the deck screen's CWindowModelKaban (htmlui/trade-trunk.ts), its rows through their own card layer
+  const tradeTrunk = new TradeTrunk({ card: passcode => socialOptions().card(passcode), dispatch: action => send({ type: 'socialAction', action }), rerender: () => showHtml(),
+    editable: () => { const t = controller.getState().socialDetail?.trade; return !!t && t.phase === 'open' && !t.view.ready && !t.view.otherReady && !t.pendingMove && t.ownOffer.length < 10; } });
+  let tradeDom: DeckDom | null = null;
   const tradeSpecs = (): WindowSpec[] => {
     const sd = state.socialDetail; if (!sd || sd.trade.phase === 'idle' || ['title', 'characters'].includes(state.scene)) return [];
     const reason = tradeReason();
-    return tradeWindows({ trade: sd.trade, ui: tradeUi, ids: htmlIds, dispatch: action => send({ type: 'socialAction', action }), rerender: showHtml,
+    const out = tradeWindows({ trade: sd.trade, ui: tradeUi, ids: htmlIds, dispatch: action => send({ type: 'socialAction', action }), rerender: showHtml,
       name: passcode => socialOptions().card?.(passcode).name ?? `Card ${passcode}`, status: sd.status, ...(reason ? { reason } : {}) });
+    const trunk = tradeTrunk.window(htmlIds, sd.trade, tradeScene(sd.trade) && trunkOpen(sd.trade));
+    // over the trade's scene windows, under its dialogs (the request, the confirmation, the result)
+    if (trunk) out.splice(out.findIndex(w => w.win.cls === 'CWindowTaskCardArea') + 1 || out.length, 0, trunk);
+    return out;
   };
   // the title's sign-in, signed out: live's CWindowLogin (rt/session.cpp's panel, htmlui/login.ts)
   const loginUi = loginLocal();
@@ -548,14 +556,19 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const engineScene = () => ({ characters: 7, lobby: state.mode === 'free' ? 12 : 11, shop: 14, deck: 0x24 } as Partial<Record<Scene, number>>)[state.scene] ?? 0;
   // the chat's Duels tab, the Players window's Discord rows, the ?duel= auto-join (htmlui/discord-wire.ts)
   const discord = discordWire({ ui: htmlUiState, state: () => state, send: command => send(command), rerender: () => showHtml(), search: globalThis.location?.search ?? '' });
+  // the card pictures and archive art of the deck windows' card layers (deck-dom.ts)
+  const cardArt = () => ({ ...(controller.loadCardImage ? { card: (pc: number, signal: AbortSignal) => controller.loadCardImage!(pc, signal) } : {}), ...(controller.loadArchiveImage ? { archive: (path: string, signal: AbortSignal) => controller.loadArchiveImage!(path, signal) } : {}) });
   const showHtml = () => {
     askGameTexts(); syncStartScene(); discord.tick();
     if (disposed) return;
-    if (!deckDom && state.scene === 'deck' && typeof globalThis.document !== 'undefined') deckDom = new DeckDom(host, deckScene, { art: '/ui/', ...(controller.loadCardImage ? { card: (pc: number, signal: AbortSignal) => controller.loadCardImage!(pc, signal) } : {}), ...(controller.loadArchiveImage ? { archive: (path: string, signal: AbortSignal) => controller.loadArchiveImage!(path, signal) } : {}) });
-    if (!htmlUi) { if (deckDom) { const d = deckScene.stageView(); deckDom.show(buildHtml(), d.detail, d.drag); } syncPortrait(); return; }
+    if (!deckDom && state.scene === 'deck' && typeof globalThis.document !== 'undefined') deckDom = new DeckDom(host, deckScene, { art: '/ui/', ...cardArt(), owns: w => !isTradeTrunk(w) });
+    const trading = !!state.socialDetail && tradeScene(state.socialDetail.trade);
+    if (!tradeDom && trading && typeof globalThis.document !== 'undefined') tradeDom = new DeckDom(htmlUi?.host ?? host, tradeTrunk, { art: htmlUi ? new URL('/ui/', location.href).href : '/ui/', ...cardArt(), owns: isTradeTrunk });
+    if (!htmlUi) { const specs = deckDom || tradeDom ? buildHtml() : []; if (deckDom) { const d = deckScene.stageView(); deckDom.show(specs, d.detail, d.drag); } tradeDom?.show(specs, null, null); syncPortrait(); return; }
     const specs = buildHtml(), deck = deckScene.stageView();
     htmlUi.show(specs, ['title', 'characters'].includes(state.scene), engineScene());
     deckDom?.show(specs, deck.detail, deck.drag);
+    tradeDom?.show(specs, null, null);
     syncPortrait();
   };
   /** The waist-up portraits the game draws under its windows outside Select Player (src/ui/htmlui/start-scene.ts's
@@ -594,11 +607,15 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       gameCursor?.dispose();
       gameCursor = new GameCursor({ art, stage: () => stage, busy: () => !!controller.getState().busy });
       if (deckDom) deckDom.dispose();
-      deckDom = new DeckDom(htmlUi.host, deckScene, { art, ...(controller.loadCardImage ? { card: (pc: number, signal: AbortSignal) => controller.loadCardImage!(pc, signal) } : {}), ...(controller.loadArchiveImage ? { archive: (path: string, signal: AbortSignal) => controller.loadArchiveImage!(path, signal) } : {}) });
+      deckDom = new DeckDom(htmlUi.host, deckScene, { art, ...cardArt(), owns: w => !isTradeTrunk(w) });
+      if (tradeDom) { tradeDom.dispose(); tradeDom = null; }
       // what the editor holds, for tests and assistive tools (main's yo2Html.snapshot() has the windows only)
       const g = globalThis as { yo2Html?: Record<string, unknown> };
       if (g.yo2Html) {
         g.yo2Html.deckState = () => deckScene.inspect();
+        // the trade trunk's whole list (its window shows eleven rows), and a row scrolled into view
+        g.yo2Html.tradeTrunk = () => tradeTrunk.list();
+        g.yo2Html.tradeTrunkReveal = (row: number) => tradeTrunk.reveal(row);
         // main's right-click / double-click moves wait on the game's drag (screens/deck.js quickInstall: deckDrag.state)
         const base = g.yo2Html.snapshot as (() => object | null) | undefined;
         if (base) g.yo2Html.snapshot = () => { const s = base(); return s && { ...s, deckDrag: { state: deckScene.ui.drag ? 1 : 0 } }; };
@@ -1320,9 +1337,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (!available(state.scene)) unavailableScene(state.scene, state.scene === 'deck' ? 'Edit Deck' : state.scene[0].toUpperCase() + state.scene.slice(1));
       else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': if (state.sideboarding) renderSideboarding(); else renderDuel(); break; case 'settings': renderSettings(); break; }
       if (state.preparation && !state.sideboarding && !htmlUi) renderPreparation();
-      // the trade scene's ground and the rewrite's trunk under main's trade windows (htmlui/trade.ts)
-      if (state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene))
-        stage.append(renderTradeTrunk(state.socialDetail.trade, action => send({ type: 'socialAction', action }), { ...socialOptions(), search: local.tradeSearch, onSearch: value => { local.tradeSearch = value; requestRender(); }, backdrop: el => { deckBackdrop(el); }, open: trunkOpen(state.socialDetail.trade) }));
+      // the trade scene's ground under main's trade windows (htmlui/trade.ts) and its trunk (htmlui/trade-trunk.ts)
+      if (state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene)) {
+        const ground = el('section', 'de-trade-scene'); ground.setAttribute('aria-label', 'Card Swap'); deckBackdrop(ground); stage.append(ground);
+      }
       if (state.tagLobby?.open && state.scene === 'lobby') stage.append(renderTagLobby(state.tagLobby, action => send({ type: 'tagAction', action })));
       if (state.npc && state.npc.npc && !['idle', 'duel'].includes(state.npc.stage) && ['lobby', 'duel'].includes(state.scene) && !(htmlUi && npcTalkStage(state.npc))) {
         const npc = state.npc; stage.append(renderNpcFeature(npc, command => { if (controller.getState().npc !== npc) { local.message = 'This NPC interaction has changed.'; requestRender(); return; } send(command); }, { busy: state.busy, htmlPackSelect: !!htmlUi, packName: id => state.packNames?.[id], resolveCard: id => state.npcCardViews?.[id], renderCard: card => drawCard(card), itemName: bit => giftItemName(bit, { recipeName: b => state.npcGiftRecipes?.[b], cosmetics: state.online?.cosmetics ?? null }) }));
@@ -1438,5 +1456,5 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     else if (e.target instanceof Node && htmlUi?.host?.contains(e.target)) npcEscape(e); };
   globalThis.document?.addEventListener?.('keydown', bodyKeys);
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; netNote.dispose(); globalThis.removeEventListener?.('pointermove', cmdPointer, true); globalThis.removeEventListener?.('pointerdown', cmdPress, true); duelSpeedButton.dispose(); starterPicker.close(); discord.dispose(); cardShop.dispose(); pageMods.dispose(); offReserve(); deckDom?.dispose(); deckDom = null; deckScene.dispose(); htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; titleScene?.dispose(); titleScene = null; portraitScene?.dispose(); portraitScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); worldWalk?.dispose(); worldWalk = null; phone?.dispose(); duelScene.dispose(); observer?.disconnect(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; closeAudioPage(); packSheet?.close(); packSheet = null; gameCursor?.dispose(); gameCursor = null; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; netNote.dispose(); globalThis.removeEventListener?.('pointermove', cmdPointer, true); globalThis.removeEventListener?.('pointerdown', cmdPress, true); duelSpeedButton.dispose(); starterPicker.close(); discord.dispose(); cardShop.dispose(); pageMods.dispose(); offReserve(); deckDom?.dispose(); deckDom = null; tradeDom?.dispose(); tradeDom = null; deckScene.dispose(); htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; titleScene?.dispose(); titleScene = null; portraitScene?.dispose(); portraitScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); worldWalk?.dispose(); worldWalk = null; phone?.dispose(); duelScene.dispose(); observer?.disconnect(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; closeAudioPage(); packSheet?.close(); packSheet = null; gameCursor?.dispose(); gameCursor = null; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }

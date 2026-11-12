@@ -7,15 +7,32 @@
 import { plan, union } from '@htmlui/screens/deck.js';
 import type { HtmlWindow, WindowSpec } from './snapshot';
 import { texCard, SIDE_BUTTONS } from './deck';
-import type { DeckFrom } from './deck';
-import type { DeckScene } from './deck-scene';
+import type { DeckFrom, DeckUi } from './deck';
+import type { CardView } from '../contracts';
 
+/** What the cards' and buttons' elements call (the deck editor's scene, deck-scene.ts; the trade's trunk, trade-trunk.ts). */
+export interface DeckDomScene {
+  readonly ui: Pick<DeckUi, 'drag' | 'files' | 'dialog' | 'top' | 'view' | 'detail'>;
+  card(passcode: number): CardView | undefined;
+  pick(zone: DeckFrom, index: number, passcode: number, at: [number, number]): void;
+  dragTo(at: [number, number]): void;
+  dropOn(zone: DeckFrom | null, index: number | null): void;
+  quick(zone: DeckFrom, index: number, passcode: number): void;
+  wheel(rows: number): void;
+  hover(name: string | null): void;
+  sideButton(name: string): void;
+  tab(view: 'main' | 'extra'): void;
+  toggleDetail(): void;
+  fileRow(index: number): void;
+}
 export interface ArtLease { url: string; release(): void }
 export interface DeckDomOptions {
   /** main's ui/ art (atlases), as the layer has it. */
   art: string;
   card?(passcode: number, signal: AbortSignal): Promise<ArtLease>;
   archive?(path: string, signal: AbortSignal): Promise<ArtLease>;
+  /** The deck windows this layer draws (default: all): the deck editor's and the trade's trunk each have their own. */
+  owns?(win: HtmlWindow): boolean;
 }
 /** What the detail's power strip shows a monster (its race, attribute and level icons, holes in main's module). */
 export interface PowerIcons { race: number; attr: number; level: number }
@@ -33,7 +50,7 @@ export class DeckDom {
   private art = new Map<string, Entry>(); private frame = 0; private disposed = false;
   private active = false; private zonesKey = '';
 
-  constructor(private host: HTMLElement, private scene: DeckScene, private options: DeckDomOptions) {
+  constructor(private host: HTMLElement, private scene: DeckDomScene, private options: DeckDomOptions) {
     // over main's windows (each window's cards at its depth), under its modal lists and dialogs
     this.el = document.createElement('div');
     this.el.className = 'htmlui-deck-cards';
@@ -78,7 +95,7 @@ export class DeckDom {
   /** The deck windows shown now (none: the editor is closed), the detail's card and power icons, the card dragged. */
   show(specs: readonly WindowSpec[], detail: { passcode: number; power: PowerIcons | null } | null, drag: { passcode: number; at: [number, number] } | null): void {
     if (this.disposed) return;
-    const wins = specs.map(s => s.win).filter(w => DECK_CLASSES.has(w.cls));
+    const wins = specs.map(s => s.win).filter(w => DECK_CLASSES.has(w.cls) && (this.options.owns?.(w) ?? true));
     const modal = !!(this.scene.ui.files || this.scene.ui.dialog);
     this.active = wins.some(w => w.cls === 'CWindowModelDeck');
     this.frame++;

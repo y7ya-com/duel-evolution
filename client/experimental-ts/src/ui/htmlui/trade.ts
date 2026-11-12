@@ -6,8 +6,7 @@
 // (24 px), the cards at half size (100 x 145) from (262, 52) / (262, 340), Ready to Trade. (444, 576, 130 wide) and
 // Cancel (588, 576, 80 wide), the lamps (data/deck/trade_icon101: the partner thinking, 202: this side ready, 102: the
 // partner ready). The request, the final confirmation and the result are main's stock dialogs (dialog.js). The trunk
-// stays the rewrite's picker (extra/social.ts renderTradeTrunk), beside these windows, until the deck editor's trunk
-// (screens/deck.js CWindowModelKaban) is ported. Pure: no DOM here.
+// is the deck screen's CWindowModelKaban beside these windows (trade-trunk.ts). Pure: no DOM here.
 import type { SocialAction, SocialTrade } from '../../features/social';
 import { WindowBuilder } from './snapshot';
 import type { Ids, WindowSpec } from './snapshot';

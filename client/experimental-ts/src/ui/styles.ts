@@ -149,19 +149,6 @@ button.de-card { padding:2px; min-height:0; color:#fff; background:linear-gradie
 .de-mail-body { white-space:pre-wrap; padding:4px 8px; }
 .de-confirm { display:inline-flex; gap:6px; align-items:center; flex-wrap:wrap; }
 .de-trade-scene { position:absolute; inset:0; z-index:20; overflow:hidden; }
-.de-trade-trunk-panel { position:absolute; left:${736 / 10.24}%; top:0; width:${288 / 10.24}%; height:${608 / 7.68}%; display:flex; flex-direction:column; box-sizing:border-box; padding:4px 6px; gap:4px;
-  background:linear-gradient(#cfd6e6,#a9b4cc); border:1px solid #f4f8ff; box-shadow:inset 0 0 0 1px #6f7fa3; font:13px/1.2 Arial,sans-serif; color:#0d1d33; }
-.de-trade-trunk-panel header { display:flex; justify-content:space-between; align-items:center; }
-.de-trade-trunk-panel h3 { margin:0; font:italic 900 22px/1 Arial Black,Arial,sans-serif; color:#ffe14a; -webkit-text-stroke:1px #6b3c00; letter-spacing:.02em; }
-.de-trade-count { padding:1px 8px; border-radius:6px; background:linear-gradient(#5a5f6b,#2c2f36); color:#fff; font-weight:bold; }
-.de-trade-trunk-panel input[type=search] { width:100%; box-sizing:border-box; }
-.de-trade-trunk { flex:1; min-height:0; overflow:auto; display:flex; flex-direction:column; gap:1px; background:#9aa6bf; }
-.de-trade-card { display:grid; grid-template-columns:38px 1fr auto; align-items:center; gap:6px; min-height:56px; padding:2px 4px; background:#e6fbf0; border-left:6px solid #35d36a; }
-.de-trade-card:nth-child(even) { background:#d8f4e6; }
-.de-trade-thumb { width:38px; height:52px; display:block; }
-.de-trade-thumb>.de-card { width:100%; height:100%; }
-.de-trade-name { font-size:13px; overflow:hidden; text-overflow:ellipsis; }
-.de-trade-card button { min-height:22px; padding:1px 4px; font-size:11px; }
 .de-trade-result { font-weight:bold; color:#16733a; }
 .de-client button.de-zone-target { position:absolute; transform:translate(-50%,-50%); pointer-events:auto; min-height:0; padding:0; background:#fff59a55; border:2px solid #ffe14a; border-radius:3px; box-shadow:0 0 12px #ffe14a, inset 0 0 10px #fff7b0; animation:de-zone-pulse 1s ease-in-out infinite alternate; z-index:3; }
 .de-client button.de-zone-target:hover { background:#fff59a99; }
