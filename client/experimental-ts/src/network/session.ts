@@ -68,7 +68,9 @@ export interface SessionState {
   limits?: ReadonlyMap<number, number> | null;
   /** The account's admin sanctions (0x3004 AUTHRESULT's flags: 0x20 chat, 0x40 trade, server lobby.ts): the client greys those out. */
   sanctions?: AccountSanctions;
-  matchmaking:MatchmakingState; relay: RelayState | null; duelRole: 'player' | 'partner' | 'spectator'; match: MatchState | null; duelFirst: number | null; opponentHand: number | null; rpsLost: boolean; error: string | null;
+  matchmaking:MatchmakingState; relay: RelayState | null; duelRole: 'player' | 'partner' | 'spectator'; match: MatchState | null; duelFirst: number | null; opponentHand: number | null; rpsLost: boolean;
+  /** The last round of rock-paper-scissors: both hands as the server answered (0 rock, 1 scissors, 2 paper), counted. */
+  rpsLast: { mine: number; theirs: number; round: number } | null; error: string | null;
   /** A duel the server called off before it began (pvpMatch abort: the other duelist gone, or the 90 s attach window
    *  over; a blocked deck): the duel server's 0x649b code 1 (`aboutOpponent` its flag), or the duel connection lost for
    *  good (`reason`). Live says so in a box over the janken scene and its OK goes back to the lobby: leaveCalledOffDuel. */
@@ -195,7 +197,7 @@ export class GameSession {
     phase: 'idle', connection: 'idle', characters: [], servers: [], selectedSlot: null, profile: null,
     collection: new Map(), players: [], areas: [], npcs: [], rooms: [], chat: [], area: 0, areaBlock: 0,
     duelOffer: null, challenge: null, outgoingChallengeRoom: null, spectating: false,
-    matchmaking:{ status:'idle',style:3,similarLevel:true,opponent:null,counts:{ single:0,match:0,either:0 },matchSupported:false }, relay:null, duelRole:'player', match: null, duelFirst: null, rpsLost: false, opponentHand: null, error: null,
+    matchmaking:{ status:'idle',style:3,similarLevel:true,opponent:null,counts:{ single:0,match:0,either:0 },matchSupported:false }, relay:null, duelRole:'player', match: null, duelFirst: null, rpsLost: false, opponentHand: null, rpsLast: null, error: null,
   };
   account: Channel | null = null;
   lobby: Channel | null = null;
@@ -329,7 +331,7 @@ export class GameSession {
   private callOffDuel(aboutOpponent: boolean, reason?: string): void {
     this.state.duelCalledOff = { aboutOpponent, ...(reason ? { reason } : {}) };
     const re = this.duelRe; re.inDuel = false; re.on = false; re.epoch++; if (re.timer) clearTimeout(re.timer); re.timer = null;
-    this.state.match = null; this.state.rpsLost = false; this.state.opponentHand = null;
+    this.state.match = null; this.state.rpsLost = false; this.state.opponentHand = null; this.state.rpsLast = null;
   }
   /** Live's OK on the called-off duel's box: back to the lobby, as after a duel. */
   async leaveCalledOffDuel(): Promise<void> {
@@ -352,7 +354,7 @@ export class GameSession {
       this.duel = null; this.account = null; this.lobby = null;
     }
     if (DUEL_PHASES.includes(this.state.phase) || this.state.phase === 'changing-lobby') {
-      this.state.match = null; this.state.duelFirst = null; this.state.opponentHand = null; this.state.rpsLost = false; this.state.duelCalledOff = null;
+      this.state.match = null; this.state.duelFirst = null; this.state.opponentHand = null; this.state.rpsLost = false; this.state.rpsLast = null; this.state.duelCalledOff = null;
     }
     this.lobbyMove = null; this.lobbyEpoch++; this.state.lobbyTransition = null;
     this.state.duelOffer = null; this.state.challenge = null; this.state.outgoingChallengeRoom = null; this.state.spectating = false; this.stopWatchPolling();
@@ -816,7 +818,7 @@ export class GameSession {
     if (new BinaryReader(booked.data).i32() !== 1) { this.duelRe.inDuel = false; throw new Error('Duel reservation refused'); }
     this.uploadDeck(deck);
     this.duel.send(0x600b); await prepared;
-    this.state.duelFirst = null; this.state.opponentHand = null; this.state.rpsLost = false;
+    this.state.duelFirst = null; this.state.opponentHand = null; this.state.rpsLost = false; this.state.rpsLast = null;
     // Relay partners share the captain's preparation but do not participate in RPS.
     // The relay starts once all four seats are ready (tagRelay.ts READY); the captain's placement choice is the team's.
     if ((this.state.duelRole as string) === 'partner') { this.sendDuel(0x61fe, Uint8Array.of(1)); this.phase('preparing-duel'); return; }
@@ -834,7 +836,7 @@ export class GameSession {
     if (this.gateway.status !== 'connected') throw new Error('Wait for the connection to resume before submitting the sideboard');
     validateSideboard(match.original,deck);
     this.submittingSideboard = true;
-    this.state.duelFirst = null; this.state.opponentHand = null; this.state.rpsLost = false; this.state.error = null;
+    this.state.duelFirst = null; this.state.opponentHand = null; this.state.rpsLost = false; this.state.rpsLast = null; this.state.error = null;
     try {
       this.uploadDeck(deck);
       await duel.request(0x6100,EMPTY(),0x6100);
@@ -857,6 +859,7 @@ export class GameSession {
     if (result.data.length < 2) throw new Error('Invalid rock-paper-scissors result');
     const rival = result.data[1], delta = (rival - hand + 3) % 3;
     this.state.opponentHand = rival;
+    this.state.rpsLast = { mine: hand, theirs: rival, round: (this.state.rpsLast?.round ?? 0) + 1 };
     // The loser waits for the winner's turn-order choice; another hand would be a request the server never answers.
     this.state.rpsLost = delta === 2;
     if (delta === 0) { this.emit(); return 'draw'; }
@@ -878,7 +881,7 @@ export class GameSession {
     if (this.record.active && this.duel && !this.duel.closed) await new Promise<void>(res => { const t = setTimeout(() => { this.recordDone = null; res(); }, 3000); this.recordDone = () => { clearTimeout(t); this.recordDone = null; res(); }; });
     this.record.reset();
     const duel = this.duel; this.duel = null; duel?.close();
-    this.state.duelFirst = null; this.state.opponentHand = null; this.state.rpsLost = false; this.state.duelCalledOff = null;
+    this.state.duelFirst = null; this.state.opponentHand = null; this.state.rpsLost = false; this.state.rpsLast = null; this.state.duelCalledOff = null;
     this.state.matchmaking = { ...this.state.matchmaking,status:'idle',opponent:null };
     const lobby = this.requireLobby();
     await lobby.request(0x4210, EMPTY(), 0x4213); await lobby.request(0x4214, EMPTY(), 0x4217); await this.refreshRooms(); this.phase('lobby');

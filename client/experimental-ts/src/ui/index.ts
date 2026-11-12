@@ -62,7 +62,7 @@ import { NetNote } from './htmlui/net-note';
 import { duelCmdWindow, duelCmdRect, menuCommand, SURRENDER_COMMAND, type DuelCmdRow, type DuelCmdUi } from './htmlui/duel-cmd';
 import { DuelSpeedButton } from './htmlui/duel-speed';
 import { duelResultWindows } from './htmlui/duel-result';
-import { jankenScene, JANKEN_CSS, type JankenView } from './janken-scene';
+import { jankenScene, jankenWinner, JANKEN_CSS, type JankenView } from './janken-scene';
 export type * from './contracts';
 
 type Child = Node | string | null | undefined;
@@ -502,16 +502,38 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // Rock-paper-scissors and who goes first: live's own scene (janken-scene.ts) in place of the field; the step after
   // the hands goes straight on into the duel (live has no Start Duel: the app begins it, app.ts autoBeginDuel)
   let jankenMine: number | null = null;
+  // live's reveal of each round's hands (janken-scene.ts): both in the middle, then the winner's; after a tie the hands again
+  const REVEAL_BOTH_MS = 1200, REVEAL_WINNER_MS = 1000;
+  let revealRound = 0, revealAt = 0, tieDone = 0, revealed: { mine: number; theirs: number } | null = null;
   const jankenView = (): JankenView | null => {
+    const prep = state.preparation;
+    // the duel may start as the hands are shown (the server's NPC picks at once): the reveal plays out first, as live's
+    if (!prep && !state.sideboarding && revealed && !state.settings.reducedMotion && Date.now() - revealAt < REVEAL_BOTH_MS + REVEAL_WINNER_MS) {
+      const mineWins = jankenWinner(revealed.mine, revealed.theirs), elapsed = Date.now() - revealAt;
+      return { phase: 'wait', mine: revealed.mine, theirs: revealed.theirs, busy: true, thinking: false, reveal: { stage: elapsed < REVEAL_BOTH_MS ? 'both' : 'winner', ...revealed, mineWins } };
+    }
     // (each duel's hands anew: the last duel's pick is forgotten once its preparation is over)
-    const prep = state.preparation; if (!prep || state.sideboarding) { jankenMine = null; return null; }
+    if (!prep || state.sideboarding) { jankenMine = null; revealRound = tieDone = 0; revealed = null; return null; }
     const phase = prep.phase.toLowerCase(), theirs = prep.opponentHand ?? null, busy = !!state.busy;
     if (prep.role === 'partner' || prep.role === 'spectator') return { phase: 'wait', mine: null, theirs, busy, thinking: false, message: prep.role === 'partner' ? 'Your captain is preparing the duel…' : 'Waiting for duel preparation…' };
+    const hands = prep.hands ?? null;
+    if (hands && hands.round !== revealRound) {
+      revealRound = hands.round; revealAt = Date.now(); revealed = { mine: hands.mine, theirs: hands.theirs };
+      for (const ms of [REVEAL_BOTH_MS, REVEAL_BOTH_MS + REVEAL_WINNER_MS]) setTimeout(() => { if (!disposed) requestRender(); }, ms + 20);
+    }
+    if (hands) {
+      const mineWins = jankenWinner(hands.mine, hands.theirs), elapsed = Date.now() - revealAt, reduced = state.settings.reducedMotion;
+      if (!reduced && elapsed < REVEAL_BOTH_MS + (mineWins === null ? 0 : REVEAL_WINNER_MS))
+        return { phase: 'wait', mine: hands.mine, theirs: hands.theirs, busy, thinking: false, reveal: { stage: elapsed < REVEAL_BOTH_MS ? 'both' : 'winner', mine: hands.mine, theirs: hands.theirs, mineWins } };
+      // a tie shown: the hands again (once per round: the next pick waits for its own answer)
+      if (mineWins === null && tieDone !== hands.round) { tieDone = hands.round; jankenMine = null; }
+      // decided: the winner's card stays while the winner chooses who goes first (the winner's own plates replace it)
+      if (mineWins !== null && !(/first|order|turn/.test(phase) && !/wait|result/.test(phase)))
+        return { phase: 'wait', mine: hands.mine, theirs: hands.theirs, busy, thinking: false, reveal: { stage: 'winner', mine: hands.mine, theirs: hands.theirs, mineWins } };
+    }
     if (/ready|begin|confirm|invitation/.test(phase)) return { phase: 'wait', mine: jankenMine, theirs, busy, thinking: false };
     if (/rps|hand|rock|scissors/.test(phase) && !/wait|result/.test(phase)) {
-      // a tie: the hands again
-      if (jankenMine !== null && theirs !== null) jankenMine = null;
-      return { phase: 'hand', mine: jankenMine, theirs: jankenMine === null ? null : theirs, busy, thinking: true };
+      return { phase: 'hand', mine: jankenMine, theirs: null, busy, thinking: true };
     }
     if (/first|order|turn/.test(phase) && !/wait|result/.test(phase)) return { phase: 'first', mine: jankenMine, theirs, busy, thinking: false };
     return { phase: 'wait', mine: jankenMine, theirs, busy, thinking: /first/.test(phase) };

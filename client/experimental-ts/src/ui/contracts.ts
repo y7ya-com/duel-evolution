@@ -171,7 +171,9 @@ export interface ClientView {
   replay?: { names: [string, string]; when: number; index: number; total: number; playing: boolean };
   auth?: { signedIn: boolean; name?: string };
   relay?: { active: [0 | 1, 0 | 1]; self: 0 | 1 | 255; players: { pid: number; name: string }[]; canAct: boolean };
-  preparation?: { role?: 'player' | 'partner' | 'spectator'; phase: string; opponentHand?: number | null };
+  preparation?: { role?: 'player' | 'partner' | 'spectator'; phase: string; opponentHand?: number | null;
+    /** The last round's two hands (live's janken scene shows them meet, a tie's too), counted. */
+    hands?: { mine: number; theirs: number; round: number } | null };
   /** A duel the server called off before it began: live's box (its OK: leaveDuel, back to the lobby). */
   duelCalledOff?: { id: number; text: string };
   starter?: { claimable: boolean; decks: StarterDeckChoice[] };

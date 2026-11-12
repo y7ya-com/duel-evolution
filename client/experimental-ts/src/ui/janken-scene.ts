@@ -4,10 +4,12 @@
 // down cards cut by the screen's top (152 / 412 / 672, 200 x 290, their feet at y 190) with the thinking bubble on the
 // middle one while it chooses, and the player's three janken cards (jan_card_01..03: rock, scissors, paper) at the same
 // x from y 578, the one under the pointer framed (card_select_01_c01, 232 x 322). The hands shown, the opponent's card
-// turns to its hand. The winner picks who goes first on the two plates of jan_dai_01_? in their frame
-// (jan_daiwaku_01_c01, 368 x 80: "FIRST TO GO" rows 0-1, "SECOND TO GO" rows 2-3, 64 high). The cards and plates are
-// real buttons (Rock / Scissors / Paper, Go First / Go Second). Positions measured on live's screen; the scene's own
-// movie (yo2_janken.txt) is not ported: no deal or reveal animation.
+// turns to its hand. The reveal (live's frames, de-scratch/duelwin/live/jk): the two hands played meet in the middle
+// (x 412: the opponent's upright at y 36, the player's at 348), then the winner's alone (y 320), a tie's both go and the
+// hands come again. The winner picks who goes first on the two plates of jan_dai_01_? at twice their size, no frame
+// (704 x 128 at 160, 224 and 160, 416: "FIRST TO GO" rows 0-1, "SECOND TO GO" rows 2-3, the pointer's look the second
+// row), nothing else of the scene's cards up. The cards and plates are real buttons (Rock / Scissors / Paper, Go First /
+// Go Second). Positions measured on live's screen; the movie's slides between those steps are not ported.
 
 export interface JankenView {
   phase: 'hand' | 'first' | 'wait';
@@ -20,7 +22,11 @@ export interface JankenView {
   thinking: boolean;
   /** A tag partner's or a spectator's line while the captains choose. */
   message?: string;
+  /** The hands shown (live's reveal): both in the middle, then the winner's alone (null: a tie, none wins). */
+  reveal?: { stage: 'both' | 'winner'; mine: number; theirs: number; mineWins: boolean | null };
 }
+/** Whose hand wins (0 rock, 1 scissors, 2 paper): true the player's, false the opponent's, null a tie. */
+export const jankenWinner = (mine: number, theirs: number): boolean | null => mine === theirs ? null : (mine - theirs + 3) % 3 === 2;
 export interface JankenActions { hand(hand: 0 | 1 | 2): void; first(first: boolean): void }
 
 const CARD_X = [152, 412, 672] as const, CARD_W = 200, CARD_H = 290;
@@ -57,12 +63,20 @@ export function jankenScene(view: JankenView, act: JankenActions, art: ((path: s
   const lines = img('data/y/janken/jan_bg_02.png', 'de-janken-lines'); place(lines, 0, 0, 1024, 768);
   const hex = img('data/y/janken/jan_bg_03.png', 'de-janken-hex'); place(hex, 0, 0, 1144, 830);
   root.append(bg, lines, hex, ...portraits);
-  // the opponent's cards: backs, the middle one its hand once shown
-  CARD_X.forEach((x, i) => {
+  const reveal = view.reveal;
+  if (reveal) {
+    const card = (hand: number, y: number) => { const c = img(`data/y/janken/jan_card_0${hand + 1}.png`); place(c, 412, y, CARD_W, CARD_H); root.append(c); };
+    if (reveal.stage === 'both') { card(reveal.theirs, 36); card(reveal.mine, 348); }
+    else if (reveal.mineWins !== null) card(reveal.mineWins ? reveal.mine : reveal.theirs, 320);
+    if (view.message) { const m = document.createElement('div'); m.className = 'de-janken-message'; m.setAttribute('role', 'status'); m.textContent = view.message; root.append(m); }
+    return root;
+  }
+  // the opponent's cards: backs, the middle one its hand once shown (none once the hands are decided)
+  if (view.phase !== 'first') CARD_X.forEach((x, i) => {
     const shown = i === 1 && view.theirs !== null ? img(`data/y/janken/jan_card_0${view.theirs + 1}.png`) : img('data/card/0000.png');
     place(shown, x, 190 - CARD_H, CARD_W, CARD_H); shown.style.transform = 'rotate(180deg)'; root.append(shown);
   });
-  if (view.thinking) { const t = img('data/deck/trade_icon101_0_j.png'); place(t, 462, 152, 92, 92); root.append(t); }
+  if (view.thinking && view.phase !== 'first') { const t = img('data/deck/trade_icon101_0_j.png'); place(t, 462, 152, 92, 92); root.append(t); }
   if (view.phase === 'hand' || view.mine !== null && view.phase !== 'first') {
     HANDS.forEach((label, hand) => {
       const b = document.createElement('button'); b.type = 'button'; b.setAttribute('aria-label', label); b.dataset.key = `janken:${label.toLowerCase()}`;
@@ -77,10 +91,11 @@ export function jankenScene(view: JankenView, act: JankenActions, art: ((path: s
   }
   if (view.phase === 'first') {
     ([[true, 'Go First', 0], [false, 'Go Second', 2]] as const).forEach(([first, label, row], i) => {
-      const y = 292 + i * 96, frame = img('data/y/janken/jan_daiwaku_01_c01.png'); place(frame, 328, y - 8, 368, 80); root.append(frame);
       const b = document.createElement('button'); b.type = 'button'; b.className = 'de-janken-plate'; b.setAttribute('aria-label', label); b.dataset.key = `janken:${first ? 'first' : 'second'}`;
-      b.disabled = view.busy; place(b, 336, y, 352, 64);
+      b.disabled = view.busy; place(b, 160, 224 + i * 192, 704, 128);
       const sheet = img('data/y/janken/jan_dai_01_e.png', 'sheet'); sheet.style.top = `-${row * 100}%`;
+      // the pointer's look: the plate's second row
+      b.onpointerenter = () => { if (!b.disabled) sheet.style.top = `-${(row + 1) * 100}%`; }; b.onpointerleave = () => { sheet.style.top = `-${row * 100}%`; };
       b.append(sheet, sr(label)); b.onclick = () => { if (!b.disabled) act.first(first); };
       root.append(b);
     });
