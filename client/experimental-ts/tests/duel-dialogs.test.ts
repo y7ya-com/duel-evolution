@@ -20,6 +20,16 @@ describe("main's duel dialogs from the prompt model", () => {
     expect(spec.win.controls.filter(c => c.name.startsWith('row:')).map(c => [c.cls, c.label])).toEqual(['A', 'B', 'C', 'Cancel'].map(l => ['CWindowTaskTextSwitch', l]));
     press('prompt-option:p2:b'); press('prompt-cancel:p2'); expect(sent).toEqual([{ optionId: 'b' }, { cancel: true }]);
   });
+  it('a list longer than twelve rows (a race declaration) moves under the wheel, so every row can be answered', () => {
+    const local: { selected: Set<string>; hover: string | null; page?: number } = { selected: new Set(), hover: null };
+    const p: DuelPromptView = { id: 'r', text: 'Declare a Type', kind: 'choice', options: Array.from({ length: 20 }, (_, i) => ({ id: `t${i}`, label: `Type ${i}` })) };
+    let { spec } = run(p, local);
+    const rows = () => spec.win.controls.filter(c => c.name.startsWith('row:')).map(c => c.label);
+    expect(rows()).toEqual(Array.from({ length: 12 }, (_, i) => `Type ${i}`));
+    for (let i = 0; i < 10; i++) { [...spec.handlers.values()].find(h => h.key === 'prompt-option:r:t0' || h.wheel)?.wheel?.(100); spec = run(p, local).spec; }
+    expect(rows()).toEqual(Array.from({ length: 12 }, (_, i) => `Type ${i + 8}`));
+    const last = run(p, local); expect(last.press('prompt-option:r:t19')).toBe(true); expect(last.sent).toEqual([{ optionId: 't19' }]);
+  });
   it('attributes mark rows and OK sends them once the count is right', () => {
     const local = { selected: new Set<string>(), hover: null };
     const p: DuelPromptView = { id: 'p3', text: 'Declare an attribute', kind: 'attributes', min: 1, max: 1, options: ['light', 'dark', 'fire'].map(id => ({ id, label: id })) };

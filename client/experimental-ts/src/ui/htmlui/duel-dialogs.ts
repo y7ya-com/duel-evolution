@@ -191,11 +191,15 @@ export function duelDialog(ctx: DuelDialogContext, p: DuelPromptView): WindowSpe
   b.add('CWindowTaskText', 'text', { x: 8, y: 8, w: w - 16, h: n * LH }, { text: wrapped(p.text), align: 1, color: [1, 1, 1, 1] });
   // each row a real button (main's TextSwitch, a <button>: the pointer and the keys land on its own element), marked
   // rows shown pressed; no undrawn hit rows (the layer finds a control by its element, never by position)
-  rows.slice(0, shown).forEach((r, i) => {
+  // a longer list (a type's twenty-odd races) shows twelve at a time, the wheel over its rows moving them a row a notch
+  const top = Math.max(0, Math.min(ctx.local.page ?? 0, rows.length - shown)); ctx.local.page = top;
+  const wheel = (d: number) => { const next = Math.max(0, Math.min(rows.length - shown, top + (d > 0 ? 1 : -1))); if (next !== top) { ctx.local.page = next; ctx.rerender(); } };
+  rows.slice(top, top + shown).forEach((r, i) => {
     const marked = ctx.local.selected.has(r.id), on = !r.disabled && !ctx.busy;
     const c = b.add('CWindowTaskTextSwitch', `row:${r.id}`, { x: 8, y: listY + i * ROW, w: w - 16, h: ROW - 1 },
       { label: r.label, align: 1, state: on ? marked ? 'pressed' : 'normal' : 'disabled', enabled: on, ...(multi ? { checked: marked } : {}) });
     b.on(c, { hover: !marked, key: r.id === '\0cancel' ? `prompt-cancel:${p.id}` : `prompt-option:${p.id}:${r.id}`, label: multi ? `${r.label}${marked ? ' (marked)' : ''}` : r.label,
+      ...(rows.length > shown ? { wheel } : {}),
       click: () => {
         if (ctx.busy || r.disabled) return;
         if (r.id === '\0cancel') return ctx.respond({ cancel: true });
