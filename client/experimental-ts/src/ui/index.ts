@@ -458,7 +458,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // the hands goes straight on into the duel (live has no Start Duel)
   let jankenMine: number | null = null, jankenBegun: unknown = null;
   const jankenView = (): JankenView | null => {
-    const prep = state.preparation; if (!prep || state.sideboarding) return null;
+    // (each duel's hands anew: the last duel's pick is forgotten once its preparation is over)
+    const prep = state.preparation; if (!prep || state.sideboarding) { jankenMine = null; return null; }
     const phase = prep.phase.toLowerCase(), theirs = prep.opponentHand ?? null, busy = !!state.busy;
     if (prep.role === 'partner' || prep.role === 'spectator') return { phase: 'wait', mine: null, theirs, busy, thinking: false, message: prep.role === 'partner' ? 'Your captain is preparing the duel…' : 'Waiting for duel preparation…' };
     if (/ready|begin|confirm|invitation/.test(phase)) {
@@ -1228,6 +1229,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (disposed || rendering) return; rendering = true;
     try {
       state = controller.getState();
+      if (!state.preparation) jankenMine = null;   // each duel's rock-paper-scissors anew
       // the starter deck chooser: main's (web-shell/starter.js), from the lobby or Edit Deck like main's My Room / lobby / deck
       starterPicker.sync(state.mode !== 'free' && state.player ? state.player.id : null, state.starter?.claimable && (state.scene === 'lobby' || state.scene === 'deck') ? state.starter.decks : undefined);
       if (state.scene !== 'lobby') { Object.assign(lobbyUi, { open: null, searching: false, npc: null, join: null, cancel: false }); worldRenderer?.hide(); }
