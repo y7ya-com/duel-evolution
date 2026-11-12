@@ -45,7 +45,7 @@ export class StartScene {
     if (this.disposed) return;
     this.view = view;
     if (view.logo && !this.movie) this.loadMovie();
-    if (view.logo && !this.ctx) { this.ctx = new PixiPainter({ width: 1024, height: 768, className: 'de-start-logo', ready: () => this.draw() }); Object.assign(this.ctx.element.style, { position: 'absolute', inset: '0' }); this.element.prepend(this.ctx.element); }
+    if (view.logo && !this.ctx) { this.ctx = new PixiPainter({ width: 1024, height: 768, className: 'de-start-logo', ready: () => this.draw() }); Object.assign(this.ctx.element.style, { position: 'absolute', inset: '0' }); this.element.prepend(this.ctx.element); this.ctx.start(); }
     // no ring: its canvas leaves the page (a WebGL layer under the portrait would have it composited, drawn softer)
     if (this.ctx) this.ctx.element.style.display = view.logo ? '' : 'none';
     const at = view.at ?? PORTRAIT_AT, key = view.portrait ? `${Array.from(view.portrait).join(',')}@${at.x},${at.y}` : '';

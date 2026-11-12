@@ -2,8 +2,8 @@
 // bar ring): each owns one painter, a WebGL canvas whose frame is built from the same calls a 2D canvas takes (a
 // transform, alpha, additive blending, a clip rectangle, images and rectangle outlines), each image becoming a pooled
 // sprite and each outline a pooled Graphics, in call order. The drawing code keeps its own clock and calls
-// begin() ... end() whenever it has a new frame; end() renders it (no ticker). Pixi itself loads on first use (the
-// overworld's chunk), so a screen without effects never fetches it.
+// begin() ... end() whenever it has a new frame; end() renders it (no ticker). Pixi itself loads, and the WebGL canvas is
+// made, when the owner first starts it (the overworld's chunk), so a screen never shown never fetches it.
 import type { Application, Container, Graphics, Sprite, Texture, TextureSource } from 'pixi.js';
 
 /** What a painter draws: a decoded image or a canvas made off screen (a recoloured copy, a composed caption). */
@@ -40,13 +40,17 @@ export class PixiPainter {
   private doomedSources: TextureSource[] = [];
   private state: State = { m: ID, alpha: 1, blend: 'source-over', clip: null, stroke: '#000', line: 1 };
   private readonly stack: State[] = [];
-  private destroyed = false;
+  private destroyed = false; private started = false;
   /** Sprites and outlines drawn in the last frame (the acceptance tests read it). */
   drawn = 0;
 
   constructor(private readonly options: PixiPainterOptions) {
     this.element = document.createElement('div'); this.element.className = options.className; this.element.setAttribute('aria-hidden', 'true');
-    if (typeof HTMLCanvasElement === 'undefined') return;
+  }
+  /** Makes the canvas (once; `ready` runs when it can draw). */
+  start(): void {
+    if (this.started || this.destroyed || typeof HTMLCanvasElement === 'undefined') return;
+    this.started = true;
     void this.init().catch(e => { if (!this.destroyed) console.warn('pixi painter', e); });
   }
   get ready(): boolean { return !!this.root; }

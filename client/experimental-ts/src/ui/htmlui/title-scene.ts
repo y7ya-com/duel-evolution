@@ -84,7 +84,7 @@ export class TitleScene {
   /** Shown: plays the movie once from its first frame (reduced motion: straight to its last), then holds it. */
   show(reducedMotion: boolean): void {
     if (this.disposed) return;
-    this.reducedMotion = reducedMotion; this.shown = true;
+    this.reducedMotion = reducedMotion; this.shown = true; this.ctx.start();
     if (!this.movie) { this.loadMovie(); return; }
     if (!this.instance) this.start();
   }

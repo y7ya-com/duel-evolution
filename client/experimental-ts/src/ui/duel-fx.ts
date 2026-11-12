@@ -86,7 +86,7 @@ export class DuelFx {
   /** New duel view: play its unseen cues. Ids only grow within a client, so a lower id means a new client session. */
   update(duel: DuelView, reducedMotion: boolean): void {
     if (this.disposed) return;
-    if (!this.duel) this.preload();
+    if (!this.duel) { this.preload(); this.ctx.start(); this.ringCtx.start(); }
     this.duel = duel; this.reduced = reducedMotion;
     const cues = duel.cues ?? [];
     if (cues.length && cues[cues.length - 1]!.id < this.seen) this.seen = 0;
