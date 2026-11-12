@@ -18,8 +18,8 @@ export interface NpcItemGetDeps {
   cardName(id: number): string | undefined;
   /** A gifted PBIN bit's name (npcs/gift-names.ts), or null. */
   itemName(bit: number): string | null;
-  /** The talk ends (the app's npcClose). */
-  close(): void;
+  /** The talk ends (the app's npcClose), when the controller lets it now: false when it doesn't (yet). */
+  close(): boolean;
   rerender(): void;
 }
 export interface NpcItemMessage { kind: 'ok' | 'error'; text: string }
@@ -29,8 +29,9 @@ export const npcItemGetReady = (npc: Readonly<NpcState> | null | undefined): npc
   !!npc?.npc && npc.result !== null && (npc.stage === 'done' || npc.stage === 'claiming') && !npcPackOpen(npc)
   && npc.packStatus !== 'pending' && npc.giftStatus !== 'pending';
 
-/** The controller lets the talk end (features/npc.ts close): nothing pending or uncertain about eligibility or contact. */
-const closable = (npc: Readonly<NpcState>): boolean => npc.stage === 'done' && !npc.eligibility.refreshing
+/** The controller lets the talk end (features/npc.ts close): nothing pending or uncertain about eligibility or contact
+ * (the world's eligibility check starts as the talk is done: the end waits for it). */
+export const npcClosable = (npc: Readonly<NpcState> | null | undefined): boolean => !!npc && npc.stage === 'done' && !npc.eligibility.refreshing
   && !['pending', 'uncertain'].includes(npc.eligibility.status) && !['pending', 'uncertain'].includes(npc.firstContactStatus);
 
 export function npcItemMessages(npc: Readonly<NpcState>, d: Pick<NpcItemGetDeps, 'cardName' | 'itemName'>): NpcItemMessage[] {
@@ -49,8 +50,8 @@ export function npcItemGetWindows(npc: Readonly<NpcState> | null | undefined, d:
   if (ui.key !== key) Object.assign(ui, { key, at: 0 });
   const m = messages[ui.at];
   if (!m) {
-    // all said (or nothing to say): the talk ends once the controller lets it, once per rewards
-    if (closable(npc) && ui.closing !== key) { ui.closing = key; queueMicrotask(() => d.close()); }
+    // all said (or nothing to say): the talk ends once the controller lets it (asked again on each change), once
+    if (npcClosable(npc) && ui.closing !== key) queueMicrotask(() => { if (ui.closing !== key && d.close()) ui.closing = key; });
     return [];
   }
   const spec = stockDialog({ ids: d.ids }, `npc-itemget:${ui.at}`, m.kind, m.text,
