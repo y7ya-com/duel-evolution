@@ -69,6 +69,13 @@ export interface SessionState {
   /** The account's admin sanctions (0x3004 AUTHRESULT's flags: 0x20 chat, 0x40 trade, server lobby.ts): the client greys those out. */
   sanctions?: AccountSanctions;
   matchmaking:MatchmakingState; relay: RelayState | null; duelRole: 'player' | 'partner' | 'spectator'; match: MatchState | null; duelFirst: number | null; opponentHand: number | null; rpsLost: boolean; error: string | null;
+  /** A duel the server called off before it began (pvpMatch abort: the other duelist gone, or the 90 s attach window
+   *  over; a blocked deck): the duel server's 0x649b code 1 (`aboutOpponent` its flag), or the duel connection lost for
+   *  good (`reason`). Live says so in a box over the janken scene and its OK goes back to the lobby: leaveCalledOffDuel. */
+  duelCalledOff?: { aboutOpponent: boolean; reason?: string } | null;
+  /** Each refusal of this player's duel request (0x4301 -618), counted: live turns its "Requesting Duel" box into "Duel
+   *  Request was refused." / OK (CWindowModelDialogOk, 0x1483) rather than the error box the other results get. */
+  challengeRefusals?: number;
 }
 export interface DuelDeck { main: number[]; extra: number[]; side?: number[] }
 export interface SessionOptions extends Omit<GatewayOptions, 'onMessage' | 'onStatus' | 'onChannelClose'> {
@@ -95,6 +102,8 @@ const TRANSPORT_LOSS = /^(Gateway connection closed|Gateway connection timed out
 /** The server closed that one virtual socket (or it did not come back with a resume): live's per-socket cut. */
 const CHANNEL_CUT = /^(Server closed virtual channel|Virtual channel was not resumed)$/;
 const DUEL_PHASES: readonly SessionPhase[] = ['preparing-duel','rock-paper-scissors','choose-first','duel','sideboarding'];
+/** Before the duel has started: the hands, who goes first, the wait for the other duelist. */
+const PRE_DUEL: readonly SessionPhase[] = ['preparing-duel','rock-paper-scissors','choose-first'];
 /** Result codes the original client words itself: login (server/src/game/hub.ts AUTH_*) and character creation
  * (server/src/game/accounts.ts REG_NAME_*, the 2008 client's own wording). */
 const RESULT_TEXT: Record<string, Record<number, string>> = {
@@ -250,6 +259,8 @@ export class GameSession {
         if (gateway !== this.gateway || this.disposed || channel !== this.lobby && channel !== this.duel) return;
         if (channel === this.duel) {
           this.duel = null; this.stopWatchPolling();
+          // the server closes a duel it called off right after saying why (0x649b): that box is the news, not the close
+          if (this.state.duelCalledOff) { this.duelRe.inDuel = false; this.emit(); return; }
           // the gateway itself failing is the lobby retry's (onStatus); a duel connection cut on its own re-attaches
           if (CHANNEL_CUT.test(error.message) && this.startDuelReattach()) { this.emit(); return; }
           this.duelRe.inDuel = false;
@@ -309,7 +320,21 @@ export class GameSession {
     const re = this.duelRe; re.on = false; re.inDuel = false; re.epoch++;
     if (re.timer) clearTimeout(re.timer); re.timer = null;
     const duel = this.duel; this.duel = null; try { duel?.close(); } catch { /* already gone */ }
-    this.setNet(false, 0, null); this.state.error = reason; this.emit();
+    this.setNet(false, 0, null);
+    if (PRE_DUEL.includes(this.state.phase) && this.state.duelRole === 'player' && !this.state.spectating) this.callOffDuel(false, reason);
+    else this.state.error = reason;
+    this.emit();
+  }
+  /** The duel called off before it began: no reconnect, no match left to finish; the player's OK leaves (leaveCalledOffDuel). */
+  private callOffDuel(aboutOpponent: boolean, reason?: string): void {
+    this.state.duelCalledOff = { aboutOpponent, ...(reason ? { reason } : {}) };
+    const re = this.duelRe; re.inDuel = false; re.on = false; re.epoch++; if (re.timer) clearTimeout(re.timer); re.timer = null;
+    this.state.match = null; this.state.rpsLost = false; this.state.opponentHand = null;
+  }
+  /** Live's OK on the called-off duel's box: back to the lobby, as after a duel. */
+  async leaveCalledOffDuel(): Promise<void> {
+    if (!this.state.duelCalledOff) throw new Error('No called-off duel to leave');
+    await this.finishDuel();
   }
   /** lobbyretry.c: a lobby connection (or the whole game connection: a gateway lost past its resume, a deploy's 4012)
    *  lost in an area or My Room reconnects to the same place. False = not ours (never joined, or a 4th drop in 2 min). */
@@ -327,7 +352,7 @@ export class GameSession {
       this.duel = null; this.account = null; this.lobby = null;
     }
     if (DUEL_PHASES.includes(this.state.phase) || this.state.phase === 'changing-lobby') {
-      this.state.match = null; this.state.duelFirst = null; this.state.opponentHand = null; this.state.rpsLost = false;
+      this.state.match = null; this.state.duelFirst = null; this.state.opponentHand = null; this.state.rpsLost = false; this.state.duelCalledOff = null;
     }
     this.lobbyMove = null; this.lobbyEpoch++; this.state.lobbyTransition = null;
     this.state.duelOffer = null; this.state.challenge = null; this.state.outgoingChallengeRoom = null; this.state.spectating = false; this.stopWatchPolling();
@@ -458,7 +483,9 @@ export class GameSession {
     return this.firstLooks.get(character.slot) ?? characterAppearance(character, world);
   }
   private validateSlot(slot: number): void { if (!Number.isInteger(slot) || slot < 0 || slot > 3) throw new RangeError('Invalid character slot'); }
-  async selectCharacter(slot: number, roomPort?: number): Promise<void> {
+  /** Into a lobby with this character: `roomPort`'s room, 'my-room' (live's first stop: My Room, when the server
+   * advertises it), else the advertised world room. */
+  async selectCharacter(slot: number, roomPort?: number | 'my-room'): Promise<void> {
     this.assertLive(); this.validateSlot(slot);
     const character = this.state.characters.find((c) => c.slot === slot);
     if (!character || !this.account) throw new Error('Select an existing character');
@@ -471,7 +498,8 @@ export class GameSession {
       const advertised = this.state.servers.find((s) => s.kind === 3 && s.roomKind === 14 && s.language === 6)
         ?? this.state.servers.find((s) => s.kind === 3 && s.roomKind === 14)
         ?? this.state.servers.find((s) => s.kind === 3 && s.roomKind !== 12);
-      const port = roomPort ?? (advertised ? advertised.port - (this.options.portOffset ?? 0) : undefined);
+      const myRoom = roomPort === 'my-room' ? this.state.servers.find(s => s.kind === 3 && s.roomKind === 12) : undefined;
+      const port = typeof roomPort === 'number' ? roomPort : myRoom ? myRoom.port - (this.options.portOffset ?? 0) : advertised ? advertised.port - (this.options.portOffset ?? 0) : undefined;
       if (port === undefined) throw new Error('Server did not advertise a playable room');
       this.joiningRoomKind = this.state.servers.find(server=>server.port-(this.options.portOffset??0)===port)?.roomKind ?? 14;
       this.lobby = await this.gateway.open(port); await this.authenticate(this.lobby);
@@ -576,12 +604,19 @@ export class GameSession {
     if (this.state.location === 'my-room' && !this.lobbyMove) return !this.disposed && this.state.phase === 'lobby' && this.lobby && !this.lobby.closed ? Promise.resolve() : Promise.reject(new Error('Join an active character lobby first'));
     return this.switchLobby('my-room');
   }
-  /** The source My Room door returns to the cached world server/area, not hardcoded area zero. */
-  leaveMyRoom(): Promise<void> {
+  /** Out of My Room: with `roomKind` (a door: 13 the blue one, Domino City; 14 the red one, Duel Academy) into that
+   * world's room at the area the server puts a player in; without, back to the cached world server / area. */
+  leaveMyRoom(roomKind?: number): Promise<void> {
     if (this.lobbyMove?.target === 'world') return this.lobbyMove.promise;
     if (this.state.location === 'world' && !this.lobbyMove) return !this.disposed && this.state.phase === 'lobby' && this.lobby && !this.lobby.closed ? Promise.resolve() : Promise.reject(new Error('Join an active character lobby first'));
+    if (roomKind !== undefined) {
+      const room = this.state.servers.find(server=>server.kind===3&&server.roomKind===roomKind&&server.language===6) ?? this.state.servers.find(server=>server.kind===3&&server.roomKind===roomKind);
+      if (room) this.cachedWorld = null, this.doorRoom = room.port-(this.options.portOffset??0);
+    }
     return this.switchLobby('world');
   }
+  /** The door's room port (leaveMyRoom(kind)), taken by the next move into the world. */
+  private doorRoom: number | null = null;
   private switchLobby(target:'world'|'my-room'): Promise<void> {
     try {
       this.assertLive();
@@ -596,8 +631,9 @@ export class GameSession {
     const defaultWorld = this.state.servers.find(server=>server.kind===3&&server.roomKind===14&&server.language===6)
       ?? this.state.servers.find(server=>server.kind===3&&server.roomKind===14)
       ?? this.state.servers.find(server=>server.kind===3&&server.roomKind!==12);
+    const door = target === 'world' ? this.doorRoom : null; this.doorRoom = null;
     const destination:{port:number;area:number|null}|null = target === 'my-room' ? room ? {port:room.port-(this.options.portOffset??0),area:8} : null
-      : this.cachedWorld ?? (defaultWorld ? {port:defaultWorld.port-(this.options.portOffset??0),area:null} : null);
+      : door !== null ? {port:door,area:null} : this.cachedWorld ?? (defaultWorld ? {port:defaultWorld.port-(this.options.portOffset??0),area:null} : null);
     if (!destination) return Promise.reject(new Error(target === 'my-room' ? 'Server did not advertise My Room' : 'No previous world lobby is available'));
     const move = {target,promise:Promise.resolve()}; this.lobbyMove = move;
     this.state.lobbyTransition = target === 'my-room' ? 'entering-my-room' : 'leaving-my-room'; this.state.phase = 'changing-lobby';
@@ -767,7 +803,7 @@ export class GameSession {
     if (!this.state.profile) throw new Error('No selected character');
     validateDuelDeck(deck);
     this.state.relay = null; this.state.duelRole = 'player';
-    this.stopWatchPolling(); this.state.spectating = false; this.state.duelOffer = null; this.state.challenge = null; this.state.outgoingChallengeRoom = null;
+    this.stopWatchPolling(); this.state.spectating = false; this.state.duelOffer = null; this.state.challenge = null; this.state.outgoingChallengeRoom = null; this.state.duelCalledOff = null;
     this.state.match = this.roomStyle === 4 ? { round:1, scores:[0,0,0], stage:'preparing', chooser:null, complete:false, sideboardDeadline:null, original:copyDeck(deck), deck:copyDeck(deck) } : null;
     const previous = this.duel; this.duel = null; previous?.close();
     this.duel = await this.gateway.open(port);
@@ -842,7 +878,7 @@ export class GameSession {
     if (this.record.active && this.duel && !this.duel.closed) await new Promise<void>(res => { const t = setTimeout(() => { this.recordDone = null; res(); }, 3000); this.recordDone = () => { clearTimeout(t); this.recordDone = null; res(); }; });
     this.record.reset();
     const duel = this.duel; this.duel = null; duel?.close();
-    this.state.duelFirst = null; this.state.opponentHand = null; this.state.rpsLost = false;
+    this.state.duelFirst = null; this.state.opponentHand = null; this.state.rpsLost = false; this.state.duelCalledOff = null;
     this.state.matchmaking = { ...this.state.matchmaking,status:'idle',opponent:null };
     const lobby = this.requireLobby();
     await lobby.request(0x4210, EMPTY(), 0x4213); await lobby.request(0x4214, EMPTY(), 0x4217); await this.refreshRooms(); this.phase('lobby');
@@ -884,7 +920,8 @@ export class GameSession {
     } else if (channel === this.lobby && [0x4305,0x4308].includes(id)) this.state.challenge = null;
     else if (channel === this.lobby && id === 0x4301) {
       const code = new BinaryReader(data).i32();
-      if (code !== 0) { this.state.outgoingChallengeRoom = null; this.state.error = lobbyErrorText(code); }
+      if (code === -618) { this.state.outgoingChallengeRoom = null; this.state.challengeRefusals = (this.state.challengeRefusals ?? 0) + 1; }
+      else if (code !== 0) { this.state.outgoingChallengeRoom = null; this.state.error = lobbyErrorText(code); }
     } else if (channel === this.account && id === 0x3114) {
       if (data.length !== 128) throw new Error('Invalid 128-byte player ownership snapshot');
       if (!this.acceptsRightsSnapshot(channel)) return; this.state.pbin = data.slice();
@@ -1006,6 +1043,10 @@ export class GameSession {
       this.state.match = { ...this.state.match, sideboardDeadline:paused ? null : Date.now() + Math.max(0,seconds) * 1000 };
     } else if (channel === this.lobby && id === 0x4800 && this.state.match) {
       this.state.match = { ...this.state.match,stage:'complete',complete:true,sideboardDeadline:null };
+    } else if (channel === this.duel && id === 0x649b && data[0] === 1 && PRE_DUEL.includes(this.state.phase) && this.state.duelRole === 'player' && !this.state.spectating) {
+      // pvpMatch's 0x649b before the duel: [1, 1] the other duelist is gone or the 90 s attach window closed (abort), [1, 0]
+      // this player's deck is blocked (deckSvr); the server closes the duel after it
+      this.callOffDuel(data[1] !== 0);
     } else if (id === 0x649b && data[0] === 1 && this.state.phase !== 'duel') this.state.error = 'The server rejected this deck or duel action';
     // During the duel code 1 is a cut connection; the duel screen shows it (duel/server-info.ts).
     else return; // Duel packets are emitted by the duel model; avoid a redundant session render for each command.
@@ -1023,7 +1064,7 @@ export class GameSession {
     this.state.pbin = undefined; this.state.npcbin = undefined;
     this.trunk.clear(); this.state.collection = new Map(); this.state.players = []; this.state.npcs = []; this.state.rooms = []; this.state.chat = []; this.state.characters = []; this.state.servers = []; this.state.areas = [];
     this.pendingPosition = null; this.myRoomPosition = null; this.cachedWorld = null; this.state.returnArea = null; this.state.selectedSlot = null; this.state.profile = null; this.state.duelOffer = null; this.state.challenge = null; this.state.outgoingChallengeRoom = null; this.state.spectating = false; this.state.match = null; this.state.relay = null; this.state.duelRole = 'player'; this.state.tournament = null; this.state.eventInfo = null; this.state.matchmaking = { ...this.state.matchmaking,status:'idle',opponent:null,counts:{single:0,match:0,either:0} };
-    this.listPlayers = []; this.listNpcs = []; this.listRooms = []; this.state.phase = 'closed';
+    this.state.duelCalledOff = null; this.listPlayers = []; this.listNpcs = []; this.listRooms = []; this.state.phase = 'closed';
   }
 }
 class BinaryWriterCards extends BinaryWriter { constructor(cards: number[]) { super(); for (const card of cards) this.u32(card); } }

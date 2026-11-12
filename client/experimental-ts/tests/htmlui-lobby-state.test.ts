@@ -36,7 +36,7 @@ describe('HTML lobby state', () => {
     expect(listRows(view(), 'name', []).map(r => r.name)).toEqual(['Amy', 'Zed']);
     expect(listRows(view(), 'near', []).map(r => r.id)).toEqual([3, 2]);
     expect(listRows(view(), 'friends', [2]).map(r => r.id)).toEqual([2]);
-    expect(listRows(view(), 'all', [])).toContainEqual({ kind: 'npc', id: 5, name: 'A-lien' });
-    expect(listRows(view({ mode: 'free' }), 'all', []).some(r => r.kind === 'npc')).toBe(false);
+    // live's Show all: the players here, no NPCs
+    expect(listRows(view(), 'all', []).map(r => r.kind)).toEqual(['player', 'player']);
   });
 });

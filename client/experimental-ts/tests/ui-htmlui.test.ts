@@ -21,10 +21,13 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
     t.find('character-slot:1')!.click!(); expect(t.sent).toEqual([{ type: 'selectCharacter', slot: 1 }]);
     t.find('character-create:0')!.click!();
     expect(t.windows().map(s => s.win.cls)).toEqual(['CWindowModelInput1']);
-    t.find('character-name')!.text!('Bob Duelist'); t.find('character-create-ok')!.click!();
+    t.find('character-name')!.text!('Bob Duelist');
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0); t.find('character-create-ok')!.click!(); random.mockRestore();
     // the original's first dressing (Change Avatar, main's screens/avatar.js): a body, a hair, Confirm sends the look
     expect(t.windows().map(s => s.win.cls)).toEqual(['CWindowDialogAvatarSwitch']);
-    t.find('avatar-item:0:1')!.click!(); t.find('avatar-category:1')!.click!(); t.find('avatar-item:1:2')!.click!();
+    // live's window opens on Duel Disk (its last plate)
+    expect(t.find('avatar-item:8:176')).toBeTruthy();
+    t.find('avatar-category:0')!.click!(); t.find('avatar-item:0:1')!.click!(); t.find('avatar-category:1')!.click!(); t.find('avatar-item:1:2')!.click!();
     t.find('avatar-confirm')!.click!();
     expect(t.sent.at(-1)).toEqual({ type: 'createCharacter', slot: 0, name: 'Bob Duelist', appearance: [1, 2, 32, 48, 64, 96, 0x80, 144, 176, 32, 0, 0, 0, 0, 0, 0] });
     t.find('character-delete:1')!.click!();
@@ -101,7 +104,7 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
     const items = t.windows().find(s => s.win.cls === 'CWindowModelFriendlist')!.win.controls.find(c => c.cls === 'CWindowTaskListbox')!.items;
     expect(items).toEqual(['> @>16/Bo@>230/Domino City', '@>16/C@@t@>230/Offline', 'Di']);
   });
-  it('Find a Player (FriendEnum), Ignore by name (BlacklistInput) and the team confirmations: the old Friends & Mail page\'s functions', () => {
+  it('a friend request\'s Yes / No, Ignore by name (BlacklistInput) and the team confirmations: the old Friends & Mail page\'s functions', () => {
     const calls: string[] = [];
     const social: Record<string, unknown> = { friends: [{ pid: 2, name: 'Bo' }], ignored: [], team: { name: 'Aces', members: [{ pid: 7, name: 'Me' }], leader: false }, lookup: null, error: null,
       offers: [{ pid: 5, name: 'Di', level: 4 }], teamInvites: [], canTrade: true,
@@ -111,22 +114,10 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
       duel: (pid: number) => calls.push(`duel ${pid}`) };
     const mailBox = { mail: [], send: () => {}, delete: () => {} };
     const t = context(view({ scene: 'lobby' }), { social: social as never, mailBox });
-    // the Friend List opens it; a name is searched, the found player acted on
-    t.ctx.ui.lists = { kind: 'friends', selected: -1 }; t.find('list-find')!.click!();
-    expect(t.windows().some(s => s.win.cls === 'CWindowModelFriendEnum')).toBe(true);
-    t.find('find-name')!.text!('Rival'); t.find('find-search')!.click!(); expect(calls.at(-1)).toBe('find Rival');
-    social.lookup = { name: 'Rival', pid: 1004 };
-    const enumWin = t.windows().find(s => s.win.cls === 'CWindowModelFriendEnum')!.win;
-    expect(enumWin.controls.find(c => c.name === 'result')!.text).toBe('Rival (ID 1004)');
-    for (const k of ['find-friend', 'find-team', 'find-duel', 'find-ignore']) t.find(k)!.click!();
-    expect(calls.slice(-4)).toEqual(['friend 1004', 'team 1004', 'duel 1004', 'ignore 1004']);
-    // Card Swap leaves the window for the trade (as D-mail and Whisper do): it would cover the trade's dialogs
-    t.find('find-trade')!.click!(); expect(calls.at(-1)).toBe('trade 1004 Rival'); expect(t.ctx.ui.find).toBe(null);
+    // live's Friend List has no Find a Player; a friend request waiting is the game's Yes / No over the lobby
+    t.ctx.ui.lists = { kind: 'friends', selected: -1 }; expect(t.find('list-find')).toBeUndefined(); t.ctx.ui.lists = null;
     expect(t.windows().some(s => s.win.cls === 'CWindowModelFriendEnum')).toBe(false);
-    t.ctx.ui.lists = { kind: 'friends', selected: -1 }; t.find('list-find')!.click!();
-    t.find('find-name')!.text!('Rival'); t.find('find-search')!.click!();
-    t.find('find-offer:5')!.click!(); t.find('find-accept')!.click!(); expect(calls.at(-1)).toBe('reply 5 true');
-    t.find('find-mail')!.click!(); expect(t.ctx.ui.compose).toMatchObject({ toPid: 1004, toName: 'Rival' }); expect(t.ctx.ui.find).toBe(null);
+    t.find('friend-offer-yes')!.click!(); expect(calls.at(-1)).toBe('reply 5 true');
     // Ignore List: Add by Name looks the name up, then ignores that player
     t.ctx.ui.lists = { kind: 'ignore', selected: -1 }; t.find('list-add')!.click!(); t.ctx.ui.lists = null;
     t.find('ignore-name')!.text!('Zed'); t.find('ignore-name-ok')!.click!(); expect(calls.at(-1)).toBe('find Zed');
@@ -170,7 +161,7 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
     applyPointer([spec], prev.id, prev.id); expect(shown(prev.id).tex).toMatch(/shop_arrow_10_/);
     // the labels (main's textBox colours them from an [r, g, b, a] array: a CSS string came out transparent)
     const labels = spec.win.controls.filter(c => c.cls === 'CWindowTaskText');
-    expect(labels.map(c => c.text)).toEqual(expect.arrayContaining(['Body', 'Duel Disk', 'Part 0', 'Part 13', 'Confirm', 'Back']));
+    expect(labels.map(c => c.text)).toEqual(expect.arrayContaining(['Gender', 'Hair Style (Front)', 'Duel Disk', 'Part 0', 'Part 13', 'Confirm', 'Back']));
     for (const c of labels) expect(c.color).toEqual([0, 0, 0, 1]);
   });
 });

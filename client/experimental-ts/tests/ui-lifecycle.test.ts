@@ -158,7 +158,7 @@ describe('UI ownership and semantic interaction', () => {
     f.update({ profileDetail: { ...profileDetail, selectedPid: 3 } }); await Promise.resolve(); expect(control(f, 'card-duel')).toBeUndefined(); expect(f.mounted.htmlUi.press('card-watch')).toBe(true);
     f.mounted.htmlUi.press('duel-accept'); f.mounted.htmlUi.press('duel-decline');
     const close = { type: 'profileAction', action: { type: 'close' } };
-    expect(f.commands).toEqual([{ type: 'createDuelRoom', options: { style: 4, timeLimit: true, allowWatch: true, allowSurrender: true } }, close, { type: 'challengeRoom', roomId: 9 }, close, { type: 'spectate', pid: 3 }, { type: 'replyChallenge', accept: true }, { type: 'replyChallenge', accept: false }]);
+    expect(f.commands).toEqual([{ type: 'createDuelRoom', options: { style: 3, timeLimit: true, allowWatch: true, allowSurrender: true } }, close, { type: 'challengeRoom', roomId: 9 }, close, { type: 'spectate', pid: 3 }, { type: 'replyChallenge', accept: true }, { type: 'replyChallenge', accept: false }]);
     f.update({ scene: 'duel', duel: { players: [{ name: 'A', lp: 8000 }, { name: 'B', lp: 8000 }], cards: [], prompt: null, turn: 1, turnPlayer: 0, phase: 'Main', log: [], spectating: true } }); await Promise.resolve();
     // a spectator has no Surrender: the deck's command list (live's CUSummonDialogSp) leaves the duel
     f.root.querySelectorAll('button').find(n => n.dataset.key === 'field-deck:0')!.onclick?.({}); await Promise.resolve();
@@ -259,14 +259,15 @@ describe('UI ownership and semantic interaction', () => {
   });
   it('tracks a selected deck card after authoritative reordering', async () => {
     const f = fixture(), deckEditor: NonNullable<ClientView['deckEditor']> = { decks: [], current: { name: 'Deck', main: [1, 2], side: [], extra: [] }, collection: [{ id: '1', passcode: 1, name: 'One', owned: 1 }, { id: '2', passcode: 2, name: 'Two', owned: 1 }] };
-    // main's deck screen (htmlui/deck-scene.ts): a drag inside the Main grid reorders, a drag onto the trunk removes
+    // main's deck screen (htmlui/deck-scene.ts): a drag inside the Main grid changes nothing (live's grids keep the game's
+    // order), a drag onto the trunk removes the card it was pressed on
     // deck-dom.ts: each card an element (data-zone, data-index, data-passcode), each zone a drop target
     const all = () => (f.mounted.htmlUi.deck() as unknown as TestNode).querySelectorAll('*');
     const ev = (type: string) => ({ type, button: 0, clientX: 0, clientY: 0, preventDefault() {}, stopPropagation() {} }) as unknown as Event;
     const at = (index: number) => all().find(n => n.dataset.zone === 'main' && n.dataset.index === String(index) && n.dataset.passcode)!;
     const drag = (from: TestNode, to: TestNode) => { from.dispatchEvent(ev('mousedown')); to.dispatchEvent(ev('mouseup')); };
     f.update({ scene: 'deck', deckEditor }); await Promise.resolve();
-    drag(at(1), at(0)); expect(f.commands.at(-1)).toEqual({ type: 'deckReorder', zone: 'main', fromIndex: 1, toIndex: 0 });
+    const sent = f.commands.length; drag(at(1), at(0)); expect(f.commands.length).toBe(sent);
     f.update({ deckEditor: { ...deckEditor, current: { ...deckEditor.current!, main: [2, 1] } } }); await Promise.resolve(); drag(at(0), all().find(n => n.dataset.dropZone === 'trunk')!);
     expect(f.commands.at(-1)).toEqual({ type: 'deckCard', passcode: 2, from: 'main', to: 'collection', index: 0 }); f.mounted.dispose();
   });

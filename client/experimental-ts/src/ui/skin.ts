@@ -31,7 +31,8 @@ export const SKIN_CSS = `
 .de-client[data-scene=characters] .de-stage { background:transparent; }
 /* main's menu bar (CWindowModelMenu) stands on the stage's bottom 32 of 768 px outside the title and the duel, as in
    the game: the rewrite's own scenes end above it */
-.de-client:not([data-scene=title]):not([data-scene=duel]) .de-stage>.de-scene { bottom:4.1667%; overflow:auto; }
+.de-client:not([data-scene=title]):not([data-scene=duel]):not([data-scene=shop]) .de-stage>.de-scene { bottom:4.1667%; overflow:auto; }
+/* live's card shop and its reveal fill the screen: no bar under them (its page and the strip at its foot down to 768) */
 
 /* Keys: the original's blue bevelled key; gold for the primary. Metrics stay the layout's. */
 .de-client button:where(:not(.de-card,.de-avatar,.de-zone-target,.de-field-card,.de-card-shop *)) { color:#072b50; font-weight:bold; text-shadow:0 1px #f0ffff; border:1px solid #267dbb; border-radius:3px;

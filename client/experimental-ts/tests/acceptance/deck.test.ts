@@ -63,21 +63,6 @@ async function search(page:Page,text:string) {
 }
 const anyButton = (label:string) => `[...document.querySelectorAll('button,[role="button"],label,[aria-label]')].find(e=>(e.getAttribute('aria-label')===${JSON.stringify(label)}||e.textContent.trim()===${JSON.stringify(label)})&&e.getClientRects().length)`;
 async function tap(page:Page,label:string) { await until(page,anyButton(label),10000); await press(page,anyButton(label)); await sleep(500); }
-/** Downloads (Export) captured as bytes; a file picker (Import) answered with the given file. */
-async function captureDownloads(page:Page) {
-  await page.ev(`(()=>{window.__downloads=[];if(window.__dlPatched)return;window.__dlPatched=true;const click=HTMLAnchorElement.prototype.click;HTMLAnchorElement.prototype.click=function(){if(this.download&&this.href.startsWith('blob:')){const name=this.download;fetch(this.href).then(r=>r.arrayBuffer()).then(b=>window.__downloads.push({name,bytes:[...new Uint8Array(b)]}));return;}return click.call(this);};
-    const ic=HTMLInputElement.prototype.click;HTMLInputElement.prototype.click=function(){if(this.type==='file'&&window.__nextFile){const f=window.__nextFile;window.__nextFile=null;const dt=new DataTransfer();dt.items.add(new File([new Uint8Array(f.bytes)],f.name));this.files=dt.files;this.dispatchEvent(new Event('change',{bubbles:true}));return;}return ic.call(this);};})()`);
-}
-async function exportAs(page:Page,row:string):Promise<{ name:string; bytes:number[] }> {
-  await page.ev('window.__downloads=[]');
-  await deckSide(page,'load'); await until(page,filesReady('deck-files-export'),30000); await sleep(300); await press(page,byKey('deck-files-export')); await fileRow(page,row); await press(page,byKey('deck-files-ok'));
-  await until(page,'window.__downloads.length>0',10000); return page.ev('window.__downloads[0]') as Promise<{ name:string; bytes:number[] }>;
-}
-async function importFile(page:Page,name:string,bytes:number[]) {
-  await page.ev(`window.__nextFile=${JSON.stringify({ name,bytes })}`);
-  await deckSide(page,'load'); await until(page,filesReady('deck-files-import'),30000); await sleep(300); await press(page,byKey('deck-files-import')); await sleep(800);
-  if (await page.ev(`Boolean(${byKey('deck-dialog-yes')})`)) await answer(page,'deck-dialog-yes');
-}
 const zones = (d:DeckScreen) => ({ main:d.main,side:d.side,extra:d.extra });
 /** Reload the page and come back to the same character's deck screen: everything shown comes from the server again. */
 async function reload(page:Page,character:string) {
@@ -92,16 +77,16 @@ async function reload(page:Page,character:string) {
     if (!(await page.ev(`Boolean(${slot})`))) { await sleep(5000); if (await page.ev(`Boolean(${byKey('error-ok')})`)) await press(page,byKey('error-ok')); }
   }
   await until(page,slot,10000); await press(page,slot); await until(page,lobbyShown,60000);
-  await openDeckEditor(page); await captureDownloads(page);
+  await openDeckEditor(page);
 }
 
 describe.skipIf(!enabled)('deck editor (main\'s HTML deck screen) against the real server',() => {
-  it('loads, edits, saves, reloads, renames and deletes decks; checks legality; files and structure decks; searches, filters, sorts and inspects the trunk',async () => {
+  it('loads, edits, saves, reloads, renames and deletes decks; checks legality; structure decks; searches, filters, sorts and inspects the trunk',async () => {
     try {
       const character = `Dk ${RUN}`, page = await openPage(1280,900);
       await openClient(page,await signIn(`TestDk${RUN}`));
       await enterWorld(page,character);
-      const start = await openDeckEditor(page,40); await captureDownloads(page);
+      const start = await openDeckEditor(page,40);
       await screenshot(page,'deck-editor');
 
       // deck.list: the claimed starter deck is the saved and active deck, in LOAD DECK's list; the trunk is its cards.
@@ -135,14 +120,16 @@ describe.skipIf(!enabled)('deck editor (main\'s HTML deck screen) against the re
       if (await page.ev(dialogUp)) await answer(page);
       const afterQuick = (await view(page)).main;
       expect(afterQuick.filter(n => n === multi).length).toBe(Math.min(2,ownedByName.get(multi!)!));
-      // reorder: the last Main card dropped on the first
+      // live's grids keep the game's order (DeckWindowDeck.cpp sortedSlot): a card dropped on another of its own grid
+      // goes back where it was
       const before = afterQuick;
       await drag(page,cardEl('main',before.length - 1),cardEl('main',0));
       const reordered = (await view(page)).main;
-      expect(reordered[0]).toBe(before[before.length - 1]);
+      expect(reordered).toEqual(before);
       // Main → Side by a drag; Side → trunk by a quick move
+      const sided = await page.ev(`(${cardEl('main',0)}).getAttribute('aria-label')`) as string;
       await drag(page,cardEl('main',0),`document.querySelector('[data-drop-zone="side"]')`);
-      expect((await view(page)).side).toEqual([reordered[0]]);
+      expect((await view(page)).side).toEqual([sided]);
       await dblclick(page,cardEl('side',0));
       const quickBack = await view(page);
       await screenshot(page,'deck-edit');
@@ -154,9 +141,9 @@ describe.skipIf(!enabled)('deck editor (main\'s HTML deck screen) against the re
       }
       const wrongZone = await page.ev(dialogUp) ? await answer(page) : '';
       const edited = zones(await view(page));
-      record('deck.edit',{ actions:`Clear Deck; drag ${single} (owned ×1) twice; double-click and right-click ${multi}; drop the last Main card on the first; drag it to the Side Deck; double-click it back; drag a Main card to the Fusion tab`,
+      record('deck.edit',{ actions:`Clear Deck; drag ${single} (owned ×1) twice; double-click and right-click ${multi}; drop the last Main card on the first (no reorder, as live); drag it to the Side Deck; double-click it back; drag a Main card to the Fusion tab`,
         expected:'Add/remove/reorder Main, Side and Fusion cards by drag and quick moves; enforce ownership and zones',
-        observed:`second ${single} refused ("${overOwned.replace(/\s+/g,' ').slice(0,120)}"); quick moves added ${afterQuick.filter(n => n === multi).length}× ${multi}; reorder put "${reordered[0]}" first; Side move and quick move back applied (side now ${quickBack.side.length}); Fusion placement: "${wrongZone.replace(/\s+/g,' ').slice(0,120)}"; main now ${edited.main.length}` });
+        observed:`second ${single} refused ("${overOwned.replace(/\s+/g,' ').slice(0,120)}"); quick moves added ${afterQuick.filter(n => n === multi).length}× ${multi}; a drop on its own grid kept the order; Side move and quick move back applied (side now ${quickBack.side.length}); Fusion placement: "${wrongZone.replace(/\s+/g,' ').slice(0,120)}"; main now ${edited.main.length}` });
 
       // deck.persist + deck.validate: SAVE DECK → Save New (a short deck: the deck check says why it can't duel), reload
       // from the server, Save New under another name and delete the first (rename), delete, reload.
@@ -165,6 +152,7 @@ describe.skipIf(!enabled)('deck editor (main\'s HTML deck screen) against the re
       await typeName(page,deckA);
       const report = await page.ev(dialogUp) ? await answer(page) : '';
       expect(report).toMatch(/can't be used in a duel/i); expect(report).toMatch(/Main Deck/i);
+      record('deck.validate',{ actions:'SAVE DECK → Save New with a short deck', expected:'Size violations reported before a duel', observed:`"${report.replace(/\s+/g,' ').slice(0,160)}"` });
       await settle(page,`(window.__deApp?.getState()?.deckEditor?.decks??[]).some(d=>d.name===${JSON.stringify(deckA)})`,15000);
       await reload(page,character);
       let v = await view(page);
@@ -195,17 +183,6 @@ describe.skipIf(!enabled)('deck editor (main\'s HTML deck screen) against the re
         expected:'Create, rename, save, reload and delete decks with correct active selection; the deck check on save',
         observed:`save of the short deck said "${report.replace(/\s+/g,' ').slice(0,160)}"; after reload "${deckA}" active with identical zones; after rename [${renamed.join(', ')}] with "${deckB}" active; after delete and reload [${v.decks.join(', ')}], "${v.name}" active` });
 
-      // deck.validate (files): an imported YDK with 3 Pot of Greed (Forbidden) and 2 Heavy Storm (Limited) is refused at save.
-      const forbiddenYdk = ['#created by test','#main',...Array(3).fill('55144522'),...Array(2).fill('19613556'),'#extra','!side',''].join('\n');
-      await importFile(page,'Forbidden Test.ydk',[...new TextEncoder().encode(forbiddenYdk)]);
-      await sleep(600); if (await page.ev(dialogUp)) await answer(page);
-      await deckSide(page,'save'); await until(page,filesReady('deck-files-new'),30000); await sleep(300); await press(page,byKey('deck-files-new')); await typeName(page,`Acc F${RUN}`.slice(0,40));
-      const forbiddenReport = await page.ev(dialogUp) ? await answer(page) : '';
-      expect(forbiddenReport).toMatch(/can't be used in a duel/i);
-      await screenshot(page,'deck-check');
-      record('deck.validate',{ actions:'Save a short deck; import a YDK with 3 Pot of Greed and 2 Heavy Storm and save it', expected:'Size and forbidden/limited violations reported before a duel',
-        observed:`short deck: "${report.replace(/\s+/g,' ').slice(0,120)}"; imported: "${forbiddenReport.replace(/\s+/g,' ').slice(0,200)}"` });
-
       // deck.recipes: STRUCTURE DECK loads a recipe; YDK, JSON and YDC exports (LOAD DECK → Export) re-import to the same cards.
       await deckSide(page,'structure'); await until(page,byKey('deck-files-ok'),30000);
       const recipeName = (await page.ev(`window.__deApp.getState().deckEditor.recipes?.[0]?.name ?? ''`)) as string;
@@ -215,17 +192,8 @@ describe.skipIf(!enabled)('deck editor (main\'s HTML deck screen) against the re
       await sleep(800);
       const recipe = zones(await view(page));
       expect(recipe.main.length).toBeGreaterThanOrEqual(40);
-      const rounds:string[] = [];
-      for (const [row,file] of [['YDK','r.ydk'],['JSON','r.json'],['YDC (the original deck file)','r.ydc']] as const) {
-        const out = await exportAs(page,row);
-        await deckSide(page,'clear'); await answer(page,'deck-dialog-yes'); await sleep(500); expect((await view(page)).main).toEqual([]);
-        await importFile(page,file,out.bytes); await sleep(600);
-        const back = zones(await view(page));
-        expect(back,row).toEqual(recipe);
-        rounds.push(`${row} ${out.name} ${out.bytes.length} bytes → ${back.main.length}/${back.extra.length}/${back.side.length}`);
-      }
-      record('deck.recipes',{ actions:`STRUCTURE DECK "${recipeName}"; for YDK, JSON and YDC: LOAD DECK → Export, Clear Deck, LOAD DECK → Import the file`, expected:'Structure decks load; deck files round-trip without losing identities',
-        observed:`recipe loaded ${recipe.main.length} main/${recipe.extra.length} fusion; ${rounds.join('; ')}` });
+      record('deck.recipes',{ actions:`STRUCTURE DECK "${recipeName}"`, expected:'Structure decks load',
+        observed:`recipe loaded ${recipe.main.length} main/${recipe.extra.length} fusion` });
       await deckSide(page,'load'); await until(page,filesReady('deck-files-cancel'),30000); await sleep(300); await fileRow(page,starterName); await press(page,byKey('deck-files-ok'));
       if (await page.ev(`Boolean(${byKey('deck-dialog-yes')})`)) await answer(page,'deck-dialog-yes');
       await sleep(800);

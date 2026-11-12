@@ -49,7 +49,7 @@ describe("Card Swap between a match's games (htmlui/side-swap.ts)", async () => 
     expect(submit).toHaveBeenCalledTimes(1); expect(notice).toHaveBeenCalledWith(expect.stringContaining('original Main, Side and Fusion counts'));
   });
   it('cuts the Deck window to stop at the chat window (the side band 104 px up)', () => {
-    const ctx = { ids: new Ids(), ui: deckUi(), deck: state.deck, card: () => undefined, trunk: [], busy: false };
+    const ctx = { ids: new Ids(), ui: deckUi(), deck: state.deck, card: () => undefined, trunk: [], busy: false, yo2: () => 0, owned: 0 };
     const full = deckWindow(ctx), cut = compactDeck(deckWindow({ ...ctx, ids: new Ids() }));
     const side = (w: typeof full) => w.win.controls.find(c => c.zone === 'side')!.wy;
     expect(side(full)).toBe(624); expect(side(cut)).toBe(520);

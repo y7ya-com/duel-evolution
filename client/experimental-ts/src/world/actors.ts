@@ -7,10 +7,8 @@ import type { Point } from './maps';
 /** An avatar's art box, as AvatarView's canvas: 128 x 160 with the feet (the network point) at (64, 144). */
 export const AVATAR_BOX_WIDTH = 128, AVATAR_BOX_HEIGHT = 160;
 export const AVATAR_FOOT_X = 64, AVATAR_FOOT_Y = 144;
-/** The name over the head (main's live lobby): its left edge on the centre line, its middle 13% down the box. */
-export const NAME_TAG_Y = AVATAR_BOX_HEIGHT * 0.13 - AVATAR_FOOT_Y;
-/** The flag (CNationFlag's 22 x 15 cell) ends where the name starts; its top 8 px over the name's middle. */
-export const FLAG_WIDTH = 22, FLAG_HEIGHT = 15, FLAG_TOP = -8;
+/** The flag before the name: CNationFlag's 22 x 15 cell (its place: world/name-tag.ts). */
+export const FLAG_WIDTH = 22, FLAG_HEIGHT = 15;
 /** At most this many avatars carry original art at once (the nearest, self first). */
 export const MAX_DRAWN_AVATARS = 24;
 /** Baked walk / stand frames per pose strip (longer movies are sampled). */

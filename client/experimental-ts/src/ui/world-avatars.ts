@@ -1,8 +1,9 @@
-import { CanvasSource, Container, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js';
+import { CanvasSource, Container, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
 import type { AvatarLoadOptions, AvatarResource } from '../avatars';
 import { avatarParts } from '../avatars/appearance';
 import { NPC_STARS_X, NPC_STARS_Y, npcStarCells, type NpcStars } from '../avatars/npc';
-import { AVATAR_BOX_HEIGHT, AVATAR_BOX_WIDTH, AVATAR_FOOT_X, AVATAR_FOOT_Y, FLAG_HEIGHT, FLAG_TOP, FLAG_WIDTH, MAX_STRIP_FRAMES, NAME_TAG_Y } from '../world/actors';
+import { AVATAR_BOX_HEIGHT, AVATAR_BOX_WIDTH, AVATAR_FOOT_X, AVATAR_FOOT_Y, FLAG_HEIGHT, FLAG_WIDTH, MAX_STRIP_FRAMES } from '../world/actors';
+import { drawNameTag, NAME_TAG_FLAG_TOP, NAME_TAG_FLAG_X, NAME_TAG_TOP, type GlyphAtlas } from '../world/name-tag';
 
 /** One pose (look x world x motion x direction) baked into a strip of 128 x 160 frames: the chibi's walk cycle as a
  * texture atlas, so a walking avatar only swaps its sprite's frame (no per-frame canvas or DOM drawing). */
@@ -76,13 +77,29 @@ export class PoseCache {
   clear(): void { this.abort.abort(); this.abort = new AbortController(); this.pending.clear(); this.failures.clear(); for (const e of this.entries.values()) e.strip.release(); this.entries.clear(); }
 }
 
+/** The name tag's texture: the engine's glyphs (name-tag.ts) on a canvas, `scale` times (the renderer's resolution). */
+export function nameTagTexture(atlas: GlyphAtlas, text: string, rgb: number, hi: GlyphAtlas | null = null, makeCanvas: CanvasFactory = defaultCanvas): Texture | null {
+  if (!text) return null;
+  const tag = drawNameTag(atlas, text, rgb, hi), canvas = makeCanvas(tag.width, tag.height), ctx = canvas.getContext('2d') as CanvasRenderingContext2D | null;
+  if (!ctx) return null;
+  ctx.putImageData(new ImageData(tag.data as unknown as Uint8ClampedArray<ArrayBuffer>, tag.width, tag.height), 0, 0);
+  // a 2x tag is drawn at half its texels (resolution 2), so it stands where the 1x one does
+  const source = new CanvasSource({ resource: canvas as HTMLCanvasElement, scaleMode: tag.scale > 1 ? 'linear' : 'nearest', resolution: tag.scale });
+  return new Texture({ source });
+}
+
 /** One avatar on the field: its body (a strip frame), a placeholder until the art is in, the name, the flag and (an
  * NPC) its level stars. A famous NPC also holds its blink strip, played over the standing frame now and then. */
 export class AvatarActor {
   readonly root = new Container();
   readonly body = new Sprite(Texture.EMPTY);
   readonly placeholder = new Graphics();
-  readonly name: Text;
+  /** The name tag (its texture the engine's glyphs, nameTagTexture; none until the glyph table is in). */
+  readonly name = new Sprite(Texture.EMPTY);
+  /** The name shown and its colour (0xRRGGBB). */
+  label = ''; labelColor = 0;
+  /** The 2x glyphs the tag was drawn with (render scale 2), or null. */
+  labelFace: GlyphAtlas | null = null;
   readonly flag = new Sprite(Texture.EMPTY);
   readonly stars = new Container();
   strip: PoseStrip | null = null;
@@ -111,9 +128,9 @@ export class AvatarActor {
     this.body.anchor.set(AVATAR_FOOT_X / AVATAR_BOX_WIDTH, AVATAR_FOOT_Y / AVATAR_BOX_HEIGHT); this.body.visible = false;
     // the stand-in capsule (the DOM view's .de-avatar-placeholder): 26 x 44, its bottom 10% over the box's bottom
     this.placeholder.roundRect(-13, -60, 26, 44, 9).fill({ color: 0x1761bf }).stroke({ color: self ? 0xffe56d : 0xcdf5ff, width: 2 });
-    this.name = new Text({ text: name, style: { fontFamily: 'Arial, sans-serif', fontSize: 16, fill: 0xffffff, letterSpacing: 0.64, stroke: { color: 0x000000, width: 3, join: 'round' } }, resolution: 1 });
-    this.name.anchor.set(0, 0.5); this.name.position.set(0, NAME_TAG_Y);
-    this.flag.visible = false; this.flag.position.set(-FLAG_WIDTH, NAME_TAG_Y + FLAG_TOP);
+    // the name's left edge on the feet, the flag 25 px left of them, both on the engine's label line (name-tag.ts)
+    this.label = name; this.name.position.set(0, NAME_TAG_TOP); this.name.visible = false;
+    this.flag.visible = false; this.flag.position.set(NAME_TAG_FLAG_X, NAME_TAG_FLAG_TOP);
     this.stars.label = 'stars'; this.stars.visible = false; this.stars.position.set(NPC_STARS_X, NPC_STARS_Y);
     this.root.addChild(this.placeholder, this.body, this.stars, this.flag, this.name);
   }
@@ -125,8 +142,16 @@ export class AvatarActor {
     this.stars.visible = !!key; if (!key || !stars) return;
     for (const cell of npcStarCells(stars)) { const star = new Sprite(cell.big ? big! : small!); star.position.set(cell.x, cell.y); this.stars.addChild(star); }
   }
-  setName(name: string): void { if (this.name.text !== name) this.name.text = name; }
+  /** The name tag: redrawn when the text or its colour changed, or the glyph table came in. */
+  setName(name: string, rgb: number, atlas: GlyphAtlas | null, hi: GlyphAtlas | null = null, makeCanvas?: CanvasFactory): void {
+    const drawn = this.name.texture !== Texture.EMPTY;
+    if (name === this.label && rgb === this.labelColor && hi === this.labelFace && (drawn || !atlas)) return;
+    this.label = name; this.labelColor = rgb; this.labelFace = hi;
+    const old = this.name.texture, texture = atlas ? nameTagTexture(atlas, name, rgb, hi, makeCanvas) : null;
+    this.name.texture = texture ?? Texture.EMPTY; this.name.visible = !!texture;
+    if (old !== Texture.EMPTY) old.destroy(true);
+  }
   setFlag(texture: Texture | null): void { this.flag.texture = texture ?? Texture.EMPTY; this.flag.visible = !!texture; this.flag.width = FLAG_WIDTH; this.flag.height = FLAG_HEIGHT; }
   show(strip: PoseStrip, now: number): void { this.strip = strip; this.started = now; this.frame = 0; this.blinkAt = null; this.body.texture = strip.frames[0]; this.body.visible = true; this.placeholder.visible = false; this.drawn = true; }
-  destroy(): void { this.root.destroy({ children: true }); }
+  destroy(): void { if (this.name.texture !== Texture.EMPTY) this.name.texture.destroy(true); this.root.destroy({ children: true }); }
 }

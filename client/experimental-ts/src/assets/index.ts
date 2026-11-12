@@ -82,6 +82,9 @@ export class AssetManager {
   get cacheBytes(): number { return this.cache.bytes; }
   /** merge.dat's URL (main's page modules find the archive by it: htmlui/lazy-shim.ts). */
   get archiveUrl(): string { return this.merge.url; }
+  /** The card wire's table (YO2 card id <-> passcode, merge/data/card_passcode.bin beside card.dat), which main's
+   * crafting/cards.js reads through lazyfs's file list (htmlui/lazy-shim.ts). */
+  get passcodeTableUrl(): string { return this.card.url.replace(/card\.dat$/, 'card_passcode.bin'); }
   private check(signal?: AbortSignal): void {
     checkAbort(signal);
     if (this.closed) throw new Error('Asset manager disposed');

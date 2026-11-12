@@ -40,6 +40,7 @@ function harness() {
     chooseFirst: vi.fn(async (first: boolean) => { session.duelFirst = first ? 0 : 1; emit(); }),
     startNpcDuel: vi.fn(async () => { game.duel = {}; session.phase = 'rock-paper-scissors'; emit(); }),
     finishDuel: vi.fn(async () => { session.phase = 'lobby'; session.spectating = false; emit(); }),
+    leaveCalledOffDuel: vi.fn(async () => { session.phase = 'lobby'; session.duelCalledOff = null; emit(); }), cancelChallenge: vi.fn(async () => {}),
   };
   const catalog = new CardCatalog(); catalog.install([{ passcode: 1, name: 'Test Card', type: 'Monster', extra: false, limit: 3 }, { passcode: 2, name: 'Fusion Card', description: 'Fusion effect', type: 'Fusion', extra: true, limit: 3 }]);
   const app = new ClientApp({ gatewayUrl: 'ws://game.test/net', api: api as unknown as GameApi, catalog,
@@ -50,10 +51,13 @@ function harness() {
   // point (the row's centre), as main's screens press it
   const control = (label: string, cls?: string) => { for (const spec of mounted.htmlUi.windows()) if (!cls || spec.win.cls === cls) for (const [id, h] of spec.handlers) if (h.label === label && !h.key) return { spec, h, c: spec.win.controls.find(c => c.id === id)! }; return undefined; };
   const pressRow = (label: string, row: number, cls?: string) => { const t = control(label, cls); expect(t).toBeDefined(); t!.h.click!([t!.spec.win.x + t!.c.x + 8, t!.spec.win.y + t!.c.y + 16 * row + 8]); };
+  // an NPC on the map: live starts its talk at once, its card beside it (the map's button sends this interaction; the
+  // test map places no NPC)
   const pickNpc = async (name: string, id: number) => {
-    expect(mounted.htmlUi.press('plist-search')).toBe(true); await flush(); pressRow('Search', 6, 'CFindMenu'); await flush();   // Show all: NPCs too
-    const rows = control('Players here', 'CPlayerListDlg')!.c.items as string[]; expect(rows.some(r => r.endsWith(`/${name}`))).toBe(true); pressRow('Players here', rows.findIndex(r => r.endsWith(`/${name}`))); await flush();
-    expect(mounted.htmlUi.press(`npc-duel:${id}`)).toBe(true); await flush();
+    expect(app.getState().lobby?.npcs?.some(n => n.id === id && n.name === name)).toBe(true);
+    const avatar = root.querySelectorAll('button').find(n => n.dataset.key === `avatar:${-id}`);
+    if (avatar) avatar.onclick?.({}); else await app.dispatch({ type: 'interact', playerId: -id });
+    await flush();
   };
   const openPlayer = async (name: string) => {
     const rows = control('Players here', 'CPlayerListDlg')!.c.items as string[], row = rows.findIndex(r => r.endsWith(`/${name}`));
@@ -73,7 +77,7 @@ describe('actual ClientApp mounted through semantic UI', () => {
   });
   it('enters a real controller character lifecycle without synthetic engine input', async () => {
     const f = harness(); await f.enter();
-    expect(f.game.start).toHaveBeenCalledTimes(1); expect(f.game.selectCharacter).toHaveBeenCalledWith(0);
+    expect(f.game.start).toHaveBeenCalledTimes(1); expect(f.game.selectCharacter).toHaveBeenCalledWith(0, 'my-room');
     expect(f.app.getState().scene).toBe('lobby'); expect(f.root.textContent).toContain('Duel Academy');
     expect(f.api.starter).toHaveBeenCalledTimes(1); expect(f.api.decks).toHaveBeenCalledTimes(1); f.dispose();
   });
@@ -87,6 +91,8 @@ describe('actual ClientApp mounted through semantic UI', () => {
     all().find(n => n.dataset.zone === 'trunk' && n.dataset.index === '1' && n.dataset.passcode)!.dispatchEvent(ev('mousedown'));
     all().find(n => n.dataset.dropZone === 'main')!.dispatchEvent(ev('mouseup')); await flush();
     all().find(n => n.getAttribute?.('aria-label') === 'Save Deck')!.onclick({}); await flush();
+    // (live's list opens with no row chosen: the deck's own row first)
+    expect(f.mounted.htmlUi.press('deck-file:Starter')).toBe(true); await flush();
     expect(f.mounted.htmlUi.press('deck-files-ok')).toBe(true); await flush();
     expect(f.api.saveDeck).toHaveBeenCalledWith({ name: 'Starter', main: [1], side: [], extra: [2] }, 'world', expect.objectContaining({ signal: expect.any(AbortSignal) }));
     expect(f.app.getState().deckEditor?.dirty).toBe(false); f.dispose();
@@ -122,9 +128,33 @@ describe('actual ClientApp mounted through semantic UI', () => {
     const f = harness(); await f.enter(); await f.startNpc();
     findButton(f.root, 'Rock').onclick?.({}); await flush(); expect(f.game.chooseHand).toHaveBeenCalledWith(0);
     findButton(f.root, 'Go First').onclick?.({}); await flush(); expect(f.game.chooseFirst).toHaveBeenCalledWith(true);
-    // live goes straight on into the duel after the hands and the first player (no Start Duel)
-    await flush(); expect(f.game.beginDuel).toHaveBeenCalledTimes(1); expect(f.root.querySelectorAll('button').some(b => b.textContent === 'Start Duel')).toBe(false);
+    // live starts the duel itself once who goes first is known (no Start Duel step: the server's 90 s attach window)
+    await flush(); expect(f.game.beginDuel).toHaveBeenCalledTimes(1); expect(f.root.textContent).not.toContain('Start Duel');
     expect(f.app.getState().preparation).toBeUndefined(); f.dispose();
+  });
+  it('hides the opponent\'s last hand while the hands are asked again after a draw', async () => {
+    const f = harness(); await f.enter(); await f.startNpc();
+    f.session.opponentHand = 0; f.emit(); await flush();
+    expect(f.app.getState().preparation?.opponentHand).toBeNull(); expect(f.mounted.htmlUi.text() + f.root.textContent).not.toContain('Opponent chose');
+    f.dispose();
+  });
+  it('shows live\'s box for a duel called off before it began and goes back to the lobby on its OK', async () => {
+    const f = harness(); await f.enter(); await f.startNpc();
+    f.session.duelCalledOff = { aboutOpponent: true }; f.emit(); await flush();
+    expect(f.app.getState().preparation).toBeUndefined(); expect(f.mounted.htmlUi.text()).toContain('has disconnected.');
+    expect(f.mounted.htmlUi.press('duel-calledoff-ok')).toBe(true); await flush();
+    expect(f.game.leaveCalledOffDuel).toHaveBeenCalledTimes(1); expect(f.app.getState().scene).toBe('lobby'); f.dispose();
+  });
+  it('shows live\'s duel request boxes: Requesting Duel, the challenger\'s level and title, and the refusal', async () => {
+    const f = harness(); await f.enter();
+    f.session.outgoingChallengeRoom = 9; f.emit(); await flush();
+    expect(f.mounted.htmlUi.text()).toContain('Requesting Duel'); expect(f.mounted.htmlUi.press('duel-request-cancel')).toBe(true);
+    f.session.outgoingChallengeRoom = null; f.session.challengeRefusals = 1; f.emit(); await flush();
+    expect(f.mounted.htmlUi.text()).toContain('Duel Request was refused.'); expect(f.mounted.htmlUi.press('duel-refused-ok')).toBe(true); await flush();
+    expect(f.mounted.htmlUi.text()).not.toContain('Duel Request was refused.');
+    f.session.challenge = { pid: 88, name: 'Bob', level: 3, title: 0, parts: new Uint8Array(16) }; f.emit(); await flush();
+    expect(f.mounted.htmlUi.text()).toContain('Lv3 Bob'); expect(f.mounted.htmlUi.text()).toContain('You have aDuel Request!');
+    f.dispose();
   });
   it('renders and accepts an actual session invitation through the app', async () => {
     const f = harness(); await f.enter(); f.session.challenge = { pid: 88, name: 'Bob', level: 1, title: 0, parts: new Uint8Array(16) }; f.emit(); await flush();

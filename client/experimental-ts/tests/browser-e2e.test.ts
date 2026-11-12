@@ -83,14 +83,9 @@ describe('actual headless browser against real game authority',() => {
         await until(browser,`!document.getElementById('starter')`);
       }
       await writeFile(`/tmp/duel-evolution-ts-${viewport.name}-lobby.png`,await browser.shot());
-      // main's player list: its search's Show all lists the NPCs too; the NPC's row opens its card, whose Send Duel Request starts the talk
-      const row = `[...document.querySelectorAll('#htmlui-host .pl-row')].find(b=>b.getAttribute('aria-label')===${JSON.stringify(fixture.npcName)}&&b.getClientRects().length)`;
-      await until(browser,`document.querySelector('[data-key="plist-search"]')`); await activate(browser,`document.querySelector('[data-key="plist-search"]')`,viewport.mobile);
-      const showAll = `[...document.querySelectorAll('#htmlui-host .ds-row')].find(b=>b.textContent.trim()==='Show all')`;
-      await until(browser,showAll); await activate(browser,showAll,viewport.mobile);
-      await until(browser,row); await activate(browser,row,viewport.mobile);
-      const npcDuel = `[...document.querySelectorAll('[data-key^="npc-duel:"]')].find(b=>!b.disabled)`;
-      await until(browser,npcDuel,30000); await activate(browser,npcDuel,viewport.mobile);
+      // the NPC on the map (live: its avatar starts the talk, its card beside it)
+      const npcAvatar = `document.querySelector('[data-key^="avatar:-"][aria-label=${JSON.stringify(`${fixture.npcName}, NPC`)}]')`;
+      await until(browser,npcAvatar); await activate(browser,npcAvatar,viewport.mobile);
       const npcConfirm = `[...document.querySelectorAll('[aria-label="NPC interaction"] button')].find(b=>b.textContent==='Duel NPC'&&!b.disabled)`;
       const npcContinue = `[...document.querySelectorAll('[aria-label="NPC interaction"] button')].find(b=>b.textContent==='Continue'&&!b.disabled)`;
       // Known NPCBIN context can introduce source opening dialogue before the actual duel confirmation.

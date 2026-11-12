@@ -16,6 +16,9 @@ export function npcTiles(csv: string): string[] {
   return lines.slice(4, 13).map(t => t === '****' ? '' : t);
 }
 
+/** Where live draws a famous NPC's talk picture from its csv's place (measured: a03 396, 31 at 478, 32). */
+const NPC_PICTURE_DX = 82, NPC_PICTURE_DY = 1;
+
 export class PictureArt {
   private leases: Lease[] = [];
   /** The composed pictures' object URLs (a portrait, a clerk), revoked with the client. */
@@ -38,14 +41,24 @@ export class PictureArt {
     const [kind, arg = ''] = source.canvas.split(':');
     if (kind === 'portrait' && this.composer) return this.picture(await this.composer.compose(Uint8Array.from(arg.split('.').map(Number)), 1, signal));
     if (kind === 'clerk') return this.picture(await this.clerk(arg, signal));
+    if (kind === 'npc') return this.picture(await this.npcPicture(arg, signal));
+    if (kind === 'itemline') return this.picture(itemLineCanvas(decodeURIComponent(arg)));
     throw new Error('Unknown picture.');
   };
+  /** A famous NPC's talk picture as live draws it: its csv's 3 x 3 tiles at the place its header gives (lines 2 and 3:
+   * x, y; live: Alexis Rhodes' a03 at 396, 31 shows at 478, 32), on a 1024 x 768 screen. */
+  private async npcPicture(id: string, signal: AbortSignal): Promise<HTMLCanvasElement> {
+    const tiles = await this.clerk(id, signal), screen = document.createElement('canvas'); screen.width = 1024; screen.height = 768;
+    screen.getContext('2d')?.drawImage(tiles, NPC_PICTURE_DX + (Number(tiles.dataset.x) || 0), NPC_PICTURE_DY + (Number(tiles.dataset.y) || 0));
+    return screen;
+  }
   private async clerk(id: string, signal: AbortSignal): Promise<HTMLCanvasElement> {
     if (!/^[ad]\d\d$/.test(id)) throw new Error('Unknown clerk.');
     const load = this.loaders.loadArchiveImage; if (!load) throw new Error('No original art.');
     const lease = await load(`data/avatar/npc/${id}.csv`, signal);
     let csv: string; try { csv = await (await fetch(lease.url, { signal })).text(); } finally { lease.release(); }
     const tiles = npcTiles(csv), canvas = document.createElement('canvas'); canvas.width = canvas.height = 768;
+    const head = csv.split(/\r?\n/).map(l => l.trim()); canvas.dataset.x = head[1] ?? ''; canvas.dataset.y = head[2] ?? '';
     const ctx = canvas.getContext('2d');
     await Promise.all(tiles.map(async (tile, i) => {
       if (!tile || !/^[\w.-]+\.png$/.test(tile)) return;
@@ -58,4 +71,18 @@ export class PictureArt {
   /** A composition made off screen as the picture the window shows (an <img>). */
   private async picture(canvas: HTMLCanvasElement): Promise<string> { const url = await canvasUrl(canvas); this.urls.push(url); return url; }
   dispose(): void { for (const l of this.leases) l.release(); this.leases = []; for (const u of this.urls) URL.revokeObjectURL(u); this.urls = []; }
+}
+/** An item window's name line (challenge-unlock.ts): the engine's "@1" ShadowText, red bold 18-pixel DejaVu Sans (lfHeight
+ * 18: 15.46 px em) over its black shadow 1 px down-right, centred in 448 x 24. (Drawn with the browser's font: main's
+ * glyph tables have no bold face.) */
+export function itemLineCanvas(text: string): HTMLCanvasElement {
+  const canvas = document.createElement('canvas'); canvas.width = 448; canvas.height = 24;
+  const ctx = canvas.getContext('2d'); if (!ctx) return canvas;
+  ctx.font = 'bold 15.46px "DejaVu Sans", Verdana, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  // the engine's cells: each glyph's rounded advance + 1 (live's line is 356 px where the browser sets it ~335)
+  (ctx as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = '0.5px';
+  const t = text.trim();
+  ctx.fillStyle = '#000'; ctx.fillText(t, 225, 18);
+  ctx.fillStyle = '#e00000'; ctx.fillText(t, 224, 17);
+  return canvas;
 }

@@ -13,6 +13,7 @@ import { sideboardDifference } from '../deck';
 import { attrOf, deckUi, deckWindow, detailWindow, isMonster, raceOf, type DeckFrom } from './deck';
 import type { DeckDomScene, PowerIcons } from './deck-dom';
 import { cardSwapMenu } from './card-swap-menu';
+import { peekTable } from '@htmlui/crafting/cards.js';
 import { WindowBuilder, type HtmlWindow, type Ids, type WindowSpec } from './snapshot';
 
 export interface SideSwapState { deck: DeckView; original: DeckView; round: number; deadline?: number | null; ready: boolean; error?: string }
@@ -63,7 +64,7 @@ export class SideSwap implements DeckDomScene {
   /** The scene's windows for this swap (back to front), none outside it. */
   windows(ids: Ids, state: SideSwapState | null): WindowSpec[] {
     this.state = state; if (!state) { this.ui.drag = null; return []; }
-    const ctx = { ids, ui: this.ui, deck: state.deck, card: (pc: number) => this.d.card(pc), trunk: [], busy: state.ready };
+    const ctx = { ids, ui: this.ui, deck: state.deck, card: (pc: number) => this.d.card(pc), trunk: [], busy: state.ready, yo2: (pc: number) => peekTable()?.id(pc) ?? 0, owned: 0 };
     const out = [cardSwapMenu(ids, { exit: () => this.exit(), disabled: state.ready, key: 'swap-exit' }), detailWindow(ctx), compactDeck(deckWindow(ctx)), this.clock(ids, state)];
     for (const s of out) s.win.sideSwap = true;
     return out;

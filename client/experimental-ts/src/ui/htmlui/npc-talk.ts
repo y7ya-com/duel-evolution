@@ -9,6 +9,7 @@ import type { ClientCommand } from '../contracts';
 import { PORTRAIT_PLACE, PORTRAIT_SCALE } from '../duel-scene';
 import { WindowBuilder, type Ids, type WindowSpec } from './snapshot';
 import { dialogLines } from './dialog-text';
+import { npcChibiSet } from '../../avatars/npc';
 
 /** The stages the talk draws: before a duel (its lines and the question) and the lines after it. */
 const TALK = ['opening', 'ask', 'greeting', 'after-duel', 'won', 'lost', 'item'] as const;
@@ -30,8 +31,13 @@ export interface NpcTalkDeps {
 export function npcTalkWindows(npc: Readonly<NpcState> | null | undefined, d: NpcTalkDeps): WindowSpec[] {
   if (!npcTalkStage(npc)) return [];
   const s = npc!, who = s.npc!, out: WindowSpec[] = [];
-  // the picture, under the chat and the menu bar (live draws them over it)
-  if (d.parts && d.parts.length === 16) {
+  // the picture, under the chat and the menu bar (live draws them over it): a famous NPC's own (its csv's tiles,
+  // CNpcChibiAvatar's art kind: Alexis Rhodes a03), another NPC's waist-up from its parts
+  const set = npcChibiSet(who.id);
+  if (set) {
+    out.push(new WindowBuilder(d.ids, 'npc-talk:pictures', 'CEnginePictures', { x: 0, y: 0, w: 1024, h: 768 }, { z: 51000,
+      pics: [{ key: 'npc', source: { canvas: `npc:${set}` }, x: 0, y: 0, w: 1024, h: 768, z: 0, shown: true }] }).spec());
+  } else if (d.parts && d.parts.length === 16) {
     const at = PORTRAIT_PLACE[1], size = 768 * PORTRAIT_SCALE;
     out.push(new WindowBuilder(d.ids, 'npc-talk:pictures', 'CEnginePictures', { x: 0, y: 0, w: 1024, h: 768 }, { z: 51000,
       pics: [{ key: 'npc', source: { canvas: `portrait:${Array.from(d.parts).join('.')}` }, x: at.x, y: at.y, w: size, h: size, z: 0, shown: true }] }).spec());
@@ -73,7 +79,8 @@ function startDuel(d: NpcTalkDeps, blocked: boolean): WindowSpec {
   const { text, n } = dialogLines('Start Duel?', 320), w = 336, h = 144, x = 344, y = 312;
   const b = new WindowBuilder(d.ids, 'npc-talk:start', 'CUYesNoDialog', { x, y, w, h }, { modal: true, z: 51170 });
   b.add('CWindowTaskFrameBottomThick', 'frame', { x: 0, y: 0, w, h }, { style: 1, band: 40, alpha: 0.7 });
-  b.add('CWindowTaskTextField', 'text', { x: 8, y: 8, w: w - 16, h: n * 16 + 8 }, { text, align: 1, color: [0, 0, 0, 1] });
+  // the field's white plane fills the body down to the buttons' band (live: an opaque box, the world not through it)
+  b.add('CWindowTaskTextField', 'text', { x: 8, y: 8, w: w - 16, h: Math.max(n * 16 + 8, 96) }, { text, align: 1, color: [0, 0, 0, 1] });
   const on = !d.busy && !blocked;
   ([['yes', 'Yes', 45, true], ['no', 'No', 212, false]] as const).forEach(([id, label, bx, accept]) => {
     const c = b.add('CWindowTaskTextSwitch', `opt:${id}`, { x: bx, y: 112, w: 80, h: 24 }, { label, align: 1, state: on ? 'normal' : 'disabled', enabled: on });
@@ -90,7 +97,7 @@ const CSS = `.npc-balloon { position: absolute; left: 0; top: 0; width: 446px; h
 .npc-balloon::before { content: ''; position: absolute; right: -21px; top: 81px; width: 22px; height: 24px; background: #3a3f44; clip-path: polygon(0 0, 100% 50%, 0 100%); }
 .npc-balloon:disabled { cursor: default; }
 .npc-balloon .who { position: absolute; left: 13px; top: 8px; }
-.npc-balloon .says { position: absolute; left: 44px; top: 26px; width: 380px; height: 96px; display: flex; align-items: center; white-space: pre-wrap; }
+.npc-balloon .says { position: absolute; left: 44px; top: 40px; width: 380px; height: 84px; font-size: 15px; line-height: 16px; white-space: pre-wrap; overflow: hidden; }
 .npc-balloon .mark { position: absolute; right: 22px; bottom: 6px; width: 14px; height: 14px; }
 .npc-balloon .mark::before { content: ''; position: absolute; left: 3px; top: 0; width: 8px; height: 8px; background: #f08a1c; clip-path: polygon(30% 0, 70% 0, 70% 40%, 100% 40%, 50% 100%, 0 40%, 30% 40%); }
 .npc-balloon .mark::after { content: ''; position: absolute; left: 0; top: 9px; width: 14px; height: 4px; border: 1px solid #555; border-top: 0; box-sizing: border-box; }
@@ -101,7 +108,7 @@ const CSS = `.npc-balloon { position: absolute; left: 0; top: 0; width: 446px; h
 .npc-info .name { top: 4px; height: 34px; background: rgba(150,150,150,.35); color: #ec1c1c; text-align: center; line-height: 22px; }
 .npc-info .band { top: 38px; height: 32px; background: rgba(140,140,140,.45); }
 .npc-info .white { top: 70px; height: 32px; background: rgba(255,255,255,.75); }
-.npc-info .bio { top: 104px; bottom: 4px; white-space: pre-wrap; word-break: break-all; line-height: 15.6px; letter-spacing: .75px; overflow: hidden; }
+.npc-info .bio { top: 104px; white-space: pre-wrap; word-break: break-all; line-height: 15.6px; letter-spacing: .75px; overflow: hidden; }
 .npc-info .l { line-height: 16px; } .npc-info .v { text-align: right; line-height: 16px; }`;
 const css = () => { if (!document.getElementById('npc-talk-css')) { const st = document.createElement('style'); st.id = 'npc-talk-css'; st.textContent = CSS; document.head.append(st); } };
 type BalloonWin = { name?: string; text?: string; next?: number; label?: string; blocked?: boolean };
@@ -121,7 +128,8 @@ export const npcBalloonScreen: HtmlUiScreen = {
   },
   update(win, _prev, root, _api, st) {
     const w = win as BalloonWin, s = st as { box: HTMLButtonElement; who: HTMLElement; says: HTMLElement; next: number };
-    s.who.textContent = w.name ?? ''; s.says.textContent = w.text ?? ''; s.next = w.next ?? 0;
+    // the engine's font has no '…': live draws its missing-glyph box there ("□Who are you?")
+    s.who.textContent = w.name ?? ''; s.says.textContent = (w.text ?? '').replace(/… ?/g, '□'); s.next = w.next ?? 0;
     s.box.disabled = !!w.blocked; s.box.setAttribute('aria-label', `${w.name ?? ''}: ${w.text ?? ''} (${w.label ?? 'Next'})`);
     root.style.overflow = 'visible';
   },
@@ -147,6 +155,10 @@ export const npcInfoScreen: HtmlUiScreen = {
   update(win, _prev, _root, _api, st) {
     const w = win as InfoWin, s = st as { card: HTMLElement; name: HTMLElement; band: HTMLElement; white: HTMLElement; bio: HTMLElement };
     s.bio.textContent = w.bio ?? '';
+    // live's card is as tall as its text: name, Win%, Deck Name and the biography's lines, its bottom where the window's
+    // is (604); an NPC with no biography has the short card
+    const h = 104 + (w.bio ? s.bio.scrollHeight + 8 : 4);
+    if (s.card.style.height !== `${h}px`) Object.assign(s.card.style, { height: `${h}px`, top: `${382 - h}px` });
     s.name.textContent = w.name ?? '';
     const [wl, wv] = s.band.children as unknown as HTMLElement[], [dl, dv] = s.white.children as unknown as HTMLElement[];
     wl!.textContent = 'Win%'; wv!.textContent = w.record ?? ''; dl!.textContent = 'Deck Name'; dv!.textContent = w.deck ?? '';

@@ -1,5 +1,8 @@
 import type { NpcSpot, WorldMap, WorldPosition } from './maps';
 
+/** Where My Room's scene stands its player (CMyRoomScene's init, 0x00825823: (790.0, 430.0)), facing front. */
+export const MY_ROOM_SPAWN: WorldPosition = Object.freeze({ x: 790, y: 430, direction: 0 });
+
 /** An NPC of the server's NPCINFOLIST (0x4233): the row's spot (+0x38), friendship threshold (+0x34) and previous (+0x40). */
 export interface ListedNpc { readonly id: number; readonly threshold: number; readonly spot: number; readonly previous: number }
 

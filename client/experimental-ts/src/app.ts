@@ -10,7 +10,7 @@ import { idbRecordStore, type DuelRecordStore } from './services/duel-records';
 import { loadDuelSpeed } from './ui/htmlui/duel-dialogs';
 import type { DuelState } from './duel/types';
 import { encodeDuelResponse } from './duel/responses';
-import { GameApi, GameplayService, DeckEditor, toShopView, toSocialView, expandStarterDeck } from './services';
+import { GameApi, GameplayService, DeckEditor, toShopView, toSocialView } from './services';
 import { AssetManager } from './assets';
 import { loadPackCatalog, packImagePath } from './shop/packs';
 import type { Preloader } from './features/preload';
@@ -48,9 +48,11 @@ import { WorldNavigator } from './world';
 import { chooseInitialArrival } from './world/arrival';
 import { isWalkable } from './world/pathfinding';
 import { WorldRuntime } from './world/runtime';
-import { npcsOnMap, npcStance } from './world/npcs';
+import { MY_ROOM_SPAWN, npcsOnMap, npcStance } from './world/npcs';
+import { NpcWanderer } from './world/npc-wander';
+import { nameTagColor } from './world/name-tag';
 import { npcChibiSet, npcStars } from './avatars/npc';
-import { arrivalEntries, chooseArrival, SHOP_DOOR, SHOP_DOOR_REARM } from './world/exits';
+import { arrivalEntries, chooseArrival, MY_ROOM_DOORS, SHOP_DOOR, SHOP_DOOR_REARM } from './world/exits';
 import type { ExitTrigger } from './world/exits';
 import type { WorldMap, WorldPosition } from './world/maps';
 import { MAP_NAMES, SceneLoader } from './world/scene';
@@ -63,7 +65,7 @@ import { serializeDeck } from './ui/deck';
 import { CardDetailsCatalog, decodeLegacyDeck, encodeLegacyDeck } from './cards';
 import type { OriginalCardTextCatalog } from './cards/original-text';
 import type { DeckView, LobbyAvatar } from './ui/contracts';
-import { duelOptions } from './ui/contracts';
+import { duelOptions, DEFAULT_DECK } from './ui/contracts';
 import type { ClientData } from './data';
 import type {RecipeCatalog} from './recipes';
 import { ownedTitles } from './features/titles';
@@ -316,7 +318,8 @@ export class ClientApp implements ClientController {
   private emit(): void { if (!this.disposed) { this.view = { ...this.view, ...this.place() }; this.syncAudioScene(); this.options.preloader?.observe(this.view.scene, this.game?.state.area ?? null, this.game?.state.phase ?? null); for (const listener of this.listeners) listener(this.view);this.scheduleNpcEligibility(); } }
   private scheduleNpcEligibility():void {
     const game=this.game,state=this.npc?.state;
-    if(!this.eligibilityDue || this.eligibilityQueued || this.view.busy || this.freeMode || !game || game.state.phase!=='lobby' || !game.state.pbin || !game.state.npcbin || !state ||
+    // live's area map asks (CAreaMapScene::onInit); My Room does not: its check waits for the world
+    if(!this.eligibilityDue || this.eligibilityQueued || this.view.busy || this.freeMode || !game || game.state.phase!=='lobby' || game.state.location==='my-room' || !game.state.pbin || !game.state.npcbin || !state ||
       !['idle','done'].includes(state.stage) || state.eligibility.refreshing || [state.eligibility.status,state.firstContactStatus,state.giftStatus].some(s=>s==='pending'||s==='uncertain') || state.packStatus==='pending' || state.packs.length>0&&state.packStatus==='idle')return;
     const epoch=this.epoch;this.eligibilityQueued=true;
     queueMicrotask(()=>{this.eligibilityQueued=false;if(this.disposed || epoch!==this.epoch || this.game!==game || this.view.busy || !this.eligibilityDue)return;
@@ -345,7 +348,7 @@ export class ClientApp implements ClientController {
     this.rarities = api.cardRarities({ signal: this.scope.signal }).then(table => {
       if (this.disposed) return;
       this.catalog.installRarities(table); this.catalogCards = null; this.collectionRef = null; this.projections.clear();
-      const game = this.game?.state; if (game) this.collection = [...game.collection].map(([pc, n]) => this.catalog.card(pc, n));
+      const game = this.game?.state; if (game) this.collection = this.cardsHeld(game.collection);
       this.editor?.setCollection(this.collection); this.syncEditor(); this.emit();
     }).catch(() => { this.rarities = null; });
   }
@@ -381,8 +384,9 @@ export class ClientApp implements ClientController {
     if (!this.options.assets) throw new Error('Original artwork is not configured.');
     // Duel effects are also movie/sheet scripts (.txt) next to their PNGs; the waist-up avatar parts are listed in .csv;
     // the menu bar and windows use data/common/window and data/common/icon (the duel bar's ring: an icon movie); card-get uses data/y/result and data/card_get;
-    // the shop data/shop and its clerk's picture data/avatar/npc (tiles listed in its .csv); the trade's lamps data/deck; the lobby data/menu.
-    if (!/^data\/(?:(?:cardpack|y\/duel|y\/duel_end|y\/janken|y\/result|result|card_get|card|avatar\/wu|avatar\/npc|avatar\/flag|shop|deck|common\/window|common\/icon|menu)\/(?:[\w#.-]+\/)*[\w#.-]+\.png|(?:y2?\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.txt|menu\/menu_mark_a01\.txt|common\/window\/icon\/menuicon_03_a0\d\.txt|title\/title_flash_01\.txt|title\/(?:title_\w+|option_\w+)\.png|y2\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.png|y2\/duel_(?:window|gauge|font)_0\d_c0\d\.png|avatar\/wu\/w[mw]_data\.csv|avatar\/npc\/[ad]\d\d\.csv))$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
+    // the shop data/shop and its clerk's picture data/avatar/npc (tiles listed in its .csv); the trade's lamps data/deck; the lobby data/menu;
+    // My Room's shelf (data/Map/Map_r01, Map_switch) and its TV's pictures (data/tv).
+    if (!/^data\/(?:(?:cardpack|y\/duel|y\/duel_end|y\/janken|y\/result|result|card_get|card|avatar\/wu|avatar\/npc|avatar\/flag|shop|deck|common\/window|common\/icon|menu|tv|itemget|scene\/avatarchange|map\/map_r01|map\/map_switch)\/(?:[\w#.-]+\/)*[\w#.-]+\.png|(?:y2?\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.txt|menu\/menu_mark_a01\.txt|common\/window\/icon\/menuicon_03_a0\d\.txt|title\/title_flash_01\.txt|title\/(?:title_\w+|option_\w+)\.png|y2\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.png|y2\/duel_(?:window|gauge|font)_0\d_c0\d\.png|avatar\/wu\/w[mw]_data\.csv|avatar\/npc\/[ad]\d\d\.csv))$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
     const lease = await this.options.assets.readScene(path, signal);
     return { url: lease.value.url, release: () => lease.release() };
   }
@@ -390,12 +394,15 @@ export class ClientApp implements ClientController {
    * the card shop's card faces and pack art), limited to the folders they read. */
   async readGameFile(path: string, signal?: AbortSignal): Promise<Uint8Array> {
     if (!this.options.assets) throw new Error('Original artwork is not configured.');
-    if (!/^data\/(?:avatar\/chibi|avatar\/wu|map\/map_switch|shop|y\/result|card|cardpack)\/(?:[\w#.-]+\/)*[\w#.-]+\.(?:png|jpg|csv|txt)$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
+    // (and the card pack catalogue's tables: the deck screen's structure deck texts, htmlui/pack-info.ts)
+    if (!/^data\/(?:avatar\/chibi|avatar\/wu|map\/map_switch|shop|y\/result|card|cardpack|tv)\/(?:[\w#.-]+\/)*[\w#.-]+\.(?:png|jpg|csv|txt)$/i.test(path) && !/^data\/cardpack\/PACK_\w+\.bin$/.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
     const lease = await this.options.assets.readScene(path, signal ?? this.scope.signal);
     try { return lease.value.bytes.slice(); } finally { lease.release(); }
   }
   /** merge.dat's URL, for main's page modules (lazy-shim.ts `files`); absent without configured assets. */
   get gameArchiveUrl(): string | undefined { return this.options.assets?.archiveUrl; }
+  /** merge/data/card_passcode.bin's URL (lazy-shim.ts `files`: main's crafting/cards.js table). */
+  get passcodeTableUrl(): string | undefined { return this.options.assets?.passcodeTableUrl; }
   /** A card's big art by its YO2 id (lazy-shim.ts cardArt: the card shop's faces, the crafting editor), the 2x art as live's lazyfs reads it. */
   async readCardArt(id: number, signal?: AbortSignal): Promise<Uint8Array | null> {
     if (!this.options.assets) throw new Error('Original artwork is not configured.');
@@ -476,7 +483,8 @@ export class ClientApp implements ClientController {
     }
     if (state.collection !== this.collectionRef) {
       this.collectionRef = state.collection;
-      this.collection = [...state.collection].map(([pc, n]) => this.catalog.card(pc, n));
+      // free mode's trunk is the whole card pool, three of each (live's free mode: 9681 cards), not the account's cards
+      this.collection = this.cardsHeld(state.collection);
       this.editor?.setCollection(this.collection);
     }
     const selected = state.characters.find(c => c.slot === state.selectedSlot);
@@ -501,8 +509,9 @@ export class ClientApp implements ClientController {
       this.worldSpawnContext = spawnContext;
       // A fresh server presence uses (0,0) until the client sends its initial move. My Room (map 8, Map_r01) is the
       // area map scene too: its player stands at GetInitPos(8, 8) = (680,400) plus rand()%60-30 each way (0x00a01575..)
-      if (this.arrivalFrom?.to===state.area || this.arrivalArea===state.area || this.arrivalArea===-1 && state.location!=='my-room' || selfAt.x === 0 && selfAt.y === 0 && (!worldMap.grid || !isWalkable(worldMap.grid,selfAt)) && worldMap.entries.some(e=>e.from===8)) {
-        spawn = this.arrivalFrom?.to===state.area && arrivalEntries(worldMap,this.arrivalFrom.from,{crossings:true}).length ? chooseArrival(worldMap,this.arrivalFrom.from,{crossings:true,random:this.options.random}) : chooseInitialArrival(worldMap,this.options.random);
+      if (state.area===8 || this.arrivalFrom?.to===state.area || this.arrivalArea===state.area || this.arrivalArea===-1 || selfAt.x === 0 && selfAt.y === 0 && (!worldMap.grid || !isWalkable(worldMap.grid,selfAt)) && worldMap.entries.some(e=>e.from===8)) {
+        // My Room's scene stands the player by the red door, always there (CMyRoomScene: 0x00825823, (790, 430))
+        spawn = state.area===8 ? { ...MY_ROOM_SPAWN } : this.arrivalFrom?.to===state.area && arrivalEntries(worldMap,this.arrivalFrom.from,{crossings:true}).length ? chooseArrival(worldMap,this.arrivalFrom.from,{crossings:true,random:this.options.random}) : chooseInitialArrival(worldMap,this.options.random);
         this.arrivalFrom=null;this.arrivalArea=null;this.shopDoor=null;
         const game = this.game, epoch = this.epoch, position = spawn;
         queueMicrotask(()=> {
@@ -539,14 +548,19 @@ export class ClientApp implements ClientController {
         areas: this.project('areas', state.areas, areas => areas.map(a => ({ ...a, name: `Area ${a.area}` }))),
         npcs: this.freeMode ? [] : this.project('npcs', state.npcs, npcs => npcs.map(n => ({ id: n.id, name: n.name }))),
         rooms: this.project('rooms', state.rooms, rooms => rooms.map(r => ({ id: r.id, owner: r.owner, name: state.players.find(p => p.pid === r.owner)?.name ?? `Room ${r.id}`, state: r.state, style: r.style, password: r.password, watch: r.mode !== 0, opponent: r.opponent }))),
-        invitation: this.project('invitation', state.challenge, challenge => challenge ? { name: challenge.name, pid: challenge.pid } : undefined),
-        outgoing: this.project('outgoing', state.outgoingChallengeRoom, room => room ? { name: this.nextOpponent ?? state.players.find(p => state.rooms.some(r => r.id === room && r.owner === p.pid))?.name ?? 'your opponent' } : undefined),
+        invitation: this.project('invitation', state.challenge, challenge => challenge ? { name: challenge.name, pid: challenge.pid, level: challenge.level, title: challenge.title, parts: Array.from(challenge.parts) } : undefined),
+        outgoing: this.project('outgoing', state.outgoingChallengeRoom, room => room ? this.outgoingView(state, room) : undefined),
+        ...(this.requestRefused(state) ? { refused: this.requestRefused(state)! } : {}),
         // All areas of a world share one server block; only players in this area (its area block) are on this map.
-        avatars: state.players.filter(p => p.pid === profile.pid || p.areaBlock === state.areaBlock).map(p => ({ id:p.pid,name:p.name,level:p.level,country:p.country,x:p.pid === profile.pid && spawn ? spawn.x : p.x ?? 0,y:p.pid === profile.pid && spawn ? spawn.y : p.y ?? 0,self:p.pid === profile.pid,parts:p.parts,direction:p.direction,world:([4,5,6,7].includes(state.area)?1:0) as 0|1,duelling:p.state !== undefined && p.state >= 0x67 && p.state <= 0x6a,motion:p.pid === profile.pid && this.world.walking ? 'walk' as const : 'stand' as const }) as LobbyAvatar).concat(this.mapNpcAvatars(state,worldMap)),
+        avatars: state.players.filter(p => p.pid === profile.pid || p.areaBlock === state.areaBlock).map(p => ({ id:p.pid,name:p.name,level:p.level,country:p.country,x:p.pid === profile.pid && spawn ? spawn.x : p.x ?? 0,y:p.pid === profile.pid && spawn ? spawn.y : p.y ?? 0,self:p.pid === profile.pid,parts:p.parts,direction:p.direction,world:this.lobbyWorld(state),duelling:p.state !== undefined && p.state >= 0x67 && p.state <= 0x6a,nameColor:nameTagColor(p.state),motion:p.pid === profile.pid && this.world.walking ? 'walk' as const : 'stand' as const }) as LobbyAvatar).concat(this.mapNpcAvatars(state,worldMap)),
         chat: this.project('chat', state.chat, chat => chat.map((m, i) => ({ id: String(i), sender: m.name, text: m.text, channel: channelName(m.channel) }))),
         channels: ['global', 'trade', 'whisper', 'team'],
       } : null,
-      preparation: duelPreparing ? { role:state.duelRole, phase: state.duelFirst !== null ? 'ready' : state.phase === 'rock-paper-scissors' && state.rpsLost ? 'waiting-for-first' : state.phase, opponentHand: state.opponentHand } : undefined,
+      // the opponent's hand only once this player's own is in (after a draw the hands are asked again: the last round's
+      // hand is not shown then); live never prints it, its janken scene turns the cards over once both have chosen
+      preparation: duelPreparing && !state.duelCalledOff ? { role:state.duelRole, phase: state.duelFirst !== null ? 'ready' : state.phase === 'rock-paper-scissors' && state.rpsLost ? 'waiting-for-first' : state.phase,
+        opponentHand: state.phase === 'rock-paper-scissors' && !state.rpsLost ? null : state.opponentHand } : undefined,
+      duelCalledOff: this.calledOffView(state),
       relay: this.project('relay',state.relay,relay => relay ? { active:[...relay.active] as [0|1,0|1], self:relay.self, players:relay.players.map(p => ({pid:p.pid,name:p.name})),canAct:relay.canAct } : undefined),
       matchmaking:this.project('matchmaking',state.matchmaking,matchmaking=>({...matchmaking,opponent:matchmaking.opponent ? {pid:matchmaking.opponent.pid,name:matchmaking.opponent.name,level:matchmaking.opponent.level} : null})),
       match: state.match ? { round:state.match.round, scores:[...state.match.scores], complete:state.match.complete } : undefined,
@@ -566,7 +580,30 @@ export class ClientApp implements ClientController {
       if (this.settledDuel) this.settledDuel = { ...this.settledDuel, spectating: state.spectating || !!this.replay };
     }
     this.syncEditor();
+    this.autoBeginDuel(state);
     if (this.settledDuel) this.renderDuelFrame(); else this.emit();
+  }
+  /** Live starts the duel as soon as who goes first is known (its client sends 0x61fe itself; no Start Duel step). The
+   *  server gives a reservation 90 s to start (pvpMatch ATTACH_TIMEOUT) and calls it off after that, so the rewrite does
+   *  not wait for a press either. */
+  private autoBeginDuel(state: SessionState): void {
+    if (state.duelFirst === null || state.duelCalledOff || state.spectating || state.duelRole !== 'player' || this.replay) return;
+    if (!['preparing-duel', 'rock-paper-scissors', 'choose-first'].includes(state.phase)) return;
+    const game = this.game;
+    queueMicrotask(() => {
+      const now = game?.state; if (this.disposed || !game || this.game !== game || !now) return;
+      if (now.duelFirst === null || now.duelCalledOff || now.spectating || now.duelRole !== 'player' || !['preparing-duel', 'rock-paper-scissors', 'choose-first'].includes(now.phase)) return;
+      try { game.beginDuel(); } catch (e) { this.failure(e); }
+    });
+  }
+  /** The called-off duel's box (live's CWindowModelDialogOk over the janken scene): the other duelist gone (0x11a7
+   *  "%s has disconnected."), this player's deck refused, or the duel connection lost for good. */
+  private calledOffSeen: object | null = null; private calledOffId = 0;
+  private calledOffView(state: SessionState): ClientView['duelCalledOff'] {
+    const off = state.duelCalledOff; if (!off) { this.calledOffSeen = null; return undefined; }
+    if (off !== this.calledOffSeen) { this.calledOffSeen = off; this.calledOffId++; }
+    const text = off.reason ?? (off.aboutOpponent ? `${this.duelNames()[1]} has disconnected.` : 'The server rejected this deck or duel action');
+    return { id: this.calledOffId, text };
   }
   private sendGameplay(command: GameplayCommand): void {
     const game = this.requireGame();
@@ -594,7 +631,8 @@ export class ClientApp implements ClientController {
     this.duelLog = [...this.duelLog, ...this.duelState.events.filter(e => e.sequence > previous.sequence).map(e => describeEvent(this.duelState, this.catalog, names, e, this.options.duelTexts)).filter((line): line is string => line !== null)].slice(-100);
     for (const event of this.duelState.events) if (event.sequence > previous.sequence && event.type === 'notice') this.duelNotice = { id: ++this.noticeIds, text: describeNotice(event.params[0] ?? 0, this.options.duelTexts) };
     for(const event of this.duelState.events) if(event.sequence>previous.sequence && event.type==='engine:14') this.fieldPasscode=event.params[0];
-    for (const event of this.duelState.events) if (event.sequence > previous.sequence && event.type === 'server-notice') { const text = serverInfoText(event.params[0] ?? 0, event.player === 1, names[1]); if (text) { this.duelNotice = { id: ++this.noticeIds, text }; this.duelLog = [...this.duelLog, text].slice(-100); } }
+    // (a duel called off before it began says so in its own box: duelCalledOff)
+    if (!this.game?.state.duelCalledOff) for (const event of this.duelState.events) if (event.sequence > previous.sequence && event.type === 'server-notice') { const text = serverInfoText(event.params[0] ?? 0, event.player === 1, names[1]); if (text) { this.duelNotice = { id: ++this.noticeIds, text }; this.duelLog = [...this.duelLog, text].slice(-100); } }
     this.timeline.enqueue(previous, this.duelState); this.duelCues.collect(previous, this.duelState);
     if (this.duelState.sequence > previous.sequence) this.duelAudio.enqueue(previous,this.duelState);
     if (!this.replay && this.duelState.result && [1,2,3].includes(this.duelState.result.result)) this.npc.afterDuel(this.duelState.result.result as 1|2|3);
@@ -620,6 +658,9 @@ export class ClientApp implements ClientController {
     } catch { return false; }
     this.syncDuel(); return true;
   }
+  /** The world the lobby's avatars are drawn in (CGameMng +0x448, g_lobbyWorld): the area's, and in My Room the one the
+   * player came from (the look the session registered last), as live. */
+  private lobbyWorld(state:SessionState): 0|1 { return (state.location==='my-room' ? state.appearanceWorld : [4,5,6,7].includes(state.area) ? 1 : 0) as 0|1; }
   private npcAvatarCache:{key:readonly unknown[];avatars:LobbyAvatar[]}|null = null;
   /** The NPCs standing on this map (the area map's NPC builder, src/world/npcs.ts) as avatars: id -npc (the NPC
    * card's own entry), standing idle where their spot puts them; built once per map visit and NPC list, so a spot
@@ -630,11 +671,16 @@ export class ClientApp implements ClientController {
     const key = [worldMap,state.npcs,state.npcbin,state.pbin,this.worldSpawnContext];
     if (this.npcAvatarCache && this.npcAvatarCache.key.every((v,i)=>v===key[i])) return this.npcAvatarCache.avatars;
     const npcbin = state.npcbin, rank = (id:number) => npcbin && id*4+3 < npcbin.length ? npcbin[id*4+3]! : 0;
-    const world = ([4,5,6,7].includes(worldMap.id)?1:0) as 0|1, old = new Map((this.npcAvatarCache?.avatars ?? []).map(a=>[a.id,a]));
+    const world = this.lobbyWorld(state), old = new Map((this.npcAvatarCache?.avatars ?? []).map(a=>[a.id,a]));
     const avatars = npcsOnMap(worldMap,state.npcs,rank).map(({npc,spot}):LobbyAvatar => {
       const kept = old.get(-npc.id), at = kept && kept.x===spot.x && kept.y===spot.y ? { x:kept.x,y:kept.y,direction:kept.direction ?? 0 } : npcStance(spot,this.options.random);
+      // a wandering spot's NPC walks among the map's spots (CNpcChibiAvatar, world/npc-wander.ts), from where it was
+      const wanders = (spot.wander ?? spot.randomDirection) && !!worldMap.grid;
+      const wander = !wanders ? undefined : kept?.wander && kept.x===spot.x && kept.y===spot.y ? kept.wander
+        : new NpcWanderer(at, worldMap.npcSpots.map(p => ({ x:p.x,y:p.y })), worldMap.grid, this.options.random ? { rand:() => Math.floor(this.options.random!() * 32768) } : {});
       const set = npcChibiSet(npc.id), stars = npcbin ? npcStars(npc,state.npcs,npcbin,state.pbin) : undefined;
-      return { id:-npc.id,name:npc.name,x:at.x,y:at.y,direction:at.direction,npc:true,parts:npc.parts,...(set ? { npcArt:set } : {}),...(stars ? { stars } : {}),world,motion:'stand' };
+      // every NPC's tag carries the world's NPC flag (CNpcChibiAvatar::setNpc 0x009d7c2f: NPCL in Domino, NPCG in the Academy)
+      return { id:-npc.id,name:npc.name,x:at.x,y:at.y,direction:at.direction,npc:true,country:world ? 'NPCG' : 'NPCL',parts:npc.parts,...(wander ? { wander } : {}),...(set ? { npcArt:set } : {}),...(stars ? { stars } : {}),world,motion:'stand' };
     });
     this.npcAvatarCache = { key,avatars }; return avatars;
   }
@@ -672,7 +718,7 @@ export class ClientApp implements ClientController {
     // My Room's door goes back out to the world area it was entered from, at that map's My Room arrivals (entries from 8)
     const leaving=game.state.location==='my-room';
     if(leaving){this.arrivalFrom=null;this.arrivalArea=-1;} else this.arrivalFrom={from,to:exit.destination};
-    try {if(leaving)await game.leaveMyRoom();else await game.enterArea(exit.destination);this.assertEpoch(epoch);}
+    try {if(leaving)await game.leaveMyRoom(MY_ROOM_DOORS[exit.index]);else await game.enterArea(exit.destination);this.assertEpoch(epoch);}
     catch(error) {if(epoch===this.epoch){this.arrivalFrom=null;throw error;}}
     finally {if(epoch===this.epoch)this.worldTransition=false;}
   }
@@ -790,6 +836,21 @@ export class ClientApp implements ClientController {
     const opponent = this.duelIsPvp ? this.pvpOpponent ?? this.roomOpponentName() : this.npc.state.npc?.name;
     return [this.view.player?.name ?? 'You', opponent ?? 'Opponent'];
   }
+  /** The duel request this player is waiting on: the room's owner (an invite's private room is the target's), by name
+   *  and look; kept for the refusal's box after the request ends. */
+  private lastOutgoing: { name: string; pid?: number; parts?: number[] } | null = null;
+  private outgoingView(state: SessionState, room: number): { name: string; pid?: number; parts?: number[] } {
+    const owner = state.rooms.find(r => r.id === room)?.owner, player = state.players.find(p => p.pid === owner) ?? state.players.find(p => p.name === this.nextOpponent);
+    const view = { name: this.nextOpponent ?? player?.name ?? 'your opponent', ...(player ? { pid: player.pid } : {}), ...(player?.parts?.length === 16 ? { parts: Array.from(player.parts) } : {}) };
+    this.lastOutgoing = view; return view;
+  }
+  /** Live's "Duel Request was refused." box: one per refusal (the session counts them), the refuser's look. */
+  private refusalView: { id: number; parts?: number[] } | null = null;
+  private requestRefused(state: SessionState): { id: number; parts?: number[] } | null {
+    const id = state.challengeRefusals ?? 0; if (!id) return null;
+    if (this.refusalView?.id !== id) this.refusalView = { id, ...(this.lastOutgoing?.parts ? { parts: this.lastOutgoing.parts } : {}) };
+    return this.refusalView;
+  }
   private roomOpponentName(): string | null {
     const state = this.game?.state, self = this.view.player?.id; if (!state || self === undefined) return null;
     const room = state.rooms.find(r => r.owner === self || r.opponent === self); if (!room) return null;
@@ -857,10 +918,15 @@ export class ClientApp implements ClientController {
   }
   private syncEditor(): void {
     if (!this.editor && !this.view.deckEditor) return;
-    this.view = { ...this.view, deckEditor: { decks: this.services.decks.state.data?.decks ?? [], current: this.editor?.deck ?? null,
+    this.view = { ...this.view, deckEditor: { decks: this.services.decks.state.data?.decks ?? [], deleted: this.services.decks.state.data?.deleted.map(d => d.name) ?? [], current: this.editor?.deck ?? null,
       collection: this.collection, allCards: this.catalogCards ??= this.catalog.allCards(),
       recipes:this.project('recipes',this.game?.state.pbin,pbin=>this.options.recipes?.available(pbin ?? null,this.freeMode) ?? []),
       dirty: this.editor?.dirty ?? false, loading: this.services.decks.state.loading } };
+  }
+  /** The trunk: the account's cards, or in free mode the whole card pool, three of each (live's free mode: 9681). */
+  private cardsHeld(collection: ReadonlyMap<number, number>): CardView[] {
+    if (this.freeMode) return (this.catalogCards ??= this.catalog.allCards()).filter(c => c.passcode !== undefined).map(c => this.catalog.card(c.passcode!, 3));
+    return [...collection].map(([pc, n]) => this.catalog.card(pc, n));
   }
   private get deckMode(): 'world' | 'free' { return this.freeMode ? 'free' : 'world'; }
   private async connect(freeMode = this.freeMode): Promise<void> {
@@ -929,8 +995,8 @@ export class ClientApp implements ClientController {
   private async refresh(scene: Scene): Promise<void> {
     const options = { signal: this.connectionScope.signal }, epoch = this.epoch;
     if (scene === 'deck') {
+      // (the rights, PBIN, as live's engine has them: from the login and the server's own 0x3114 pushes)
       await this.requireGame().refreshCollection();
-      await this.requireGame().refreshPlayerBits();
       this.loadRarities();
       const data = await this.services.refreshDecks(options);
       if (epoch !== this.epoch || this.disposed) throw new DOMException('Session changed', 'AbortError');
@@ -997,12 +1063,16 @@ export class ClientApp implements ClientController {
         case 'signOut': this.disconnect(); this.lockToken = token; this.patch({ busy: true, auth: { signedIn: false } }); await this.services.signOut({ signal: this.connectionScope.signal }); this.patch({ auth: { signedIn: false }, status: 'Signed out.' }); break;
         case 'createCharacter': await this.requireGame().createCharacter(command.slot, command.name, command.appearance); break;
         case 'deleteCharacter': await this.requireGame().deleteCharacter(command.slot); break;
-        case 'selectCharacter': await this.requireGame().selectCharacter(command.slot); this.assertEpoch(epoch); await this.refresh('lobby'); await this.refresh('deck'); this.assertEpoch(epoch); this.patch({ scene: 'lobby' }); break;
+        // live's world manager enters My Room first (CWorldMng ENTER_MYROOM, recomp ovr/lobbyretry.c): a character comes
+        // online in its room and leaves it by a door (free mode has no room: its lobby straight away)
+        case 'selectCharacter': this.arrivalFrom = null; this.arrivalArea = null;
+          await this.requireGame().selectCharacter(command.slot, this.freeMode ? undefined : 'my-room'); this.assertEpoch(epoch); await this.refresh('lobby'); await this.refresh('deck'); this.assertEpoch(epoch); this.patch({ scene: 'lobby' }); break;
         case 'claimStarter': {
-          const claim = await this.services.claimStarter(command.id, { signal: this.connectionScope.signal }); this.assertEpoch(epoch);
-          await this.requireGame().refreshPlayerBits();this.assertEpoch(epoch);
-          const deck = expandStarterDeck(claim.deck); await this.services.saveDeck(deck, this.deckMode, { signal: this.connectionScope.signal });
-          this.editor = new DeckEditor(deck, this.collection); await this.refresh('deck'); await this.refresh('lobby'); break;
+          // as live's: the server adds the deck to the character's decks (and makes it current) itself; nothing is saved
+          // for the player (live's "Save a playable owned deck" mission waits for their own save), and the structure
+          // deck's recipe right comes with the server's next 0x3114, as live's engine gets it
+          await this.services.claimStarter(command.id, { signal: this.connectionScope.signal }); this.assertEpoch(epoch);
+          this.editor = null; await this.refresh('deck'); await this.refresh('lobby'); break;
         }
         case 'openScene':
           if (command.scene !== 'lobby') this.stopWorld();
@@ -1075,12 +1145,17 @@ export class ClientApp implements ClientController {
         case 'cancelChallenge': await this.requireGame().cancelChallenge(); break;
         case 'replyChallenge': if (command.accept && !this.services.decks.state.data) await this.refresh('deck'); this.requireGame().replyToChallenge(command.accept); break;
         case 'spectate': this.stopWorld();this.resetDuel(); this.syncDuel(); await this.requireGame().watchDuel(command.pid); this.syncDuel(); break;
-        case 'leaveDuel': if (this.replay) { this.controlReplay('exit'); break; } if (!this.requireGame().state.spectating && this.duelState.status !== 'finished') throw new Error('Finish or surrender this duel first.');this.eligibilityDue=true;this.resetDuel(); await this.requireGame().finishDuel(); this.patch({ scene: 'lobby', duel: null }); break;
+        case 'leaveDuel': if (this.replay) { this.controlReplay('exit'); break; }
+          // a duel the server called off before it began: live's OK on its box goes back to the lobby
+          if (this.game?.state.duelCalledOff) { this.eligibilityDue=true; this.resetDuel(); await this.game.leaveCalledOffDuel(); this.patch({ scene: 'lobby', duel: null }); break; }
+          if (!this.requireGame().state.spectating && this.duelState.status !== 'finished') throw new Error('Finish or surrender this duel first.');this.eligibilityDue=true;this.resetDuel(); await this.requireGame().finishDuel(); this.patch({ scene: 'lobby', duel: null }); break;
         case 'chooseHand': await this.requireGame().chooseHand(command.hand); break;
         case 'chooseFirst': await this.requireGame().chooseFirst(command.first); break;
         case 'beginDuel': this.requireGame().beginDuel(); break;
         case 'selectDeck': {
           const deck = this.services.decks.state.data?.decks.find(d => d.name === command.name);
+          // the folder's own empty "deck" (live's), never saved yet: loaded as it is, the server told when it is saved
+          if (!deck && command.name === DEFAULT_DECK) { this.editor = new DeckEditor({ name: DEFAULT_DECK, main: [], side: [], extra: [] }, this.collection); this.syncEditor(); this.emit(); break; }
           if (!deck) throw new Error('Deck no longer exists.');
           await this.services.selectDeck(command.name, this.deckMode, { signal: this.connectionScope.signal });
           this.editor = new DeckEditor(deck, this.collection); await this.services.refreshDecks({ signal: this.connectionScope.signal }); this.syncEditor(); this.emit(); break;
@@ -1151,6 +1226,9 @@ export class ClientApp implements ClientController {
           await this.services.refreshDecks({ signal: this.connectionScope.signal }); this.syncEditor(); this.emit(); break;
         }
         case 'deleteDeck': {
+          // the folder's "deck" the server never had: kept deleted there (a tombstone), as live's engine's delete leaves it
+          if (command.name === DEFAULT_DECK && !this.services.decks.state.data?.decks.some(d => d.name === DEFAULT_DECK))
+            await this.services.saveDeck({ name: DEFAULT_DECK, main: [], side: [], extra: [] }, undefined, { signal: this.connectionScope.signal });
           await this.services.deleteDeck(command.name, { signal: this.connectionScope.signal }); if (this.editor?.deck.name === command.name) this.editor = null; await this.refresh('deck');
           // Deleting the active deck leaves the server without one: the deck now shown becomes active, as the original selects the next deck.
           const data = this.services.decks.state.data, shown = this.editor?.savedName;

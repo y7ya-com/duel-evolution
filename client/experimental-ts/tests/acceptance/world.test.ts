@@ -96,13 +96,13 @@ describe.skipIf(!enabled)('world (PixiJS)',() => {
       await walkInto(page,name,0,`${world}?.mapId===0&&${world}.ready`); await sleep(1500); log.push('map 2 exit 0 -> map 0'); await shot(page,'24-exit-back-map0');
       await walkInto(page,name,3,`${world}?.mapId===8&&${world}.ready`); await sleep(1500);
       w = await page.ev(world) as World; expect(onScreen(w,name)).toBe(true); log.push('map 0 exit 3 -> My Room'); await shot(page,'25-my-room');
-      // My Room is its own map (Map_r01): the player stands at its arrival (680,400 +- 30), its own exits load, and its
-      // door (exit 0) goes back out to the world area, at that map's My Room arrivals
+      // My Room is its own map (Map_r01): the player stands by the red door (CMyRoomScene: 790,430), its own exits load,
+      // and its blue door (exit 0) goes out to Domino City (live: the red one to Duel Academy)
       const room = await page.ev(world) as World, me = room.avatars.find(a => a.name === name)!;
-      expect(Math.abs(me.x - 680) <= 30 && Math.abs(me.y - 400) <= 30).toBe(true);
+      expect([Math.round(me.x), Math.round(me.y)]).toEqual([790, 430]);
       const roomExits = await page.ev(`window.__deExits?.()`) as Box[]; expect(roomExits.some(b => b.index === 0 && b.x1 < 1024 && b.y1 < 768)).toBe(true);
       log.push(`My Room arrival ${Math.round(me.x)},${Math.round(me.y)}; exits ${JSON.stringify(roomExits)}`);
-      await walkInto(page,name,0,`${world}?.mapId===0&&${world}.ready`); await sleep(1500); w = await page.ev(world) as World;
+      await walkInto(page,name,0,`[0,1,2,3,9].includes(${world}?.mapId)&&${world}.ready`); await sleep(1500); w = await page.ev(world) as World;
       expect(onScreen(w,name)).toBe(true); log.push(`My Room door -> map ${w.mapId}`);
       await shot(page,'26-out-of-my-room');
       console.log('doors',log.join(' | '));
@@ -125,10 +125,10 @@ describe.skipIf(!enabled)('world (PixiJS)',() => {
         log.push(`map ${w.mapId}: ${listed.map(([,n,x,y,d]) => `${n}@${x},${y}/${d}`).join(' ')}`);
         await shot(page,file);
       }
-      // the nearest NPC's hit target opens its card (main's CNpcListMenu), as its row of the player list does
+      // the nearest NPC's hit target starts its talk, its card beside it (live's CNpcTalk)
       const id = await page.ev(`(()=>{const a=window.__deApp.getState().lobby.avatars.filter(a=>a.npc);const me=window.__deApp.getState().lobby.avatars.find(a=>a.self);a.sort((p,q)=>Math.hypot(p.x-me.x,p.y-me.y)-Math.hypot(q.x-me.x,q.y-me.y));return a[0]?.id})()`) as number;
       await page.ev(`document.querySelector('[data-key="avatar:${id}"]').click()`);
-      await until(page,`document.querySelector('[data-key="npc-duel:${-id}"]')`,10000); await sleep(800); await shot(page,'33-npc-card');
+      await until(page,`document.querySelector('button[data-key="npc-talk:next"],[data-key="npc-start:yes"]')`,10000); await sleep(800); await shot(page,'33-npc-card');
       log.push(`clicked NPC ${-id}: its card is open`);
       console.log('npcs',log.join(' | '));
       record('world.npcs',{ actions:'Visit three maps; click an NPC',expected:'NPCs at the exe spot coordinates; the NPC card opens',observed:log.join('; ') });

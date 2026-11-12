@@ -47,6 +47,8 @@ describe.skipIf(!enabled)('Duel Log and replays against the real server',() => {
       await press(page,byKey('duellog-back'));
       await until(page,byKey('duellog-server'),10000);
       await press(page,byKey('duellog-server'));
+      // live asks which server first (its language list)
+      await until(page,byKey('duellog-server:English'),10000); await press(page,byKey('duellog-server:English'));
       const opponent = row.opponent ?? 'Yami Yugi';
       await until(page,rowLine(opponent),20000);
       const listed = (await page.ev(`document.querySelector('#htmlui-host').innerText.replace(/\\s+/g,' ')`) as string).replace(/^.*?(Server Duel Logs)/,'$1');

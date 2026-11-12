@@ -19,7 +19,7 @@ export interface LazyShim {
 /** The folders files2 lists for main's modules (shop/art.js listPacks: PACKS). */
 const LISTED = ['data/cardpack/'];
 
-export function lazyShim(read: Read, art?: (id: number) => Promise<Uint8Array | null>, archive?: string): LazyShim {
+export function lazyShim(read: Read, art?: (id: number) => Promise<Uint8Array | null>, archive?: string, passcodes?: string): LazyShim {
   let names: Promise<string[] | null> | null = null;
   const entry = (name: string) => read(name.toLowerCase()).catch(() => null);
   const list = () => names ??= entry('data/card/list_card.txt').then(b => {
@@ -27,7 +27,8 @@ export function lazyShim(read: Read, art?: (id: number) => Promise<Uint8Array | 
     return new TextDecoder('latin1').decode(b).split(/\r?\n/).map(x => x.trim().toLowerCase());
   });
   return {
-    files: new Map(archive ? [[archive, {}]] : []),
+    // (and the card wire's table, merge/data/card_passcode.bin: crafting/cards.js loadTable finds it here, as on live)
+    files: new Map([...archive ? [[archive, {}] as [string, { ver?: string }]] : [], ...passcodes ? [[passcodes, {}] as [string, { ver?: string }]] : []]),
     files2: { has: () => true, get: () => undefined, set: () => {}, keys: () => LISTED[Symbol.iterator]() },
     entry,
     async cardArt(id: number) {
@@ -38,8 +39,8 @@ export function lazyShim(read: Read, art?: (id: number) => Promise<Uint8Array | 
 }
 
 /** Puts the shim on globalThis.Module.yo2Lazy unless a runtime already has one (the engine's own lazyfs). */
-export function installLazyShim(read: Read, art?: (id: number) => Promise<Uint8Array | null>, archive?: string): void {
+export function installLazyShim(read: Read, art?: (id: number) => Promise<Uint8Array | null>, archive?: string, passcodes?: string): void {
   const g = globalThis as { Module?: Record<string, unknown> };
   g.Module ??= {};
-  if (!g.Module.yo2Lazy) g.Module.yo2Lazy = lazyShim(read, art, archive);
+  if (!g.Module.yo2Lazy) g.Module.yo2Lazy = lazyShim(read, art, archive, passcodes);
 }

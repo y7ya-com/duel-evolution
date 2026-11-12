@@ -107,14 +107,32 @@ declare module '@htmlui/controls/basic.js' {
   export function syncWindow(root: HTMLElement, win: unknown, st: Map<number, unknown>, api: HtmlUiApi): void;
   /** Whether a generic renderer draws this control's class. */
   export function covers(c: { cls: string }): boolean;
+  /** One control drawn once into el by its generic renderer (null without one). */
+  export function renderControl(c: unknown, el: HTMLElement, api: HtmlUiApi, opts?: unknown): HTMLElement | null;
+  /** Text as the game draws it (Arial, its metrics and spacing) at x, y in parent, aligned in w (0 left, 1 centre, 2 right). */
+  export function textBox(parent: HTMLElement, s: string, o?: { x?: number; y?: number; w?: number; h?: number; align?: number; px?: number; gap?: number; color?: number[]; white?: boolean; wrap?: boolean }): HTMLElement;
+  /** CWindowTaskFrameBottomThick's 14 pieces: [x, y, w, h, u, v] of window_base_01_c0<style>. */
+  export function bottomThickPieces(w: number, h: number, band: number): [number, number, number, number, number, number][];
 }
 declare module '@htmlui/controls/skin.js' {
   /** main's duel window frame (the grey FrameDuel panel and its well), appended to parent at the given size. */
   export function duelWindow(parent: HTMLElement, size: { w: number; h: number }): HTMLElement;
+  /** main's duel-style button (CWindowTaskButtonDuel): a <button>, its caption centred. */
+  export function duelButton(parent: HTMLElement, o: { x: number; y: number; w: number; h?: number; label?: string; state?: string | null }): HTMLButtonElement;
 }
 declare module '@htmlui/crafting/api.js' {
   export function peekView(): unknown;
   export function onChange(cb: (view: unknown) => void): () => void;
+}
+declare module '@htmlui/crafting/editor.js' {
+  /** The rarity of the editor's YO2 card id in the crafting view ('' when unknown): the trunk rows' marks. */
+  export function rarityOfId(id: number): string;
+}
+declare module '@htmlui/crafting/cards.js' {
+  /** The card wire's table (YO2 card id <-> passcode) once loaded, else null. */
+  export function peekTable(): { passcode(id: number): number; id(pc: number): number; size: number } | null;
+  /** Load it once (Module.yo2Lazy.files names its URL): the table, or null. */
+  export function loadTable(): Promise<{ passcode(id: number): number; id(pc: number): number; size: number } | null>;
 }
 declare module '@htmlui/crafting/model.js' {
   export function cardState(view: unknown, pc: number | string): unknown;
@@ -123,6 +141,9 @@ declare module '@htmlui/crafting/model.js' {
 declare module '@web-shell/starter.js' {}
 declare module '@html-ui/ui.js' {
   export function loadGlyphs(base?: string): Promise<unknown>;
+  export const SHEET: { window: unknown; button: unknown; check: unknown; caret: unknown };
+  /** A sheet's src rect onto dst, sampled as the game samples it (bilinear, D3D8 pixel centres). */
+  export function sprite(parent: HTMLElement, sheet: unknown, sx: number, sy: number, sw: number, sh: number, x: number, y: number, w: number, h: number, alpha?: number): HTMLElement;
 }
 // main's Audio page (client/recomp/web/audiopage.js): a page script that sets Module.rcAudioUI (htmlui/audio-page.ts)
 declare module '@recomp-web/audiopage.js' {}

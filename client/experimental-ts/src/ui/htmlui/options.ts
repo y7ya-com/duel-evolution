@@ -2,8 +2,8 @@
 // capture of it (mock/duelsetup-config.json) drawn by main's generic renderer: Auto Tracking ON / OFF, Auto Card Placing
 // ON / OFF, Activation Message Auto Cancel / Semi Auto Cancel / Manual (picture switches, the checked one is the
 // setting), the help text the engine writes for the hovered choice (yo2text 0x1982..0x1989), OK keeps the choices and
-// Cancel drops them (the engine keeps a choice only on OK). The title's OPTIONS (the engine's COptionDlg): language,
-// screen mode and volume, OK / Cancel. Pure: no DOM.
+// Cancel drops them (the engine keeps a choice only on OK). The title's OPTIONS (the engine's COptionDlg, below): language
+// flags, screen pictures and the volume slider, OK / Cancel. Pure: no DOM.
 import duelConfigMock from './templates/duelsetup-config.json';
 import { GAME_LANGUAGES, type GameLanguage } from '../../features/language';
 import { duelOptions, type ActivationMessage, type DuelOptions, type SettingsView } from '../contracts';
@@ -12,7 +12,9 @@ import type { HtmlControl, WindowSpec } from './snapshot';
 
 /** Which window is open; `draft` holds DUEL OPTIONS' unsaved choices, `hover` the choice whose help shows; the title's
  * window remembers the settings it opened with (Cancel puts them back). */
-export interface OptionsUi { kind: 'options' | 'title' | 'audio'; draft?: DuelOptions; hover?: string | null; before?: Partial<SettingsView>; beforeFullscreen?: boolean }
+export interface OptionsUi { kind: 'options' | 'title' | 'audio'; draft?: DuelOptions; hover?: string | null; before?: Partial<SettingsView>; beforeFullscreen?: boolean;
+  /** The title's OPTIONS: the flag and monitor chosen, kept on OK. */
+  title?: { language: GameLanguage; fullscreen: boolean } }
 export interface OptionsDeps {
   settings: SettingsView;
   fullscreen?: { active: boolean; supported: boolean; pending: boolean; toggle(): void };
@@ -71,39 +73,61 @@ export function duelConfigWindow(ids: Ids, ui: OptionsUi, d: OptionsDeps): Windo
   return b.spec();
 }
 
-// ---- the title's OPTIONS (COptionDlg): language, screen mode, volume; OK keeps them, Cancel puts back what was there
-const W = 600, X = 212;
-const pct = (v: number) => `${Math.round(Math.max(0, Math.min(1, v)) * 100)}%`;
-const step = (v: number, dv: number) => Math.round(Math.max(0, Math.min(1, v + dv)) * 20) / 20;
+// ---- the title's OPTIONS (COptionDlg, optionDlg.cpp): the engine's own window, as live's snapshot of it reads (a
+// CWindowModelThinImg on data/title/option_dai_01_c01.png, 360 x 372 centred): [Language] and the chosen one's name over
+// seven flag picture switches, [Screen] and Full / Window over two monitor pictures, [Sound volume] and a slider between
+// two speaker switches, OK / Cancel (option_btn_01_c01.png). The flags and monitors choose; OK keeps the choices, Cancel
+// drops them and puts the volume back (the slider and speakers change it at once). Drawn by option-dlg.ts.
+export const OPTION_ICONS = 'data/title/option_icon_01_c00.png', OPTION_BACK = 'data/title/option_dai_01_c01.png', OPTION_BUTTON = 'data/title/option_btn_01_c01.png';
+/** The engine's volume steps: 16 (0..15), each speaker click one. */
+export const VOLUME_STEPS = 15;
+// the flags in COptionDlg's order (option_icon rows 32 + 32 i; columns 0 normal, 48 hover, 96 checked, 144 pressed)
+const FLAGS: { code: GameLanguage; x: number; y: number }[] = [
+  { code: 'J', x: 32, y: 52 }, { code: 'E', x: 112, y: 52 }, { code: 'G', x: 192, y: 52 }, { code: 'F', x: 272, y: 52 },
+  { code: 'I', x: 72, y: 92 }, { code: 'S', x: 152, y: 92 }, { code: 'K', x: 232, y: 92 }];
+type Sprite = { tex: string; src: [number, number, number, number]; shown: boolean };
+const sprites = (tex: string, normal: number[], hover: number[], pressed: number[], checked: number[]) =>
+  Object.fromEntries(([['normal', normal], ['hover', hover], ['pressed', pressed], ['checked', checked]] as const).map(([k, src]) =>
+    [k, { tex, src: src as Sprite['src'], shown: k === 'normal' } satisfies Sprite]));
 export function titleOptionsWindow(ids: Ids, ui: OptionsUi, d: OptionsDeps): WindowSpec {
-  const s = d.settings, fs = d.fullscreen;
+  const s = d.settings, fs = d.fullscreen, W = 360, H = 372;
   ui.before ??= { sound: s.sound, language: s.language ?? 'E' }; ui.beforeFullscreen ??= !!fs?.active;
-  const h = 72 + 3 * 32, y = Math.round((768 - h) / 2);
-  const b = new WindowBuilder(ids, 'options', 'COptionDlg', { x: X, y, w: W, h }, { z: 51453, modal: true });
-  b.add('CWindowTaskFrameDuel', 'frame', { x: 0, y: 0, w: 0, h: 0 });
-  b.add('CWindowTaskShadowText', 'title', { x: 0, y: 4, w: W, h: 16 }, { text: 'OPTIONS', align: 1, fontSize: 16, color: [1, 1, 1, 1] });
-  let row = 0;
-  const label = (text: string) => b.add('CWindowTaskShadowText', `l${row}`, { x: 20, y: 40 + row * 32, w: 180, h: 16 }, { text, align: 0, fontSize: 16, color: [1, 1, 1, 1] });
-  const sw = (name: string, x: number, w: number, text: string, key: string, checked: boolean, run: (() => void) | null) =>
-    b.add('CWindowTaskTextSwitch', name, { x, y: 36 + row * 32, w, h: 24 }, { label: text, align: 1, state: run ? 'normal' : 'disabled', checked, color: [0, 0, 0, 1] }, { key, click: () => run?.() });
-  const current = s.language ?? 'E', at = GAME_LANGUAGES.findIndex(l => l.code === current), lang = GAME_LANGUAGES[Math.max(0, at)]!;
-  const cycle = (dir: number) => () => { const n = GAME_LANGUAGES[(Math.max(0, at) + dir + GAME_LANGUAGES.length) % GAME_LANGUAGES.length]!; d.set({ language: n.code as GameLanguage }); };
-  label('Language'); sw('lang-prev', 220, 40, '<', 'opt-lang-prev', false, d.languageReady && !d.busy ? cycle(-1) : null);
-  sw('lang', 270, 140, lang.name, 'opt-lang', true, null); sw('lang-next', 420, 40, '>', 'opt-lang-next', false, d.languageReady && !d.busy ? cycle(1) : null); row++;
-  label('Screen'); sw('fs-on', 220, 110, 'Full screen', 'opt-fullscreen', !!fs?.active, fs?.supported && !fs.pending && !fs.active ? () => fs.toggle() : null);
-  sw('fs-off', 340, 110, 'Window', 'opt-windowed', !!fs && !fs.active, fs?.supported && !fs.pending && fs.active ? () => fs.toggle() : null); row++;
-  label('Volume'); sw('vol-down', 220, 60, '-', 'opt-sound-down', false, s.sound > 0 ? () => d.set({ sound: step(s.sound, -0.1) }) : null);
-  sw('vol-level', 290, 80, pct(s.sound), 'opt-sound-level', true, null);
-  sw('vol-up', 380, 60, '+', 'opt-sound-up', false, s.sound < 1 ? () => d.set({ sound: step(s.sound, 0.1) }) : null); row++;
-  const button = (name: string, x: number, text: string, key: string, run: () => void) =>
-    b.add('CWindowTaskButtonDuel', name, { x, y: h - 32, w: 140, h: 24 }, { label: text, align: 1, state: 'normal', color: [0, 0, 0, 1] }, { key, click: run });
-  button('ok', 130, 'OK', 'opt-ok', () => d.close());
-  button('cancel', 330, 'Cancel', 'opt-cancel', () => {
-    const before = ui.before!, back: Partial<SettingsView> = {};
-    if (before.sound !== s.sound) back.sound = before.sound!;
-    if ((before.language ?? 'E') !== current) back.language = before.language!;
-    if (Object.keys(back).length) d.set(back);
-    if (fs && fs.active !== ui.beforeFullscreen && fs.supported && !fs.pending) fs.toggle();
+  const draft = ui.title ??= { language: s.language ?? 'E', fullscreen: !!fs?.active };
+  const b = new WindowBuilder(ids, 'options', 'COptionDlg', { x: (1024 - W) / 2, y: (768 - H) / 2, w: W, h: H }, { z: 51453, modal: true, back: OPTION_BACK });
+  const text = (name: string, y: number, t: string) => b.add('CWindowTaskText', name, { x: 8, y, w: 344, h: 16 }, { text: t, align: 1, fontSize: 16, color: [1, 1, 1, 1] });
+  const lang = GAME_LANGUAGES.find(l => l.code === draft.language) ?? GAME_LANGUAGES[1]!;
+  text('COptionDlg::m_textLang', 16, '[Language]'); text('COptionDlg::m_textSelectedLang', 32, lang.english);
+  text('COptionDlg::m_textScreen', 137, '[Screen]'); text('COptionDlg::m_textSelectedScreen', 153, draft.fullscreen ? 'Full' : 'Window');
+  text('COptionDlg::m_textVolume', 258, '[Sound volume]');
+  const pick = (name: string, rect: { x: number; y: number; w: number; h: number }, art: Record<string, Sprite>, checked: boolean, key: string, label: string, run: (() => void) | null, fields: Record<string, unknown> = {}) =>
+    b.add('CWindowTaskPictureSwitch', name, rect, { label: '', state: run ? 'normal' : 'disabled', enabled: !!run, checked, art, ...fields }, { key, label, click: () => run?.() });
+  const langOk = !!d.languageReady && !d.busy;
+  FLAGS.forEach((f, i) => { const v = 32 + 32 * i, l = GAME_LANGUAGES.find(g => g.code === f.code)!;
+    pick(`flag-${f.code}`, { x: f.x, y: f.y, w: 48, h: 32 }, sprites(OPTION_ICONS, [0, v, 48, 32], [48, v, 48, 32], [144, v, 48, 32], [96, v, 48, 32]), draft.language === f.code,
+      `opt-lang-${f.code}`, l.english, langOk || draft.language === f.code ? () => { draft.language = f.code; d.rerender(); } : null); });
+  const canFs = !!fs?.supported && !fs.pending;
+  pick('screen-full', { x: 67, y: 175, w: 80, h: 68 }, sprites(OPTION_ICONS, [192, 8, 80, 68], [192, 144, 80, 68], [272, 144, 80, 68], [272, 8, 80, 68]), draft.fullscreen,
+    'opt-fullscreen', 'Full screen', canFs ? () => { draft.fullscreen = true; d.rerender(); } : null);
+  pick('screen-window', { x: 213, y: 175, w: 80, h: 68 }, sprites(OPTION_ICONS, [192, 76, 80, 68], [192, 212, 80, 68], [272, 212, 80, 68], [272, 76, 80, 68]), !draft.fullscreen,
+    'opt-windowed', 'Window', canFs || !draft.fullscreen ? () => { draft.fullscreen = false; d.rerender(); } : null);
+  const level = Math.round(Math.max(0, Math.min(1, s.sound)) * VOLUME_STEPS), setLevel = (n: number) => { const v = Math.max(0, Math.min(VOLUME_STEPS, Math.round(n))); if (v !== level) d.set({ sound: v / VOLUME_STEPS }); };
+  pick('volume-down', { x: 20, y: 298, w: 24, h: 24 }, sprites(OPTION_ICONS, [0, 8, 24, 24], [24, 8, 24, 24], [48, 8, 24, 24], [48, 8, 24, 24]), false, 'opt-sound-down', 'Volume down', () => setLevel(level - 1));
+  pick('volume-up', { x: 316, y: 298, w: 24, h: 24 }, sprites(OPTION_ICONS, [72, 8, 24, 24], [96, 8, 24, 24], [120, 8, 24, 24], [120, 8, 24, 24]), false, 'opt-sound-up', 'Volume up', () => setLevel(level + 1));
+  // the slider: its rail (option_icon 0, 2, 273 x 4) 11 down, its thumb (16 x 24: 144 normal, 160 hover, 176 pressed)
+  // 268 / 15 px a step from x 40
+  const slider = b.add('CWindowTaskSlider', 'COptionDlg::m_slider', { x: 40, y: 298, w: 284, h: 24 }, { value: level, max: VOLUME_STEPS, travel: 268, tex: OPTION_ICONS,
+    rail: [0, 2, 273, 4], railY: 11, thumb: [[144, 8, 16, 24], [160, 8, 16, 24], [176, 8, 16, 24]] });
+  b.on(slider, { key: 'opt-sound-level', label: `Sound volume ${level} / ${VOLUME_STEPS}`, value: setLevel });
+  const button = (name: string, x: number, label: string, key: string, run: () => void) =>
+    pick(name, { x, y: 339, w: 158, h: 24 }, sprites(OPTION_BUTTON, [0, 0, 158, 24], [158, 0, 158, 24], [316, 0, 158, 24], [316, 0, 158, 24]), false, key, label, run, { label });
+  button('ok', 15, 'OK', 'opt-ok', () => {
+    if (draft.language !== (s.language ?? 'E')) d.set({ language: draft.language as GameLanguage });
+    if (fs && draft.fullscreen !== fs.active && fs.supported && !fs.pending) fs.toggle();
+    d.close();
+  });
+  button('cancel', 187, 'Cancel', 'opt-cancel', () => {
+    const before = ui.before!;
+    if (before.sound !== s.sound) d.set({ sound: before.sound! });
     d.close();
   });
   return b.spec();
