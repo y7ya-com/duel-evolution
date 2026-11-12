@@ -26,12 +26,11 @@ describe('NPC result record (CWindowResultNpc)', () => {
     c.open({ id: 51, name: 'Jaden' }, 0, { record: [255, 0, 0] }); c.advance(); await c.answer(true); expect(c.state.stage).toBe('duel'); c.afterDuel(1); expect(c.state.stage).toBe('after-duel');
     expect(c.state.record).toEqual({ wins: 255, loses: 0, draws: 0 });
   });
-  it('draws the two records of live (the player\'s and the NPC\'s, WIN / LOSE against each other) with the record from the talk', () => {
+  it('draws live\'s W-L RECORD board with the record from the talk', () => {
     const specs = duelResultWindows({ ids: new Ids(), duel: duel('Victory'), next: () => {}, npc: { name: 'Jaden', record: { wins: 4, loses: 1, draws: 2 } } });
-    expect(specs.map(s => s.win.cls)).toEqual(['CWindowResult', 'CWindowResult', 'CEnginePictures', 'CWindowResultNext']);
-    expect(specs[0]!.win.controls[0]!.label).toBe('Me: WIN, WIN 4, LOSE 1, SCORE 0');
-    expect(specs[1]!.win.controls[0]!.label).toBe('Jaden: LOSE, WIN 1, LOSE 4, SCORE 0');
-    expect(npcResultWindow({ ids: new Ids(), duel: duel('Defeat'), npc: { name: 'J', record: { wins: 0, loses: 1, draws: 0 } } }).win.controls[0]!.label).toContain('LOSE');
+    expect(specs.map(s => s.win.cls)).toEqual(['CWindowResultNpc', 'CEnginePictures', 'CWindowResultNext']);
+    expect(specs[0]!.win.controls[0]!.label).toBe('Me: W-L RECORD against Jaden: 4 wins, 1 losses, 2 draws');
+    expect(npcResultWindow({ ids: new Ids(), duel: duel('Defeat'), npc: { name: 'J', record: { wins: 0, loses: 1, draws: 0 } } }).win.controls[0]!.label).toContain('1 losses');
   });
   it('keeps the two player records for a PvP duel', () => {
     expect(duelResultWindows({ ids: new Ids(), duel: duel('Victory') }).map(s => s.win.cls)).toEqual(['CWindowResult', 'CWindowResult', 'CEnginePictures', 'CWindowResultNext']);

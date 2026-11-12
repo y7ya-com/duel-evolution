@@ -31,20 +31,19 @@ const texts = (specs: ReturnType<typeof duelResultWindows>) => specs.flatMap(s =
 const numbers = (specs: ReturnType<typeof duelResultWindows>) => specs.flatMap(s => (s.win.nums ?? []).map(n => n.text));
 
 describe('result board (main\'s result.js windows)', () => {
-  it('an NPC duel shows the two records (WIN / LOSE / SCORE, the NPC\'s the other way round), the titles\' art and Next, as live', () => {
+  it('an NPC duel shows live\'s W-L RECORD board (the player\'s name, WIN / LOSE / DRAW against the NPC), its title art and Next', () => {
     const specs = duelResultWindows({ ids: ids as never, duel: duel({ npcRecord: { name: 'Chumley', wins: 3, losses: 2, draws: 1 }, rewards: { mp: 150, score: 90, level: [7, 8] } }), next: () => {} });
-    expect(specs.map(s => s.win.cls)).toEqual(['CWindowResult', 'CWindowResult', 'CEnginePictures', 'CWindowResultNext']);
-    // live's record: one 24 px ShadowText, the name and the captions a blank line apart; no MP or level row
-    expect(texts(specs)).toEqual(expect.arrayContaining(['Jaden\n\nWIN\n\nLOSE\n\nSCORE', 'Chumley\n\nWIN\n\nLOSE\n\nSCORE']));
-    expect([...specs[3]!.handlers.values()].map(h => [h.key, h.label])).toEqual([['duel-result-next', 'Next']]);
-    expect(texts([specs[3]!])).toContain('Next');
-    expect((specs[0]!.win.nums ?? []).map(n => n.text)).toEqual(['3', '2', '90']);
-    expect((specs[1]!.win.nums ?? []).map(n => n.text)).toEqual(['2', '3', '0']);
-    expect(((specs[2]!.win as unknown as { pics: { source: { archive: string } }[] }).pics).map(p => p.source.archive)).toEqual(expect.arrayContaining([expect.stringMatching(/result_(winner|loser|draw)_01_\?\.png$/)]));
+    expect(specs.map(s => s.win.cls)).toEqual(['CWindowResultNpc', 'CEnginePictures', 'CWindowResultNext']);
+    // no SCORE, MP or level rows: live shows none
+    expect(texts([specs[0]!])).toEqual(['Jaden', 'Jaden', 'WIN', 'WIN', '3', '3', 'LOSE', 'LOSE', '2', '2', 'DRAW', 'DRAW', '1', '1']);
+    expect(specs[0]!.win.controls.find(c => c.text === 'WIN')).toMatchObject({ x: 282, y: 182, align: 0 });
+    expect(specs[0]!.win.controls.find(c => c.text === '3')).toMatchObject({ x: 282, y: 206, w: 432, align: 2 });
+    expect([...specs[2]!.handlers.values()].map(h => [h.key, h.label])).toEqual([['duel-result-next', 'Next']]);
+    expect(((specs[1]!.win as unknown as { pics: { source: { archive: string } }[] }).pics).map(p => p.source.archive)).toEqual(['data/result/npc_result_title_01_?.png']);
   });
   it('the server\'s 0x4140 record wins over the one counted from the talk; the talk\'s is the fallback until it arrives', () => {
     const talk = { name: 'Chumley', record: { wins: 1, loses: 0, draws: 0 } };
-    const counts = (d: DuelView) => (duelResultWindows({ ids: ids as never, duel: d, npc: talk, next: () => {} })[0]!.win.nums ?? []).slice(0, 2).map(n => n.text);
+    const counts = (d: DuelView) => texts([duelResultWindows({ ids: ids as never, duel: d, npc: talk, next: () => {} })[0]!]).filter(t => /^\d+$/.test(t)).filter((_, i) => i % 2 === 0).slice(0, 2);
     expect(counts(duel({ npcRecord: { name: 'Chumley', wins: 3, losses: 2, draws: 1 } }))).toEqual(['3', '2']);
     expect(counts(duel({}))).toEqual(['1', '0']);
   });
