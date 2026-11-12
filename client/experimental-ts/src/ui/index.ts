@@ -1,7 +1,7 @@
 import type { DuelCardView, DuelOption, DuelView, CardView, ClientCommand, ClientController, ClientView, DeckZone, DuelPromptView, DuelResponse, Scene } from './contracts';
 import { duelOptions } from './contracts';
 import { sideboardDifference } from './deck';
-import { FIELD_LAYOUT, fieldCardPosition, filterCollection, sortCollection, gamePoint, safeImageUrl, validatePromptResponse } from './helpers';
+import { FIELD_LAYOUT, fieldCardPosition, gamePoint, safeImageUrl, validatePromptResponse } from './helpers';
 import { DuelPresentation } from './duel-scene';
 import { AnnouncePanel, ANNOUNCE_CSS } from './duel-announce';
 import { cardBadges, BADGE_CSS } from './duel-counters';
@@ -15,7 +15,6 @@ import { CLIENT_CSS } from './styles';
 import { SKIN_CSS } from './skin';
 import { duelConfigWindow, titleOptionsWindow, DUEL_OPTIONS_TEXTS, type OptionsDeps, type OptionsUi } from './htmlui/options';
 import { closeAudioPage, openAudioPage } from './htmlui/audio-page';
-import type { AudioAction } from '../features/audio';
 import { renderTradeTrunk } from './extra/social';
 import { renderTagLobby, TAG_CSS } from './extra/tag';
 import { changeAvatarAction, freeChoices } from './htmlui/avatar';

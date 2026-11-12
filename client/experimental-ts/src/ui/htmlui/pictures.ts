@@ -38,8 +38,6 @@ function look(source: PictureSource): Promise<string | HTMLCanvasElement | null>
   }
   return p;
 }
-/** Forget a canvas source (its owner composed a new one). */
-export function dropPicture(source: PictureSource): void { looks.delete(sourceKey(source)); }
 
 interface Drawn { el: HTMLElement; inner: HTMLElement | null; source: string; natural: [number, number] | null }
 function place(d: Drawn, p: Picture): void {

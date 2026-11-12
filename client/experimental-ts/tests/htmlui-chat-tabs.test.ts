@@ -32,7 +32,8 @@ describe('Discord lines keep their mark', async () => {
 });
 
 describe('the duel scene\'s chat tab (live: the engine\'s duel chat window, "Duel (n.)")', async () => {
-  const { chatTabsFor, DUEL_CHAT_INDEX } = await import('../src/ui/htmlui/windows');
+  const { chatTabsFor, CHAT_TABS } = await import('../src/ui/htmlui/windows');
+  const DUEL_CHAT_INDEX = CHAT_TABS.length;   // the duel's tab comes after the lobby's
   it('is added between Trade and Team in the duel only, after the lobby tab indexes', () => {
     expect(chatTabsFor(null)).toBe(CHAT_TABS);
     const tabs = chatTabsFor(['Ann', 'Yami Yugi']);

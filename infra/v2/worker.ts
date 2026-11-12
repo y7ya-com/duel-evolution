@@ -21,8 +21,9 @@ export interface Env {
 
 const NOINDEX = "noindex, nofollow";
 const ROBOTS = "User-agent: *\nDisallow: /\n";
-/** The rewrite's own files: the page, vite's hashed bundles, the JSON tables at the root (client/experimental-ts/public). */
-const CLIENT_FILE = /^\/(?:index\.html|assets\/.+|[\w.-]+\.(?:json|js|css|map|ico|png|svg|webmanifest))$/;
+/** The rewrite's own files: the page, vite's hashed bundles, the JSON tables at the root (client/experimental-ts/public).
+ * Never a source map (the build makes none unless DE_SOURCEMAP=1; one left in dist is not served either). */
+const CLIENT_FILE = /^\/(?!.*\.map$)(?:index\.html|assets\/.+|[\w.-]+\.(?:json|js|css|ico|png|svg|webmanifest))$/;
 /** The OAuth paths whose redirects must stay on live's host: Discord's authorize URL names live's callback. */
 const DISCORD_OAUTH = /^\/api\/auth\/(?:sign-in\/(?:social|discord)|callback\/discord|link-social|oauth2\/)/;
 

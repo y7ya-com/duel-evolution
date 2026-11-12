@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { extractWorldMaps } from '../tools/world.mjs';
 import { parseWorldMaps } from '../src/world';
-import { ASTAR_DIAGONAL, astarCells, cellOf, findRoute, nearBlocked } from '../src/world/pathfinding';
+import { ASTAR_DIAGONAL, astarCells, cellOf, nearBlocked } from '../src/world/pathfinding';
 import type { WalkGrid } from '../src/world/maps';
 
 const grid = (rows: string[]): WalkGrid => ({ width: rows[0].length, height: rows.length, rows });
@@ -37,13 +37,9 @@ describe('click route: the original A* (0x00a04a30)', () => {
     expect(astarCells(g, { x: 0, y: 0 }, { x: 2, y: 2 })).toEqual([{ x: 10, y: 10 }, { x: 30, y: 30 }, { x: 50, y: 50 }]);
     expect(astarCells(g, { x: 2, y: 0 }, { x: 0, y: 0 })).toEqual([{ x: 50, y: 10 }, { x: 30, y: 10 }, { x: 10, y: 10 }]);
   });
-  it('returns null when the goal is walled off; findRoute keeps the exact clicked point last', () => {
+  it('returns null when the goal is walled off', () => {
     const g = grid(['11011', '11011', '11011']);
     expect(astarCells(g, { x: 0, y: 0 }, { x: 4, y: 0 })).toBeNull();
-    expect(findRoute(g, { x: 10, y: 10 }, { x: 95, y: 15 })).toBeNull();
-    const open = grid(['11111']);
-    expect(findRoute(open, { x: 12, y: 10 }, { x: 93, y: 7 })).toEqual([{ x: 30, y: 10 }, { x: 50, y: 10 }, { x: 70, y: 10 }, { x: 93, y: 7 }]);
-    expect(findRoute(open, { x: 12, y: 10 }, { x: 15, y: 3 })).toEqual([{ x: 15, y: 3 }]);
   });
   it('on every real walk grid: routes are 8-connected over walkable cells, optimal for the original cost, and stay off walls when they can', async () => {
     const data = parseWorldMaps(await extractWorldMaps());

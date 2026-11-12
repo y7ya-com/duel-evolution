@@ -60,7 +60,6 @@ export function waistUpLayers(raw: Uint8Array, variant: 0 | 1, data: Part[]): { 
 
 /** The eye parts (eye whites 3, eyes 5, eyebrows 7) are drawn in frames: `_01` open, `_02` half shut, `_03` shut
  * (04..07 the same with a sweat drop). A blink swaps them in the composition; nothing else moves. */
-export const EYE_KINDS = [3, 5, 7] as const;
 export type EyeFrame = 1 | 2 | 3;
 export function eyeFrameLayers(layers: { path: string; rect: Part['rect'] }[], frame: EyeFrame): { path: string; rect: Part['rect'] }[] {
   if (frame === 1) return layers;

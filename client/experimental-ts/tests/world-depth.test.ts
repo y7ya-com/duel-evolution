@@ -2,7 +2,9 @@ import { existsSync, openSync, readSync, closeSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { decodeLzss } from '../src/assets/lzss';
 import { parseSceneTable, pngDimensions, SCENE_TABLE_PATH } from '../src/world/scene-format';
-import { avatarDepth, avatarInFront, FRONT_OBJECT_DEPTH, objectDepth } from '../src/world/depth';
+import { avatarDepth, FRONT_OBJECT_DEPTH, objectDepth } from '../src/world/depth';
+/** The original draws the avatar at foot `y` in front of `object` when its depth is at least the object's. */
+const avatarInFront = (y: number, object: { readonly y: number; readonly height: number }) => y * 10 >= objectDepth(object);
 
 describe('the field z-sort keys (CFieldMap::addObject / CChibiAvatarElm::onMain)', () => {
   it('keys an object by its bottom edge * 10, an avatar by its feet * 10; front objects at 30724', () => {

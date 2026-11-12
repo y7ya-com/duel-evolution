@@ -6,7 +6,7 @@
 // under it: index.ts), one card at a time (another player's card open is closed first).
 import type { ClientCommand, ClientView } from '../contracts';
 import { CHAT_TABS, type HtmlUiLocal } from './windows';
-import { capturePending, deeplinkJoiner, fetchDiscordOnline, fetchDuels, joinDuel, readPending, type DiscordDuelist, type FetchLike } from './discord';
+import { capturePending, deeplinkJoiner, fetchDiscordOnline, fetchDuels, joinDuel, readPending, type FetchLike } from './discord';
 
 export const DUELS_FAST = 5000, DUELS_SLOW = 20000, DISCORD_POLL = 30000;
 const DUELS_TAB = CHAT_TABS.findIndex(t => t.key === 'duels');
@@ -19,7 +19,6 @@ export interface DiscordWireDeps {
 }
 
 export const inWorld = (s: ClientView) => s.scene === 'lobby' && s.mode !== 'free' && s.connection === 'online' && !!s.lobby?.connected;
-export const discordCardText = (p: DiscordDuelist) => [`${p.name} (Discord)`, `LV ${p.lv}`, p.rank?.label ? `Rank: ${p.rank.label}` : ''].filter(Boolean).join('\n');
 
 export function discordWire(deps: DiscordWireDeps) {
   const f: FetchLike = deps.fetch ?? ((url, init) => globalThis.fetch(url, init));

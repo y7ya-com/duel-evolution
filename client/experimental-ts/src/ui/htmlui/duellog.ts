@@ -47,7 +47,6 @@ export const DUELLOG_ROWS = 20;
 export const LATEST_KEEP = 100;
 /** The whole 90 days (duelArchive.ts REPLAYS_MAX). */
 export const DUELLOG_LIMIT = 1000;
-export const REPLAYS_PAGE = '/replays';
 export const replayDownloadUrl = (id: number): string => `/api/de/replays/${id}`;
 const emptySearch = (): DuellogSearch => ({ opp: '', result: '', from: '', to: '' });
 export const duellogUi = (): DuellogUi => ({ view: 'top', source: 'latest', hover: null, page: 1, selected: -1, op: false, comment: null, search: emptySearch(), draft: emptySearch(), data: null, loading: false, error: null, all: null, local: [] });
@@ -98,9 +97,6 @@ export function duellogQuery(all: readonly DuellogRow[], you: string, s: Duellog
 const RESULT_TEXT: Record<string, string> = { win: REWRITE_TEXT.win, lose: REWRITE_TEXT.loss, draw: REWRITE_TEXT.draw, abandon: 'Unfinished' };
 const pad2 = (n: number) => String(n).padStart(2, '0');
 export function duellogDate(t: number): string { const d = new Date(t * 1000); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
-export function duellogLine(r: DuellogRow, local = false): string {
-  return `${duellogDate(r.at)}   vs ${r.opponent ?? 'Duelist'}   ${RESULT_TEXT[r.result] ?? r.result}   ${r.turns} turn${r.turns === 1 ? '' : 's'}   ${r.kind === 'npc' ? 'NPC Duel' : 'Duel'}${r.game > 1 ? ` · Game ${r.game}` : ''}${local ? '   ▶' : ''}`;
-}
 export function searchText(s: DuellogSearch): string {
   const parts = [s.opp.trim() && `opponent "${s.opp.trim()}"`, s.result && RESULT_TEXT[s.result], s.from && `from ${s.from}`, s.to && `to ${s.to}`].filter(Boolean);
   return parts.length ? `Search: ${parts.join(', ')}` : 'All duels';

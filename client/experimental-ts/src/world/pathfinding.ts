@@ -98,22 +98,6 @@ export function astarCells(g: WalkGrid, start: { x: number; y: number }, goal: {
   for (let p = found, n = 0; p >= 0 && n <= count; p = p === first ? -1 : parent[p], n++) chain.push(cellCenter(p % w, Math.floor(p / w)));
   return chain.reverse();
 }
-/**
- * Click-to-walk route: the original A* from the avatar's cell to the clicked cell. The start cell's own centre is
- * dropped (it is always within the 20 px reach of the avatar standing in it), and the last cell's centre is replaced
- * by the exact clicked point so a click still lands where it was made. Null when no route exists.
- */
-export function findRoute(g: WalkGrid, start: Point, target: Point): Point[] | null {
-  if (!Number.isInteger(g.width) || !Number.isInteger(g.height) || g.width < 1 || g.height < 1 || g.width > 256 || g.height > 256) throw new RangeError('Invalid grid dimensions');
-  if (![start.x, start.y, target.x, target.y].every(Number.isFinite)) return null;
-  const a = cellOf(start), b = cellOf(target);
-  if (!cellOpen(g, a.x, a.y) || !cellOpen(g, b.x, b.y)) return null;
-  if (a.x === b.x && a.y === b.y) return start.x === target.x && start.y === target.y ? [] : [{ ...target }];
-  const cells = astarCells(g, a, b);
-  if (!cells) return null;
-  cells.shift(); cells[cells.length - 1] = { ...target };
-  return cells;
-}
 /** Conservative grid-only fallback (no pixel collision to slide on): breadth-first cardinal routing; at most width*height cells, no corner cutting. */
 export function findPath(g: WalkGrid, start: Point, target: Point, maxVisited = 65536): Point[] | null {
   if (!Number.isInteger(maxVisited) || maxVisited < 1 || maxVisited > 65536) throw new RangeError('Invalid path budget');

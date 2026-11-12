@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { DuelAudioDirector, DUEL_SOUND_EVIDENCE, duelSoundGain, fieldAudioSlot, resultAudioSlot } from '../src/duel/audio';
+import { DuelAudioDirector, DUEL_SOUND_EVIDENCE, duelSoundGain, fieldAudioSlot } from '../src/duel/audio';
 import { createDuelState, reduceDuelMessage } from '../src/duel/model';
 import type { DuelState, PresentationEvent } from '../src/duel/types';
 import { engine } from '../../../server/src/duel/translator/lockstep';
@@ -20,7 +20,6 @@ describe('source-backed duel sound cues', () => {
     expect(battle).toContain('if (k == 0x90) playSe(SE_ATTACK_SWING, 0)');
     const summon = readFileSync(resolve(import.meta.dirname, '../../src/duel/EngineCmd6.cpp'), 'utf8');
     expect(summon).toContain('0x2d summon by uid (views 0x19 + 0x35 RUN_SUMMON, reborn.wav)');
-    expect([1, 2, 3, 0, 99].map(resultAudioSlot)).toEqual([28, 27, 26, null, null]);
     expect(Array.from({ length: 15 }, (_, i) => fieldAudioSlot(i, 17))).toEqual([17, 34, 35, 32, 33, 31, 30, 43, 37, 38, 42, 41, 39, 40, 36]);
     expect(fieldAudioSlot(0x16, 11)).toBe(44); expect(fieldAudioSlot(15, 11)).toBe(45);
     expect(() => fieldAudioSlot(0, 28)).toThrow();

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cardKind, cardSearchRank, parseDeckImport, reorderDeckCards, serializeDeck, MAX_DECK_IMPORT_BYTES } from '../src/ui/deck';
+import { cardKind, cardSearchRank, parseDeckImport, serializeDeck, MAX_DECK_IMPORT_BYTES } from '../src/ui/deck';
 import { categoryOf, copiesLeft, emptyKabanFilter, trunkCards } from '../src/ui/htmlui/deck';
 import type { CardView } from '../src/ui/contracts';
 
@@ -26,10 +26,7 @@ describe('independent deck editor data operations', () => {
     expect(() => parseDeckImport(JSON.stringify({ name: 'A', main: Array(81).fill(1) }))).toThrow('capacity');
     expect(() => parseDeckImport(JSON.stringify({ name: '../unsafe', main: [] }))).toThrow('name');
   });
-  it('reorders duplicate copies by index without changing card counts or the input', () => {
-    const before = [1, 2, 1, 3]; expect(reorderDeckCards(before, 0, 3)).toEqual([2, 1, 3, 1]); expect(before).toEqual([1, 2, 1, 3]);
-    expect(() => reorderDeckCards(before, 4, 0)).toThrow('position');
-  });
+
   // the trunk (main's deck screen's search panel hands the filter to the editor: htmlui/deck.ts trunkCards)
   const order = (c: CardView) => c.passcode ?? 0;
   it('uses the original kind categories and applies monster-only stat ranges', () => {

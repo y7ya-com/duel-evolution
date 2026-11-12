@@ -262,7 +262,6 @@ export const CHAT_TABS: readonly { key: string; label: string; x: number; w: num
  * duel channel (chat.ts channelFor drops the 2008 client's kind 4), so the tab shows the two duelists' own lines and
  * what is typed there goes out on the public channel, where the opponent reads it. */
 export const DUEL_CHAT_TAB = { key: 'duel', label: 'Duel (n.)', x: 145, w: 88, channel: 'global' } as const;
-export const DUEL_CHAT_INDEX = CHAT_TABS.length;
 /** The chat's tabs in a scene: the duel's adds DUEL_CHAT_TAB at live's place, `names` the two duelists. */
 export function chatTabsFor(duelists: readonly string[] | null): readonly { key: string; label: string; x: number; w: number; channel: string; shows: (channel: string, sender: string) => boolean }[] {
   if (!duelists) return CHAT_TABS;
