@@ -172,11 +172,6 @@ export async function click(page:Page,text:string,timeout = 30000) {
     await until(page,`${byText(text)}||${titleButton(alias)}`,timeout);
     if (!await page.ev(`Boolean(${byText(text)})`)) { await press(page,titleButton(alias)); return; }
   }
-  // the rewrite's own options page (game data, recording, local files) has no way in on live's screens (the title's
-  // OPTIONS is COptionDlg, the Main Menu's DUEL OPTIONS the duel settings): tests open it through the dev app
-  if (text === 'Options' && !await page.ev(`Boolean(${byText('Options')})`)) {
-    await page.ev(`window.__deApp.dispatch({ type:'openScene', scene:'settings' })`); await until(page,byKey('options-language'),timeout); return;
-  }
   // the Shop is no Main Menu entry (as live: the store's door on the map, which the rewrite's world does not have yet;
   // free mode's own Shop button stays): tests open the shop scene through the dev app
   if (text === 'Shop' && !await page.ev(`Boolean(${byText('Shop')})`)) {
@@ -521,31 +516,34 @@ export async function surrender(page:Page) {
   if (await page.ev(`Boolean(${yes})`)) await press(page,yes);
   await until(page,resultShown,60000);
 }
-/** After an NPC duel: the result's Next back to the lobby, the NPC's lines (its balloon), the offered reward pack, close.
- * Returns the pack label, the received card names ("Name · New" rows) and the dialog text seen. */
+/** After an NPC duel: the result's Next back to the lobby, the NPC's lines (its balloon), the offered reward pack
+ * (main's picker), then what the duel gave, as live: "You got <X>!" Ok dialogs (htmlui/npc-itemget.ts), each OK'd, the
+ * last ending the talk. Returns the pack label, the received names (the cards first) and the dialog text seen. */
 export async function claimNpcReward(page:Page):Promise<{ pack:string|null; received:string[]; dialog:string }> {
-  const panel = `document.querySelector('[aria-label="NPC interaction"]')`;
   if (await page.ev(resultShown)) await press(page,resultLeave);
   const balloon = `[...document.querySelectorAll('button[data-key="npc-talk:next"]')].find(b=>!b.disabled&&b.getClientRects().length)`;
-  let pack:string|null = null, received:string[] = [], dialog = '';
-  for (let i = 0; i < 40 && (await page.ev(`Boolean(${panel})||Boolean(document.querySelector('button[data-key="npc-talk:next"]'))||Boolean(document.querySelector('.yo2ps-list .yo2ps-row'))`) || i < 6); i++) {
+  const itemOk = `[...document.querySelectorAll('[data-key="npc-itemget-ok"]')].find(b=>!b.disabled&&b.getClientRects().length)`;
+  const htmlRow = `document.querySelector('.yo2ps-list .yo2ps-row')`, htmlOk = `document.querySelector('.yo2ps-ok:not([hidden])')`;
+  const npcUp = `(Boolean(document.querySelector('button[data-key="npc-talk:next"]'))||Boolean(${htmlRow})||Boolean(document.querySelector('[data-key="npc-itemget-ok"]'))||!['idle','done'].includes(window.__deApp?.getState().npc?.stage ?? 'idle')||window.__deApp?.getState().npc?.stage==='done'&&window.__deApp?.getState().npc?.result!=null)`;
+  let pack:string|null = null, dialog = '';
+  const received:string[] = [];
+  for (let i = 0; i < 60 && (await page.ev(npcUp) || i < 6); i++) {
     // the NPC's lines after the duel (its balloon): clicked on, the gift's line too (Receive Gift)
     if (await page.ev(`Boolean(${balloon})`)) { dialog ||= (await page.ev(`${balloon}.getAttribute('aria-label') ?? ''`) as string).slice(0,240); await press(page,balloon); await sleep(500); continue; }
-    const rows = await page.ev(`[...(${panel}?.querySelectorAll('.de-receipt-cards article p') ?? [])].map(p=>p.textContent.split(' · ')[0])`) as string[];
-    if (rows.length) { received = rows; dialog = (await page.ev(`${panel}?.innerText ?? ''`) as string).replace(/\s+/g,' ').slice(0,240); }
-    const packButton = `[...(${panel}?.querySelectorAll('button') ?? [])].find(b=>b.dataset.key?.includes('npcSelectPack')&&!b.disabled)`;
-    const other = `[...(${panel}?.querySelectorAll('button') ?? [])].find(b=>['Continue','Receive Gift','Close NPC'].includes(b.textContent)&&!b.disabled)`;
-    // main's pack picker (htmlui/npc-pack.ts: CWindowPackSelect) when the HTML UI is up: its first row, then OK
     // the duel's last word (its result line as a duel.js dialog over the picker): acknowledged first, as a player would
     const last = `[...document.querySelectorAll('#htmlui-host button[data-key^="prompt-"]')].find(b=>!b.disabled&&b.getClientRects().length)`;
     if (await page.ev(`Boolean(${last})`)) { await press(page,last); await sleep(500); continue; }
-    const htmlRow = `document.querySelector('.yo2ps-list .yo2ps-row')`, htmlOk = `document.querySelector('.yo2ps-ok:not([hidden])')`;
+    // main's pack picker (htmlui/npc-pack.ts: CWindowPackSelect): its first row, then OK
     if (!pack && await page.ev(`Boolean(${htmlRow})&&Boolean(${htmlOk})`)) {
       pack = (await page.ev(`[...${htmlRow}.querySelectorAll('span')].map(s=>s.textContent)[0] ?? ${htmlRow}.textContent`) as string).trim();
-      await press(page,htmlRow); await sleep(200); await press(page,htmlOk);
+      await press(page,htmlRow); await sleep(200); await press(page,htmlOk); await sleep(800); continue;
     }
-    else if (!pack && await page.ev(`Boolean(${packButton})`)) { pack = await page.ev(`${packButton}.textContent`) as string; await press(page,packButton); }
-    else if ((pack || !(await page.ev(`[...(${panel}?.querySelectorAll('button') ?? [])].some(b=>b.dataset.key?.includes('npcSelectPack'))||Boolean(${htmlRow})`))) && await page.ev(`Boolean(${other})`)) await press(page,other);
+    // "You got <X>!": the item-get dialog's text, then its OK
+    if (await page.ev(`Boolean(${itemOk})`)) {
+      const said = (await page.ev(`${itemOk}.closest('.win')?.innerText ?? ''`) as string).replace(/\s+/g,' ').trim();
+      const got = /You got (.+?)!/.exec(said)?.[1]; if (got) received.push(got);
+      await press(page,itemOk); await sleep(500); continue;
+    }
     await sleep(800);
   }
   // the result boards (their Next plate) if still up

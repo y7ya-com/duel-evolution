@@ -17,9 +17,9 @@ import type { DeckContext, DeckDialog, DeckFrom, DeckUi, FileButton, KabanFilter
 import type { PowerIcons } from './deck-dom';
 import { peekView as craftPeek, onChange as craftOnChange } from '@htmlui/crafting/api.js';
 import { cardState } from '@htmlui/crafting/model.js';
-import dialogInput1 from '@htmlui/mock/dialog-input1.json';
-import dialogYesNo from '@htmlui/mock/dialog-yesno.json';
-import dialogOk from '@htmlui/mock/dialog-ok.json';
+import dialogInput1 from './templates/dialog-input1.json';
+import dialogYesNo from './templates/dialog-yesno.json';
+import dialogOk from './templates/dialog-ok.json';
 
 export interface DeckSceneOptions {
   state(): ClientView;

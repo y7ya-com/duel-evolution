@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
 import { npcPackSelect, npcPackUi } from '../src/ui/htmlui/npc-pack';
-import { shopWindows, shopLocal } from '../src/ui/htmlui/shop';
 import { Ids } from '../src/ui/htmlui/snapshot';
-import { packAt, ART } from '@htmlui/screens/pack-contents.js';
 import type { NpcState } from '../src/features/npc';
-import type { ShopItem } from '../src/ui/contracts';
 
 const won = (packs: number[]): NpcState => ({ stage: 'won', npc: { id: 7, name: 'NPC' }, dialogue: null, result: 1, present: 0, packs, packStatus: 'idle', giftStatus: 'idle', cards: [], giftCards: [], giftBits: [], firstContactStatus: 'idle', settlementReceived: true, refreshPending: false, error: null, eligibility: { status: 'idle', refreshing: false, bits: [], cards: [] } } as NpcState);
 
@@ -20,36 +16,5 @@ describe('what a pack holds (main\'s screens/pack-contents.js) outside the card 
     expect(opened).toEqual([[5, 'Metal Raiders']]);
     // without a way to open it the picker is main's alone
     expect(npcPackSelect(won([3]), { ...deps, contents: undefined })!.win.controls.some(c => c.name === 'contents')).toBe(false);
-  });
-  it('the legacy shop\'s Booster Packs window carries its packs\' ids, as main\'s pack-contents.js hotspots read them', () => {
-    const items: ShopItem[] = Array.from({ length: 12 }, (_, i) => ({ id: 100 + i, name: `Pack ${i}`, price: 300, category: 'packs', packId: 200 + i }));
-    const ui = shopLocal(); ui.page = 'packs'; ui.index = 1;
-    const specs = shopWindows({ shop: { items, mp: 1000 }, ui, ids: new Ids(), busy: false, world: 0, portrait: null, name: i => i.name, rerender: () => {}, buy: () => {}, exit: () => {} });
-    const win = specs.find(s => s.win.cls === 'CShopPackWindow')!.win as unknown as { packs: number[]; page: number };
-    expect(win.packs).toEqual(items.map(i => i.packId));
-    expect(win.page).toBe(1);
-    // main's hotspot over the second page's first art names the eleventh pack
-    expect(packAt(win, ART.x + 1, ART.y[0] + 1)).toBe(210);
-    // main's shop screen draws the hotspots on this window
-    expect(readFileSync(new URL('../../web-shell/htmlui/screens/shop.js', import.meta.url), 'utf8')).toMatch(/CShopPackWindow'\) packHotspots/);
-  });
-});
-
-describe('the legacy shop\'s description band follows the mouse over the pack art (the engine\'s hover by rect)', () => {
-  it('the point over a pack\'s art is over its price plate, whose hover names the pack in the band', async () => {
-    const { areaAt } = await import('../src/ui/htmlui/snapshot');
-    const items: ShopItem[] = Array.from({ length: 3 }, (_, i) => ({ id: 100 + i, name: `Pack ${i}`, description: `About pack ${i}`, price: 300, category: 'packs', packId: 200 + i }));
-    const ui = shopLocal(); ui.page = 'packs';
-    const deps = { shop: { items, mp: 1000 }, ui, ids: new Ids(), busy: false, world: 0, portrait: null, name: (i: ShopItem) => i.name, rerender: () => {}, buy: () => {}, exit: () => {} };
-    let specs = shopWindows(deps);
-    // main's hotspot over the second pack's art (pack-contents.js ART) sends its mousemove to the engine's canvas
-    const id = areaAt(specs, ART.x + ART.pitch + 5, ART.y[0] + 5);
-    const spec = specs.find(s => s.handlers.has(id))!;
-    expect(spec.win.cls).toBe('CShopPricePlate');
-    spec.handlers.get(id)!.pointer!(true);
-    specs = shopWindows(deps);
-    const band = specs.find(s => s.win.cls === 'CShopPackWindow')!.win.controls.find(c => typeof c.text === 'string' && c.text.includes('About pack'));
-    expect(band?.text).toContain('About pack 1');
-    expect(areaAt(specs, 5, 5)).toBe(0);
   });
 });

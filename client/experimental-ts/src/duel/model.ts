@@ -469,9 +469,3 @@ export function visibleCards(state: DuelState): DuelCard[] {
   return cards;
 }
 
-/** Stable projection for record/replay parity, excluding animation timing and diagnostic history. */
-export function duelSnapshot(state: DuelState): unknown {
-  return { status: state.status, turnPlayer: state.turnPlayer, turn: state.turn, phase: state.phase,
-    sides: state.sides, cards: Object.values(state.cards).sort((a, b) => a.uid - b.uid),
-    prompt: state.prompt, result: state.result };
-}

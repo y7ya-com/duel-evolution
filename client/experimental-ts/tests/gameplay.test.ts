@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { W } from '../../../server/src/net/proto';
-import { decodeGameplayMessage, decodeAvatars, decodeMail, decodeMatchOffer, decodeNpcs, decodePlayers, decodePresence, decodeRooms, decodeTradeMessage, duelCommands, gameplayHttp, initialTradeView, PayloadReader, reduceTradeView, socialCommands, tagChatCommands, tradeCommands, worldCommands } from '../src/gameplay';
+import { decodeGameplayMessage, decodeAvatars, decodeMail, decodeMatchOffer, decodeNpcs, decodePlayers, decodePresence, decodeRooms, decodeTradeMessage, duelCommands, gameplayHttp, initialTradeView, reduceTradeView, socialCommands, tradeCommands, worldCommands } from '../src/gameplay';
 
 const cat = (...parts: Uint8Array[]) => Uint8Array.from(parts.flatMap(p => [...p]));
 const parts = Uint8Array.from({ length: 16 }, (_, i) => i);
@@ -60,8 +60,6 @@ describe('gameplay wire contracts from current server encodings', () => {
     expect(gameplayHttp.inviteDuel(1004)).toEqual({ method: 'POST', path: '/api/de/duel/challenge', body: { pid: 1004 } });
     expect(gameplayHttp.inviteTag(1004, 1008, 1012).body).toEqual({ teammatePid: 1004, opponentPid: 1008, opponentTeammatePid: 1012 });
     expect(gameplayHttp.respondTag('decline', 'uuid')).toEqual({ method: 'POST', path: '/api/de/tag/decline', body: { id: 'uuid' } });
-    const r = new PayloadReader(tagChatCommands.invite('Bob', 'Carol', 'Dave').data); r.raw(14);
-    expect(r.text(r.remaining)).toBe('/tag invite Bob,Carol,Dave');
     expect(() => gameplayHttp.inviteTag(1, 1, 2)).toThrow();
   });
   it('wraps trade commands and follows incoming move/ready/back/end semantics immutably', () => {

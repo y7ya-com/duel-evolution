@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { discordWire, discordCardText, inWorld, DUELS_FAST, DUELS_SLOW, DISCORD_POLL } from '../src/ui/htmlui/discord-wire';
+import { discordWire, inWorld, DUELS_FAST, DUELS_SLOW, DISCORD_POLL } from '../src/ui/htmlui/discord-wire';
 import { htmlUiLocal } from '../src/ui/htmlui/windows';
 import type { ClientCommand, ClientView } from '../src/ui/contracts';
 
@@ -66,7 +66,6 @@ describe('discord wire (chat Duels tab, Discord rows, ?duel= link)', () => {
     const q = rig(world({ profileDetail: { selectedPid: 42, selfPid: 1 } } as Partial<ClientView>));
     q.ui.onDiscordCard!(p);
     expect(q.sent).toEqual([{ type: 'profileAction', action: { type: 'close' } }]); expect(q.ui.discordCard).toEqual(p);
-    expect(discordCardText({ pid: 1, name: 'A', lv: 3, rank: null, parts: [] })).toBe('A (Discord)\nLV 3');
   });
 
   it('a ?duel= link is captured on load and joined once in the world', async () => {

@@ -9,15 +9,15 @@ import { AREA_FALLBACK, AREA_TEXT, WORLD_TEXT } from './lobby';
 import { titleName } from '../../features/titles';
 import type { HtmlControl, WindowSpec } from './snapshot';
 import { avatarSwitch, freeChoices, starterLook, type AvatarDeps } from './avatar';
-import playerSelectLive from '@htmlui/mock/playerselect-live.json';
-import dialogInput1 from '@htmlui/mock/dialog-input1.json';
+import playerSelectLive from './templates/playerselect-live.json';
+import dialogInput1 from './templates/dialog-input1.json';
 import { wrapDialogText } from './dialog-text';
 export { wrapDialogText };
-import dialogYesNo from '@htmlui/mock/dialog-yesno.json';
-import dialogOk from '@htmlui/mock/dialog-ok.json';
-import dialogError from '@htmlui/mock/dialog-error.json';
-import lobbyCard from '@htmlui/mock/lobby-card.json';
-import playerListMock from '@htmlui/mock/duelsetup-plist.json';
+import dialogYesNo from './templates/dialog-yesno.json';
+import dialogOk from './templates/dialog-ok.json';
+import dialogError from './templates/dialog-error.json';
+import lobbyCard from './templates/lobby-card.json';
+import playerListMock from './templates/duelsetup-plist.json';
 
 /** A dialog the rewrite has open over a screen (the engine's CNetAccountTask prompts, NetAccountTask.cpp). */
 export type HtmlDialog =
@@ -262,7 +262,6 @@ export const CHAT_TABS: readonly { key: string; label: string; x: number; w: num
  * duel channel (chat.ts channelFor drops the 2008 client's kind 4), so the tab shows the two duelists' own lines and
  * what is typed there goes out on the public channel, where the opponent reads it. */
 export const DUEL_CHAT_TAB = { key: 'duel', label: 'Duel (n.)', x: 145, w: 88, channel: 'global' } as const;
-export const DUEL_CHAT_INDEX = CHAT_TABS.length;
 /** The chat's tabs in a scene: the duel's adds DUEL_CHAT_TAB at live's place, `names` the two duelists. */
 export function chatTabsFor(duelists: readonly string[] | null): readonly { key: string; label: string; x: number; w: number; channel: string; shows: (channel: string, sender: string) => boolean }[] {
   if (!duelists) return CHAT_TABS;

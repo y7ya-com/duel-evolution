@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BLACK_HIT_PIXEL, CollisionTiles, decodeCollisionMask, EXIT_HIT_PIXELS, exitIndexFromPixel, finishProbedStep, footGeometry, heightPixelRegion, isWallPixel, rgbaMask, smoothGroundStep } from '../src/world/collision';
+import { BLACK_HIT_PIXEL, CollisionTiles, decodeCollisionMask, EXIT_HIT_PIXELS, exitIndexFromPixel, finishProbedStep, footGeometry, isWallPixel, rgbaMask, smoothGroundStep } from '../src/world/collision';
 const mask = (r = 255, g = 255, b = 255, a = 0) => rgbaMask(1, 1, new Uint8Array([r,g,b,a]));
 const png = (w: number, h: number): Uint8Array => {
   const b = new Uint8Array(33); b.set([137,80,78,71,13,10,26,10]);
@@ -16,8 +16,6 @@ describe('source-backed hit pixel primitives', () => {
     expect(isWallPixel(BLACK_HIT_PIXEL)).toBe(true);
     EXIT_HIT_PIXELS.forEach((c,i) => { expect(exitIndexFromPixel(c)).toBe(i); expect(isWallPixel(c)).toBe(true); });
     expect(exitIndexFromPixel(0xff0000fe)).toBeNull();
-    expect(heightPixelRegion(0xffff0000)).toBe('red');
-    expect(heightPixelRegion(0x00ff0000)).toBe('other');
   });
   it('owns its input, rejects malformed geometry, and returns black outside', () => {
     const bytes = new Uint8Array([0,0,255,255]), m = rgbaMask(1,1,bytes); bytes.fill(0);

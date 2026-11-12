@@ -93,7 +93,6 @@ export function installAudioPage(d: AudioPageDeps): Promise<void> {
   loading = import('@recomp-web/audiopage.js').then(() => { page = m.rcAudioUI ?? null; }, e => { console.warn('audio page', e); });
   return loading;
 }
-export const audioPageReady = (): boolean => !!page;
 /** The Main Menu's Audio: main's page over the frame. */
 export function openAudioPage(): void { void (loading ?? Promise.resolve()).then(() => page?.open()); }
 export function closeAudioPage(): void { page?.close(); }

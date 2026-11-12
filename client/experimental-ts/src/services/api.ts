@@ -1,4 +1,4 @@
-import type { DeckView, ShopView, SocialView, ChatLine } from '../ui/contracts';
+import type { DeckView, ShopView, SocialView } from '../ui/contracts';
 import { HttpClient, ResponseError } from './http';
 import type { RequestOptions } from './http';
 
@@ -111,7 +111,6 @@ export class GameApi {
 }
 export const toShopView = (s: ShopCatalog): ShopView => ({ items: s.items.map(i => ({ id: i.id, name: i.name || (i.kind === 2 ? `Avatar item ${i.param}` : `Item ${i.id}`), price: i.price, category: i.category, owned: i.owned, ...(i.kind === 2 ? { avatarBit: i.param } : {}) })), mp: s.wallet.total, earnedMp: s.wallet.earned, available: s.available });
 export const toSocialView = (f: Friends): SocialView => ({ friends: f.friends.map(p => ({ id: p.pid, name: p.name, online: p.online, status: p.place })) });
-export const toChatLine = (m: ChatMessage): ChatLine => ({ id: String(m.id), sender: m.name, text: m.text, channel: m.channel });
 export function expandStarterDeck(d: StarterDeck): DeckView {
   const expand = (pairs: [number, number][]): number[] => {
     if (pairs.reduce((n, p) => n + p[1], 0) > 1024 || pairs.some(p => !Number.isSafeInteger(p[1]) || p[1] < 0)) throw new ResponseError('Starter deck exceeds expansion bound');

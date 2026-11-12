@@ -8,15 +8,15 @@ import type { ClientView } from '../contracts';
 import { WindowBuilder } from './snapshot';
 import type { HtmlControl, WindowSpec } from './snapshot';
 import type { BuildContext } from './windows';
-import duelMenuMock from '@htmlui/mock/duelsetup-menu.json';
-import duelFindMock from '@htmlui/mock/duelsetup-find.json';
-import duelWaitMock from '@htmlui/mock/duelsetup-wait.json';
-import moveMock from '@htmlui/mock/duelsetup-move.json';
-import findMenuMock from '@htmlui/mock/duelsetup-findmenu.json';
-import playerListMock from '@htmlui/mock/duelsetup-plist.json';
-import npcCardMock from '@htmlui/mock/lobby-npc.json';
-import dialogInput1 from '@htmlui/mock/dialog-input1.json';
-import dialogYesNo from '@htmlui/mock/dialog-yesno.json';
+import duelMenuMock from './templates/duelsetup-menu.json';
+import duelFindMock from './templates/duelsetup-find.json';
+import duelWaitMock from './templates/duelsetup-wait.json';
+import moveMock from './templates/duelsetup-move.json';
+import findMenuMock from './templates/duelsetup-findmenu.json';
+import playerListMock from './templates/duelsetup-plist.json';
+import npcCardMock from './templates/lobby-npc.json';
+import dialogInput1 from './templates/dialog-input1.json';
+import dialogYesNo from './templates/dialog-yesno.json';
 import { wrapDialogText } from './dialog-text';
 
 /** The original's words these windows say (yo2text_?), by text id; the rewrite's stand in without the original data. */

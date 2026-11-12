@@ -71,7 +71,8 @@ describe('UI ownership and semantic interaction', () => {
     expect(f.root.textContent).not.toContain('Acquired Cards'); f.update({ scene: 'title' }); await Promise.resolve(); expect(release.mock.calls.length).toBe(loader.mock.calls.length); f.mounted.dispose();
   });
   it('disposes its subscription, mounted nodes and queued renders; detached actions do nothing', async () => {
-    const f = fixture(), oldButton = findButton(f.root, 'Options'), oldHost = f.root.childNodes[0];
+    const f = fixture(); f.update({ auth: { signedIn: true, name: 'Duelist' } }); await Promise.resolve();
+    const oldButton = findButton(f.root, 'Go Online'), oldHost = f.root.childNodes[0];
     expect(f.listeners.size).toBe(1); f.update({ status: 'Queued update' }); f.mounted.dispose();
     await Promise.resolve(); oldButton.onclick?.({}); f.mounted.render();
     expect(f.listeners.size).toBe(0); expect(f.root.childNodes).toHaveLength(0); expect(oldHost.childNodes).toHaveLength(0); expect(f.commands).toHaveLength(0);
@@ -172,22 +173,6 @@ describe('UI ownership and semantic interaction', () => {
     f.update({ status: 'Character list refreshed' }); await Promise.resolve();
     expect(f.mounted.htmlUi.windows().flatMap(w => w.win.controls).find(c => c.cls === 'CWindowTaskInput')?.value).toBe('Draft'); f.mounted.dispose();
   });
-  it('routes registration without retaining the submitted password through a rerender', async () => {
-    const f = fixture(); f.update({ accountDetail: { panel: 'register', busy: false, status: 'Account', error: null, errorCode: null, session: null, verification: null, inviteUrl: null, redirectUrl: null, claimedAccount: null } }); await Promise.resolve();
-    const account = f.root.querySelectorAll('section').find(n => n.getAttribute('aria-label') === 'Account')!;
-    const name = account.querySelectorAll('input').find(n => n.name === 'username')!, password = account.querySelectorAll('input').find(n => n.type === 'password')!;
-    name.value = 'Duelist'; password.value = 'private-registration-password';
-    password.parentNode!.parentNode!.onsubmit?.({ preventDefault() {} });
-    expect(f.commands.at(-1)).toEqual({ type: 'accountAction', action: { type: 'register', username: 'Duelist', password: 'private-registration-password' } }); expect(password.value).toBe('');
-    f.update({ status: 'Waiting for account confirmation' }); await Promise.resolve(); expect(f.root.querySelectorAll('section').find(n => n.getAttribute('aria-label') === 'Account')!.querySelectorAll('input').find(n => n.type === 'password')?.value).toBe(''); expect(f.root.textContent).not.toContain('private-registration-password'); f.mounted.dispose();
-  });
-  it('starts, stops and downloads only explicitly requested gameplay recordings', async () => {
-    const f = fixture(), capture: NonNullable<ClientView['capture']> = { state: 'idle', recording: false, records: 0, payloadBytes: 0, jsonBytes: 26, partial: false, initializedDuels: 0, gateEligible: false, reason: null };
-    f.update({ scene: 'settings', capture }); await Promise.resolve(); findButton(f.root, 'Start Recording').onclick?.({}); expect(f.commands).toEqual([{ type: 'captureStart' }]); expect(f.root.textContent).toContain('idle');
-    f.update({ capture: { ...capture, state: 'recording', recording: true, records: 3, payloadBytes: 100, jsonBytes: 200 } }); await Promise.resolve(); expect(findButton(f.root, 'Download Recording').disabled).toBe(true); findButton(f.root, 'Stop Recording').onclick?.({});
-    f.update({ capture: { ...capture, state: 'stopped', records: 3, payloadBytes: 100, jsonBytes: 200 } }); await Promise.resolve(); findButton(f.root, 'Download Recording').onclick?.({});
-    expect(f.commands).toEqual([{ type: 'captureStart' }, { type: 'captureStop' }, { type: 'captureDownload' }]); f.mounted.dispose();
-  });
   // the deck editor's card faces are main's deck screen's (htmlui/deck-dom.ts): <img> elements over its holes, art leased
   // per card and let go a few frames after its last picture leaves the page
   const deckImages = (f: ReturnType<typeof fixture>) => ((f.mounted.htmlUi.deck() as unknown as TestNode | null)?.querySelectorAll('img') ?? []).filter(i => (i as unknown as { src: string }).src);
@@ -197,7 +182,7 @@ describe('UI ownership and semantic interaction', () => {
     f.update({ scene: 'deck', deckEditor: { decks: [], current: { name: 'Deck', main: [1], side: [], extra: [] }, collection: [{ id: '1', passcode: 1, name: 'Card One', owned: 3 }] } }); await Promise.resolve(); await Promise.resolve(); await frames(f, 1);
     // the Main grid's card and the trunk's row are two pictures of the one lease
     expect(deckImages(f).length).toBeGreaterThanOrEqual(2); expect(deckImages(f).every(i => (i as unknown as { src: string }).src === 'blob:https://game.test/card1')).toBe(true);
-    expect(loader).toHaveBeenCalledTimes(1); expect(release).not.toHaveBeenCalled(); f.update({ scene: 'settings' }); await Promise.resolve(); await frames(f);
+    expect(loader).toHaveBeenCalledTimes(1); expect(release).not.toHaveBeenCalled(); f.update({ scene: 'title' }); await Promise.resolve(); await frames(f);
     expect(release).toHaveBeenCalledTimes(1); f.mounted.dispose(); expect(release).toHaveBeenCalledTimes(1);
   });
   it('aborts removed pending artwork and releases a late lease instead of retaining it', async () => {
@@ -247,23 +232,6 @@ describe('UI ownership and semantic interaction', () => {
     expect(f.mounted.htmlUi.press('main-menu')).toBe(true); expect(f.mounted.htmlUi.press('menu:profile')).toBe(true);
     expect(f.commands).toEqual([{ type: 'profileAction', action: { type: 'open', pid: 1 } }]); expect(f.mounted.htmlUi.text()).not.toContain('My Profile');
     f.update({ profileDetail: { ...profileDetail, selectedPid: 1, comments: ['Received comment', null] } }); await Promise.resolve(); expect(f.mounted.htmlUi.text()).toContain('My Profile'); expect(f.mounted.htmlUi.text()).toContain('Received comment'); f.mounted.dispose();
-  });
-  it('retries missing game data explicitly without pretending it loaded', async () => {
-    const f = fixture(); f.update({ scene: 'settings', dataStatus: { loading: false, issues: ['Maps', 'Card names'] } }); await Promise.resolve();
-    findButton(f.root, 'Retry loading game data').onclick?.({}); expect(f.commands).toEqual([{ type: 'reloadData' }]); expect(f.root.textContent).toContain('Maps'); expect(f.root.textContent).toContain('Some game data is unavailable.');
-    f.update({ dataStatus: { loading: true, issues: ['Maps'] } }); await Promise.resolve(); expect(findButton(f.root, 'Loading Game Data…').disabled).toBe(true); f.mounted.dispose();
-  });
-  it('reflects actual fullscreen entry and Escape in Options without game commands', async () => {
-    const listeners = new Map<string, () => void>(); let current: TestNode | null = null;
-    const f = fixture(undefined, document => {
-      Object.defineProperty(document, 'fullscreenElement', { get: () => current });
-      Object.assign(document, { fullscreenEnabled: true, exitFullscreen: async () => { current = null; listeners.get('fullscreenchange')?.(); }, addEventListener: (name: string, fn: () => void) => listeners.set(name, fn), removeEventListener: (name: string) => listeners.delete(name) });
-      const create = document.createElement.bind(document); document.createElement = tag => { const node = create(tag); Object.assign(node, { requestFullscreen: async () => { current = node; listeners.get('fullscreenchange')?.(); } }); return node; };
-    });
-    expect(current).toBeNull(); f.update({ scene: 'settings' }); await Promise.resolve(); const enter = findButton(f.root, 'Enter Fullscreen'); enter.focus(); enter.onclick?.({}); for (let i = 0; i < 6; i++) await Promise.resolve();
-    expect(current).toBe(f.root.childNodes[0]); const exit = findButton(f.root, 'Exit Fullscreen'); expect(f.document.activeElement).toBe(exit); expect(exit.getAttribute('aria-pressed')).toBe('true'); expect(f.commands).toEqual([]);
-    current = null; listeners.get('fullscreenchange')?.(); await Promise.resolve(); expect(findButton(f.root, 'Enter Fullscreen').getAttribute('aria-pressed')).toBe('false');
-    f.mounted.dispose(); expect(listeners.size).toBe(0);
   });
   it('renders user messages as text nodes rather than markup', async () => {
     const f = fixture(); f.update({ scene: 'lobby', connection: 'online', lobby: { name: 'Academy', avatars: [], connected: true, channels: ['global'], chat: [{ id: '1', sender: '<script>', text: '<img src=x onerror=alert(1)>', channel: 'global' }] } }); await Promise.resolve();

@@ -44,7 +44,7 @@ describe('ClientApp collision-aware world lifecycle', () => {
   });
   it('cancels walking when opening another scene and can start a fresh route after returning', async () => {
     const f = fixture(); await f.enter(); await f.app.dispatch({ type: 'move', x: 70, y: 30 }); for (let i = 0; i < 4; i++) f.tick();
-    const before = f.game.move.mock.calls.length; expect(f.frames.size).toBeGreaterThan(0); await f.app.dispatch({ type: 'openScene', scene: 'settings' }); expect(f.cancelFrame).toHaveBeenCalled(); expect(f.tick()).toBe(false); expect(f.game.move).toHaveBeenCalledTimes(before);
+    const before = f.game.move.mock.calls.length; expect(f.frames.size).toBeGreaterThan(0); await f.app.dispatch({ type: 'openScene', scene: 'deck' }); expect(f.cancelFrame).toHaveBeenCalled(); expect(f.tick()).toBe(false); expect(f.game.move).toHaveBeenCalledTimes(before);
     await f.app.dispatch({ type: 'openScene', scene: 'lobby' }); await f.app.dispatch({ type: 'move', x: 70, y: 30 }); for (let i = 0; i < 100 && f.tick(); i++) { /* drain route */ } expect(f.game.move.mock.calls.at(-1)?.slice(0, 2)).toEqual([70, 30]); f.app.dispose();
   });
   it('cancels scheduled frames on disconnect and disposal, including a retained late callback', async () => {

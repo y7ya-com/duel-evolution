@@ -169,8 +169,6 @@ export class DuelAudioDirector {
   dispose(): void { this.closed = true; this.queue = []; this.attack = null; this.battleGauge = [0, 0]; }
 }
 
-/** Source result constants: 1 won, 2 lost, 3 draw. Unknown results have no guessed audio. */
-export function resultAudioSlot(result: number): 26 | 27 | 28 | null { return result === 1 ? 28 : result === 2 ? 27 : result === 3 ? 26 : null; }
 /** SceneDuelScene.cpp fieldBgm kind switch. This accepts the original scene's kind,
  * not a passcode/internal ID; deriving kind from a card is deliberately separate. */
 export function fieldAudioSlot(kind: number, baseSlot: number): number {
