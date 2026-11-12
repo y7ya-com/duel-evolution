@@ -364,7 +364,8 @@ export class WorldRenderer {
     return {
       mapId: this.requestedMap, ready: this.ready, viewport: v, sprites: this.displayed?.count ?? 0, textures: this.textures.size, poses: this.poses?.size ?? 0, renderer: this.host ? 'pixi' : 'none',
       frames: { count: this.frameCount, fps: mean ? 1000 / mean : 0, p95: n ? times[Math.min(n - 1, Math.floor(n * 0.95))] : 0, worst: n ? times[n - 1] : 0 },
-      avatars: [...this.actors.values()].map(a => { const m = this.motions.get(a.id)!; return { id: a.id, name: a.name.text, x: m.x, y: m.y, direction: m.direction, walking: m.walking, frame: a.frame, z: a.root.zIndex, drawn: a.drawn }; }),
+      // look: the pose strip on screen (world/motion/direction/parts), the old one until a new look's strip is in
+      avatars: [...this.actors.values()].map(a => { const m = this.motions.get(a.id)!; return { id: a.id, name: a.name.text, x: m.x, y: m.y, direction: m.direction, walking: m.walking, frame: a.frame, z: a.root.zIndex, drawn: a.drawn, look: a.drawn ? a.strip?.key ?? '' : '' }; }),
     };
   }
   private fit(): void {

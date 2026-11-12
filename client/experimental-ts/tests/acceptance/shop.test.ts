@@ -146,13 +146,14 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
       // own character redraws in the new look (live 2034ec6), not only the one the others see
       type Look = { appearance:{ world:number; parts:number[]; looks?:Record<string,number[]> }; inventory?:{ id:string; owned:boolean; free?:boolean; name?:string }[] };
       const lookNow = async (p:Page) => { const c = await cosmetics(p) as unknown as Look; const w = c.appearance.world === 0 ? 0 : 1; return c.appearance.looks?.[String(w)] ?? c.appearance.parts; };
-      const selfDrawn = `(()=>{const s=window.__deApp.getState().lobby?.avatars.find(x=>x.self);const c=s&&document.querySelector('[data-key="avatar:'+s.id+'"] canvas');return c&&c.dataset.avatarPainted==='true'?(c.dataset.avatarDrawn??'').split('/').pop():'';})()`;
+      // the look the PixiJS world draws on the player's own avatar (its pose strip's key: world/motion/direction/parts)
+      const selfDrawn = `(()=>{const s=window.__deApp.getState().lobby?.avatars.find(x=>x.self);const v=s&&window.__deWorld?.().avatars.find(x=>x.id===s.id);return v&&v.drawn?(v.look??'').split('/').pop():'';})()`;
       const gained = ((reloaded as unknown as Look).inventory ?? []).find(i => i.owned && !i.free && !w1Items.has(i.id)) ?? ((reloaded as unknown as Look).inventory ?? []).find(i => i.owned && !i.free)!;
       expect(gained).toBeTruthy();
       const launcher = `document.querySelector('.de-wdl > button[aria-label="Wardrobe"]')`, WD = `document.querySelector('.de-wd[role=dialog]')`;
       await until(a,launcher,30000); await press(a,launcher); await until(a,`${WD}?.querySelector('.wd-tile[data-id]')`,30000);
       const tabCounts = await a.ev(`[...${WD}.querySelectorAll('.wd-tab')].map(t=>t.textContent.trim()).join(', ')`) as string;
-      const tile = `${WD}.querySelector('.wd-tile[data-id=${JSON.stringify(gained.id)}]')`;
+      let tile = `${WD}.querySelector('.wd-tile[data-id=${JSON.stringify(gained.id)}]')`, worn = gained;
       // the reward's tab and category: each in turn until its tile shows
       for (const tab of await a.ev(`[...${WD}.querySelectorAll('.wd-tab')].map(t=>t.dataset.tab)`) as string[]) {
         if (await a.ev(`Boolean(${tile})`)) break;
@@ -165,7 +166,29 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
       await until(a,tile,10000);
       const look0 = await lookNow(a), drawn0 = await a.ev(selfDrawn) as string;
       await press(a,tile);
-      await until(a,`${WD}.querySelector('.wd-wu')?.getAttribute('aria-label')?.startsWith('Your look wearing')`,10000);
+      const previewing = `${WD}.querySelector('.wd-wu')?.getAttribute('aria-label')?.startsWith('Your look wearing')`;
+      // a box reward may be for the other body ("Can't wear", e.g. "Female body only for now"): its tile says so and
+      // Equip stays off; the equip is then checked on the first other item this body can wear (tab by tab), as a player would
+      if (!await until(a,previewing,4000).then(() => true,() => false)) {
+        expect(await a.ev(`${WD}.querySelector('.wd-equip').disabled`)).toBe(true);
+        const items = new Map(((reloaded as unknown as Look).inventory ?? []).map(i => [i.id,i]));
+        let found = false;
+        for (const tab of await a.ev(`[...${WD}.querySelectorAll('.wd-tab')].map(t=>t.dataset.tab)`) as string[]) {
+          if (found) break;
+          await press(a,`${WD}.querySelector('.wd-tab[data-tab=${JSON.stringify(tab)}]')`); await sleep(300);
+          for (const sub of [null,...await a.ev(`[...${WD}.querySelectorAll('.wd-sub')].map(t=>t.dataset.sub)`) as string[]]) {
+            if (found) break;
+            if (sub) { await press(a,`${WD}.querySelector('.wd-sub[data-sub=${JSON.stringify(sub)}]')`); await sleep(300); }
+            for (const id of await a.ev(`[...${WD}.querySelectorAll('.wd-tile[data-id]:not([data-equipped])')].map(t=>t.dataset.id)`) as string[]) {
+              const t = `${WD}.querySelector('.wd-tile[data-id=${JSON.stringify(id)}]')`;
+              await press(a,t);
+              if (await until(a,previewing,1500).then(() => true,() => false)) { tile = t; worn = items.get(id) ?? { id,owned:true,name:id }; found = true; break; }
+            }
+          }
+        }
+        expect(found).toBe(true);
+      }
+      await until(a,previewing,10000);
       const preview = await a.ev(`${WD}.querySelector('.wd-wu').getAttribute('aria-label')`) as string;
       expect(await lookNow(a)).toEqual(look0);   // a preview is not saved
       await screenshot(a,'cosmetics-wardrobe-preview');
@@ -179,7 +202,7 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
       // the player's own character, drawn: its parts are the server's new look
       await until(a,`${selfDrawn}===${JSON.stringify(look1.join(','))}`,30000);
       await screenshot(a,'cosmetics-wardrobe-equipped');
-      record('cosmetics.catalog',{ actions:`Menu bar → Wardrobe (main's cosmetics/wardrobe.js): its tabs; select the box reward "${gained.name ?? gained.id}" (preview); Equip; close`, expected:'Browse categories and preview supported owned/unowned appearances',
+      record('cosmetics.catalog',{ actions:`Menu bar → Wardrobe (main's cosmetics/wardrobe.js): its tabs; select the box reward "${gained.name ?? gained.id}"${worn === gained ? '' : ` (not for this body: Can't wear) and then "${worn.name ?? worn.id}"`} (preview); Equip; close`, expected:'Browse categories and preview supported owned/unowned appearances',
         observed:`tabs ${tabCounts}; "${preview}" on the bust while the server look stayed ${look0.join(',')}; Equip → "${equipNote}", the server look ${look1.join(',')}; the player's own avatar redrawn from ${drawn0 || '(none)'} to ${look1.join(',')}` });
 
       // avatars.edit: Change Avatar from My Profile (main's screens/avatar.js) where the profile offers it: a Mouth choice is
