@@ -200,6 +200,7 @@ async function seed(pages:[Page,string][]) {
 const putDeck = (page:Page,name:string,main:number[]) => page.ev(`fetch('/api/de/decks',{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(${JSON.stringify({ name,main,side:[],extra:[] })})}).then(r=>r.status)`) as Promise<number>;
 const piles = (page:Page) => page.ev(`Object.fromEntries([...document.querySelectorAll('.de-field-card')].filter(b=>['deck','graveyard','banished'].includes(b.dataset.zone)).map(b=>[b.dataset.side+' '+b.dataset.zone,Number(b.querySelector('.de-card-count')?.textContent??0)]))`) as Promise<Record<string,number>>;
 /** main's duel dialogs (htmlui/duel-dialogs.ts): an attribute row, a card list's row, its OK. */
+/** (an attribute row: its key 'prompt-option:<prompt>:answer:<attribute bit>') */
 const attribute = (value:number) => `document.querySelector('#htmlui-host [data-key^="prompt-option:"][data-key$=":answer:${value}"]')`;
 const candidate = (index:number) => `document.querySelector('#htmlui-host [data-key^="prompt-candidate:"][data-key$=":${index}"]')`;
 const confirmSel = `document.querySelector('#htmlui-host [data-key^="prompt-confirm:"]')`;
@@ -208,6 +209,12 @@ const pressed = (page:Page) => page.ev(`[...document.querySelectorAll('#htmlui-h
 const confirmDisabled = (page:Page) => page.ev(`${confirmSel}.disabled`) as Promise<boolean>;
 const promptId = (page:Page) => page.ev(`/^prompt-[a-z]+:([^:]+)/.exec(document.querySelector('#htmlui-host [data-key^="prompt-"]')?.dataset.key??'')?.[1]??null`) as Promise<string|null>;
 const first = (text:string) => text.split('\n')[0]!;
+/** live's cancel of a field choice: the right button on the field, off its cards (the server's cancel, when it allows). */
+async function cancelOnBoard(page:Page) {
+  const p = await page.ev(`(()=>{const r=document.querySelector('.de-stage').getBoundingClientRect(),k=r.width/1024;return {x:r.left+12*k,y:r.top+384*k};})()`) as { x:number; y:number };
+  await page.send('Input.dispatchMouseEvent',{ type:'mouseMoved',...p });
+  for (const type of ['mousePressed','mouseReleased']) await page.send('Input.dispatchMouseEvent',{ type,...p,button:'right',buttons:type === 'mousePressed' ? 2 : 0,clickCount:1 });
+}
 
 describe.skipIf(!scenario)('scenario duels: declarations, selections and visibility cases',() => {
   it('plays three scripted PvP duels whose prompts and board changes both screens agree on',async () => {
@@ -235,7 +242,7 @@ describe.skipIf(!scenario)('scenario duels: declarations, selections and visibil
       expect(badges).toEqual({ a:['Breaker the Magical Warrior 0=1 drawn'],b:['Breaker the Magical Warrior 0=1 drawn'] });
       await screenshot(a,'scenario-1-a-counter');
       const breakerStats = await inspectStats(a,'Breaker the Magical Warrior','your monster');
-      expect(breakerStats).toContain('ATK 1900');
+      expect(breakerStats).toMatch(/ATK ?1900\b/);   // live's info box: 'ATK1900/DEF1000'
       seen.visibility.push(`Breaker the Magical Warrior summoned: "Spell counters: 1" on both screens, drawn as the original's counter badge (${badges.a[0]} / ${badges.b[0]}), ${breakerStats} (1600 + 300 per counter)`);
       await act(a,b,'Scapegoat','your hand','Set spell/trap');
       await act(a,b,'Mystical Space Typhoon','your hand','Set spell/trap');
@@ -244,8 +251,9 @@ describe.skipIf(!scenario)('scenario duels: declarations, selections and visibil
       expect(first(announce.text)).toBe('Declare 1 card name.');
       // The original's candidate list: every declarable card, narrowed while typing; the pick declares it.
       const declare = `[...document.querySelectorAll('[data-key^="prompt-declare:"]')]`;
-      const listed = await a.ev(`({shown:${declare}.length,count:document.querySelector('.de-announce-count')?.textContent})`) as { shown:number; count:string };
-      expect(listed.shown).toBeGreaterThan(10); expect(listed.count).toMatch(/^\d{4} cards: showing the first \d+/);
+      // (the dialog pages its rows, its count line in the window: "<n> cards: showing the first <m>. Type more of the name.")
+      const listed = await a.ev(`({shown:${declare}.length,count:(/\\d+ cards: showing the first \\d+[^\\n]*/.exec(${declare}[0]?.closest('.win')?.innerText??'')??[''])[0]})`) as { shown:number; count:string };
+      expect(listed.shown).toBeGreaterThanOrEqual(10); expect(listed.count).toMatch(/^\d{4} cards: showing the first \d+/);
       await press(a,`document.querySelector('[data-key^="prompt-announcement:"]')`); await a.send('Input.insertText',{ text:'snatch st' });
       await until(a,`${declare}.length===1`,10000);
       const narrowed = await a.ev(`${declare}.map(b=>b.textContent)`) as string[];
@@ -295,15 +303,15 @@ describe.skipIf(!scenario)('scenario duels: declarations, selections and visibil
       seen.visibility.push(`Change of Heart: A's screen "${control.a[0]}", B's screen "${control.b[0]}"`);
       // Tribute Summon: cancel the tribute choice first (back to the Main Phase, Skull still in hand), then tribute Breaker.
       await act(b,a,'Summoned Skull','your hand','Summon');
-      for (let i = 0; i < 100 && !(await view(b)).actions.includes('Cancel'); i++) await sleep(200);
+      for (let i = 0; i < 100 && !(await view(b)).zones.length; i++) await sleep(200);
       const tributeTargets = (await view(b)).zones, tributeInstruction = (await view(b)).instruction;
       expect(tributeInstruction).toBe('Please select a monster as Tribute.');
       expect(tributeTargets).toEqual(['Breaker the Magical Warrior, your monster, attack, Spell counters: 1, Select: Breaker the Magical Warrior']);
-      await click(b,'Cancel');
+      await cancelOnBoard(b);
       const cancelled = await idle(b,a);
       expect(cancelled.cards).toContain('Summoned Skull, your hand, attack');
       expect(cancelled.cards.some(c => c.startsWith('Breaker the Magical Warrior, your monster'))).toBe(true);
-      seen.selection.push(`tribute choice for Summoned Skull (one candidate, Breaker; instruction "${tributeInstruction}") cancelled with Cancel: the server returned B to the Main Phase with Skull still in hand and Breaker on the field`);
+      seen.selection.push(`tribute choice for Summoned Skull (one candidate, Breaker; instruction "${tributeInstruction}") cancelled with the right button on the field (live's): the server returned B to the Main Phase with Skull still in hand and Breaker on the field`);
       await act(b,a,'Summoned Skull','your hand','Summon');
       await target(b,a,/^Breaker the Magical Warrior, your monster/);
       await target(b,a,/^Select: your monster zone/);
@@ -338,7 +346,7 @@ describe.skipIf(!scenario)('scenario duels: declarations, selections and visibil
       const pilesAfter = { a:await piles(a), b:await piles(b) };
       expect(pilesAfter.a['your deck']).toBe(deckBefore['your deck']! - 2); expect(pilesAfter.a['your graveyard']).toBe(2); expect(pilesAfter.b['opponent graveyard']).toBe(2);
       const trooper = await inspectStats(a,'Card Trooper','your monster');
-      expect(trooper).toContain('ATK 1400');
+      expect(trooper).toMatch(/ATK ?1400\b/);
       seen.prompts.push(`number: "${first(number.text)}" offered 1/2/3; answering 2 sent 2 cards from deck to Graveyard (deck ${deckBefore['your deck']}→${pilesAfter.a['your deck']}, Graveyard 2 on both screens) and Card Trooper showed ${trooper}`);
       await act(a,b,'Earthshaker','your hand','Set spell/trap');
       await idle(a,b); await click(a,'End Turn');
@@ -351,7 +359,7 @@ describe.skipIf(!scenario)('scenario duels: declarations, selections and visibil
       expect(bounds).toEqual([true,true,false]);
       await press(a,confirmSel);
       const one = await awaitPrompt(b,a,'attributes');
-      expect(one.buttons.filter(x => x.startsWith('prompt-attribute:')).map(x => x.split('|')[0]!.split(':').pop())).toEqual(['8','32']);
+      expect(one.buttons.filter(x => /^prompt-option:[^|]*:answer:\d+\|/.test(x)).map(x => x.split('|')[0]!.split(':').pop())).toEqual(['8','32']);
       await press(b,attribute(8)); await press(b,confirmSel);
       await idle(b,a);
       const shaken = { a:await monsters(a), b:await monsters(b) };
@@ -362,10 +370,12 @@ describe.skipIf(!scenario)('scenario duels: declarations, selections and visibil
       const lp = (await view(b)).players[0];
       await act(b,a,'Abyssal Designator','your hand','Activate');
       const adAttr = await awaitPrompt(b,a,'attributes');
-      expect(adAttr.buttons.filter(x => x.startsWith('prompt-attribute:')).length).toBe(6);
+      expect(adAttr.buttons.filter(x => /^prompt-option:[^|]*:answer:\d+\|/.test(x)).length).toBe(6);
       await press(b,attribute(32)); await press(b,confirmSel);
       const adRace = await awaitPrompt(b,a,'choice');
-      expect(adRace.buttons.filter(x => x.startsWith('prompt-option:')).length).toBe(20);
+      // the twenty types, twelve rows shown at a time (the wheel moves the list)
+      expect(await b.ev(`window.__deApp.getState().duel?.prompt?.options?.length`)).toBe(20);
+      expect(adRace.buttons.filter(x => x.startsWith('prompt-option:')).length).toBe(12);
       await opt(b,'Machine');
       // Abyssal Designator sends from the hand or the Deck: with a Card Trooper still in A's Deck (the shuffle decides) the
       // server opens a card list of the qualifying cards instead of the hand targets.
@@ -389,18 +399,20 @@ describe.skipIf(!scenario)('scenario duels: declarations, selections and visibil
       seen.prompts.push(`LP payment: Abyssal Designator's 1000 LP cost logged "${paid.a[0]}" on both screens (no damage line)`);
       seen.prompts.push(`attribute + type: Abyssal Designator (${lp} → ${lpAfter}) offered all 6 attributes, then "${first(adRace.text)}" with 20 types; EARTH + Machine made A choose among ${send.length} Card Trooper(s) ${fromList ? 'in a list of its hand and Deck' : 'in hand'} only (not Celtic Guardian, EARTH Warrior): A's Graveyard ${graveBefore}→${graveBefore + 1} on both screens`);
       seen.selection.push(`A's forced choice from its own ${fromList ? 'hand and Deck (a list)' : 'hand'}: its candidates were named on A's screen while B's screen showed A's hand as ${hidden.length} card backs`);
-      // Monster Reborn: a Graveyard list with max 1, a refused cancel, then the summon position.
+      // Monster Reborn: a Graveyard list with max 1, its Cancel refused (the server asks again), then the summon position.
       await act(b,a,'Monster Reborn','your hand','Activate');
       const list = await awaitPrompt(b,a,'cards');
       expect(first(list.text)).toBe('Choose cards');
       const listBounds = [{ pressed:await pressed(b),disabled:await confirmDisabled(b) }];
       const listId = await promptId(b);
-      await press(b,promptButton('Finish / cancel')); await sleep(1500);
+      await press(b,`document.querySelector('#htmlui-host [data-key^="prompt-cancel:"]')`); await sleep(1500);
       const reopened = { id:await promptId(b),kind:(await view(b)).prompt?.kind };
       expect(reopened.kind).toBe('cards'); expect(reopened.id).not.toBe(listId);
       await press(b,candidate(0)); await sleep(300); listBounds.push({ pressed:await pressed(b),disabled:await confirmDisabled(b) });
       await press(b,candidate(1)); await sleep(300); listBounds.push({ pressed:await pressed(b),disabled:await confirmDisabled(b) });
-      expect(listBounds).toEqual([{ pressed:[],disabled:true },{ pressed:['Tribe-Infecting Virus'],disabled:false },{ pressed:['Tribe-Infecting Virus'],disabled:false }]);
+      // (one to pick: another row replaces the pick, it never adds a second; the first picked back)
+      expect(listBounds).toEqual([{ pressed:[],disabled:true },{ pressed:['Tribe-Infecting Virus'],disabled:false },{ pressed:['Card Trooper'],disabled:false }]);
+      await press(b,candidate(0)); await sleep(300); expect(await pressed(b)).toEqual(['Tribe-Infecting Virus']);
       await press(b,confirmSel);
       await target(b,a,/^Select: your monster zone/);
       const position = await awaitPrompt(b,a,'position');
@@ -409,26 +421,29 @@ describe.skipIf(!scenario)('scenario duels: declarations, selections and visibil
       await idle(b,a);
       const reborn = { a:(await monsters(a)).find(m => m.label.startsWith('Tribe-Infecting Virus')), b:(await monsters(b)).find(m => m.label.startsWith('Tribe-Infecting Virus')) };
       expect(reborn.a).toMatchObject({ side:'opponent',position:'defense',back:false }); expect(reborn.b).toMatchObject({ side:'your',position:'defense',back:false });
-      seen.selection.push(`Monster Reborn's Graveyard list (${list.buttons.filter(x => x.startsWith('prompt-candidate:')).length} cards, "Choose 1–1"): Confirm disabled with none selected; "Finish / cancel" was refused (the server re-opened the list); a second pick did not add to the one selected`);
+      seen.selection.push(`Monster Reborn's Graveyard list (${list.buttons.filter(x => x.startsWith('prompt-candidate:')).length} cards, "Choose 1–1"): Confirm disabled with none selected; its Cancel was refused (the server re-opened the list); a second pick replaced the one selected (never two)`);
       seen.prompts.push(`position: "${first(position.text)}" (Attack/Defense, no stale card pictures); Defense brought Tribe-Infecting Virus back in defense on both screens`);
       // Ritual: Black Luster Soldier from the hand, materials Tribe-Infecting Virus (field) + Celtic Guardian (hand).
       await act(b,a,'Black Luster Ritual','your hand','Activate');
-      const ritualMonster = await awaitPrompt(b,a,'place');
-      await opt(b,'Select: Black Luster Soldier');
-      for (let i = 0; i < 100 && !(await view(b)).prompt?.text.includes('stars remaining'); i++) await sleep(200);
-      const materials = await awaitPrompt(b,a,'place');
+      // (live's choices on the field: the ritual monster and its materials are field targets, the question the server
+      // asked - its stars remaining - the prompt's own text)
+      const asked = (page:Page) => page.ev(`window.__deApp.getState().duel?.prompt?.text ?? ''`) as Promise<string>;
+      await awaitTarget(b,a,/Select: Black Luster Soldier/); const ritualMonster = { text:await asked(b) };
+      await target(b,a,/Select: Black Luster Soldier/);
+      for (let i = 0; i < 100 && !(await asked(b)).includes('stars remaining'); i++) await sleep(200);
+      await awaitTarget(b,a,/Select: Tribe-Infecting Virus/); const materials = { text:await asked(b) };
       expect(first(materials.text)).toContain('(8 stars remaining)');
-      await opt(b,'Select: Tribe-Infecting Virus');
-      for (let i = 0; i < 50 && !(await view(b)).prompt?.text.includes('(4 stars remaining)'); i++) await sleep(200);
-      const half = await view(b);
-      expect(first(half.prompt!.text)).toContain('(4 stars remaining)');
+      await target(b,a,/Select: Tribe-Infecting Virus/);
+      for (let i = 0; i < 50 && !(await asked(b)).includes('(4 stars remaining)'); i++) await sleep(200);
+      const half = { prompt:{ text:await asked(b) } };
+      expect(first(half.prompt.text)).toContain('(4 stars remaining)');
       const handDuringRitual = (await view(a)).cards.filter(c => c.includes('opponent hand'));
-      await opt(b,'Select: Celtic Guardian');
+      await target(b,a,/Select: Celtic Guardian/);
       await target(b,a,/^Select: your monster zone/);
       for (let i = 0; i < 20; i++) { const v = await view(b); if (v.prompt?.kind === 'position') { await opt(b,'Attack position'); break; } if (v.actions.includes('End Turn')) break; await sleep(300); }
       await idle(b,a);
       expect((await view(a)).cards).toContain('Black Luster Soldier, opponent monster, attack'); expect((await view(b)).cards).toContain('Black Luster Soldier, your monster, attack');
-      seen.selection.push(`ritual: "${first(ritualMonster.text)}" then "${first(materials.text)}"; after Tribe-Infecting Virus it read "${first(half.prompt!.text)}"; Celtic Guardian completed it and Black Luster Soldier appeared on both screens; B's hand stayed ${handDuringRitual.length} card backs on A's screen meanwhile`);
+      seen.selection.push(`ritual: "${first(ritualMonster.text)}" then "${first(materials.text)}"; after Tribe-Infecting Virus it read "${first(half.prompt.text)}"; Celtic Guardian completed it and Black Luster Soldier appeared on both screens; B's hand stayed ${handDuringRitual.length} card backs on A's screen meanwhile`);
       await screenshot(b,'scenario-2-b-ritual');
       await click(b,'End Turn');
       const result2 = await finish(a,b);
@@ -441,10 +456,11 @@ describe.skipIf(!scenario)('scenario duels: declarations, selections and visibil
       await idle(a,b);
       expect((await view(a)).cards.filter(c => c.includes('your hand')).length).toBe(7);
       await click(a,'End Turn');
-      const discard = await awaitPrompt(a,b,'place');
+      // (the discard is picked on the hand itself, live's way: its question the prompt's text, no cancel offered)
+      await awaitTarget(a,b,/Select: Pot of Greed/); const discard = { text:await asked(a) };
       expect(first(discard.text)).toBe('Choose 1 card to discard.');
-      expect(discard.buttons.some(x => x.includes('Finish / cancel'))).toBe(false);
-      await opt(a,'Select: Pot of Greed');
+      expect(await a.ev(`Boolean(document.querySelector('#htmlui-host [data-key^="prompt-cancel:"]'))||!!window.__deApp.getState().duel?.prompt?.cancelable`)).toBe(false);
+      await target(a,b,/Select: Pot of Greed/);
       await idle(b,a);
       expect((await view(a)).cards.filter(c => c.includes('your hand')).length).toBe(6);
       expect(await fieldCount(b,'opponent','graveyard')).toBe(2);
@@ -468,7 +484,9 @@ describe.skipIf(!scenario)('scenario duels: declarations, selections and visibil
       const pick = ['Poison of the Old Man','Gold Sarcophagus','Celtic Guardian'].find(n => deckCards.some(c => c!.startsWith(n)))!;
       const chosen = deckCards.findIndex(c => c!.startsWith(pick)), other = deckCards.findIndex(c => !c!.startsWith(pick));
       expect(chosen).toBeGreaterThanOrEqual(0);
-      await press(b,candidate(chosen)); if (other >= 0) await press(b,candidate(other)); await sleep(300);
+      // (one to pick: another row replaces the pick, never adds a second)
+      if (other >= 0) { await press(b,candidate(other)); await sleep(300); }
+      await press(b,candidate(chosen)); await sleep(300);
       expect(await pressed(b)).toEqual([pick]);
       await press(b,confirmSel);
       await idle(b,a,60000);
@@ -476,7 +494,7 @@ describe.skipIf(!scenario)('scenario duels: declarations, selections and visibil
       expect(banished.a).toEqual([`${pick}, opponent banished, attack ×1`]); expect(banished.b).toEqual([`${pick}, your banished, attack ×1`]);
       const shuffled = [(await view(a)).log.includes(`${names.b} shuffles their deck.`),(await view(b)).log.includes(`${names.b} shuffles their deck.`)];
       expect(shuffled).toEqual([true,true]);
-      seen.selection.push(`Gold Sarcophagus list of B's ${deckCards.length} Deck cards shown to B only (A had no prompt and one card back for B's Deck); Confirm disabled with none, a second pick refused at max 1`);
+      seen.selection.push(`Gold Sarcophagus list of B's ${deckCards.length} Deck cards shown to B only (A had no prompt and one card back for B's Deck); Confirm disabled with none, a second pick replacing the first at max 1`);
       seen.visibility.push(`Gold Sarcophagus: "${names.b} shuffles their deck." logged on both screens; the chosen ${pick} face-up in B's banished pile on both screens; B's Deck then counted ${await fieldCount(a,'opponent','deck')} on A's screen, still a card back`);
       await click(b,'End Turn');
       const result3 = await finish(a,b);
