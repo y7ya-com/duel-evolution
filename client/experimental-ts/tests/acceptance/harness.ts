@@ -6,6 +6,7 @@ import { resolve, dirname } from 'node:path';
 import { execSync } from 'node:child_process';
 import { launch } from '../../../web-shell/htmlui/tools/cdp.mjs';
 import { expect } from 'vitest';
+import { parseWorldMaps } from '../../src/world/maps';
 
 export type Page = Awaited<ReturnType<typeof launch>>;
 /** Test user and character names must be fresh per run: accounts stay online briefly and names are server-wide. */
@@ -149,9 +150,40 @@ export async function searchPlayers(page:Page,row = 'Show all') {
 export async function npcNames(page:Page):Promise<string[]> {
   return page.ev(`(window.__deApp?.getState().lobby?.avatars??[]).filter(a=>a.npc).map(a=>a.name)`) as Promise<string[]>;
 }
+/** The area maps' NPC spots (the exe's spot tables): which map an NPC of the server's list stands on. */
+const WORLD_MAPS = parseWorldMaps(JSON.parse(readFileSync(new URL('../../public/world-maps.json',import.meta.url),'utf8')));
+/** The bar's Move list, its row for an area (map) pressed, as a player moves there: the list shows six rows at a time
+ * (the wheel scrolls it). Resolves once the area's map is up. */
+export async function moveToArea(page:Page,area:number) {
+  if (await page.ev(`window.__deApp?.getState().lobby?.mapId===${area}`)) return;
+  await until(page,`${byKey('menubar-move')}&&!window.__deApp.getState().busy`,30000);
+  await press(page,byKey('menubar-move')); await until(page,`document.querySelector('[data-key^="move-area:"]')`,10000);
+  const row = `[...document.querySelectorAll('[data-key^="move-area:${area}/"]')].find(b=>b.getClientRects().length&&b.getBoundingClientRect().width>0&&b.getBoundingClientRect().y>0)`;
+  for (let i = 0; i < 12 && !(await page.ev(`Boolean(${row})`)); i++) {
+    const at = await page.ev(`(()=>{const r=document.querySelector('[data-key^="move-area:"]')?.closest('.win')?.getBoundingClientRect();return r&&{x:r.x+r.width/2,y:r.y+r.height/2}})()`) as { x:number; y:number } | null;
+    if (!at) break;
+    await page.send('Input.dispatchMouseEvent',{ type:'mouseWheel',...at,deltaX:0,deltaY:100 }); await sleep(200);
+  }
+  if (!(await page.ev(`Boolean(${row})`))) throw new Error(`no area ${area} in the Move list: ${await page.ev(`[...document.querySelectorAll('[data-key^="move-area:"]')].map(b=>b.dataset.key).join(' ')`)}`);
+  await press(page,row);
+  await until(page,`window.__deApp?.getState().lobby?.mapId===${area}&&${lobbyShown}&&window.__deWorld?.()?.ready`,60000);
+}
+/** Where a player finds an NPC: here, or the area whose map holds its spot (a character comes online in My Room and
+ * leaves it for Duel Academy, as live; the famous Domino City NPCs stand elsewhere), moved to through the Move list. */
+export async function findNpc(page:Page,npc:string) {
+  const here = `(window.__deApp?.getState().lobby?.avatars??[]).some(a=>a.npc&&a.name===${JSON.stringify(npc)})`;
+  if (await page.ev(here)) return;
+  const spots = await page.ev(`(window.__deApp?.game?.state.npcs??[]).filter(n=>n.name===${JSON.stringify(npc)}).map(n=>n.spot)`) as number[];
+  for (const map of WORLD_MAPS.maps.filter(m => m.npcSpots.some(s => spots.includes(s.spot)))) {
+    await moveToArea(page,map.id);
+    for (let i = 0; i < 30 && !(await page.ev(here)); i++) await sleep(200);
+    if (await page.ev(here)) return;
+  }
+}
 /** An NPC's talk and card, as live: its avatar on the map pressed (the first of that name; several share one, levels
- * 4/6/8). Resolves once the talk shows (its balloon or its "Start Duel?"). */
+ * 4/6/8), in the area it stands in. Resolves once the talk shows (its balloon or its "Start Duel?"). */
 export async function openNpcCard(page:Page,npc:string) {
+  await findNpc(page,npc);
   const id = await page.ev(`(window.__deApp?.getState().lobby?.avatars??[]).find(a=>a.npc&&a.name===${JSON.stringify(npc)})?.id`) as number | undefined;
   if (id === undefined) throw new Error(`no NPC ${npc} here`);
   await until(page,`document.querySelector('[data-key="avatar:${id}"]')`,20000);
