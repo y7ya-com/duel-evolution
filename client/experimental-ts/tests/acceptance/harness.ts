@@ -134,8 +134,10 @@ export const roomShown = `(!!document.querySelector('[data-key="main-menu"]')&&!
 /** In the lobby: main's menu bar with its Duel key, the map drawn (or none to draw: no original art; or its art
  * unreachable, the map's own failure with Retry Map). A character comes online in My Room, as live: waiting for the
  * lobby there walks it out through the red door (Duel Academy) unless the starter deck picker is up (claimStarter
- * waits for the lobby again after it), which also counts as shown. */
-export const lobbyShown = `((!!document.querySelector('[data-key="menubar-duel"]')&&${mapShown})||(${roomShown}&&(!!document.getElementById('starter')||((w,t)=>{if(!w.__leaveRoomAt||t-w.__leaveRoomAt>15000){w.__leaveRoomAt=t;void w.__deApp.dispatch({type:'move',x:860,y:360}).catch(()=>{});}return false;})(window,Date.now()))))`;
+ * waits for the lobby again after it), which also counts as shown. A new character's picker opens in the room once the
+ * server says a starter is claimable: the player stays for it (a walk out under it would claim as the area changes,
+ * "Join the lobby first"); with no word of it after 8 s, out. */
+export const lobbyShown = `((!!document.querySelector('[data-key="menubar-duel"]')&&${mapShown})||(${roomShown}&&(!!document.getElementById('starter')||((w,t)=>{const s=w.__deApp.getState().starter;if(!w.__inRoomAt||t-w.__inRoomSeen>2000)w.__inRoomAt=t;w.__inRoomSeen=t;if(s?.claimable||!s&&t-w.__inRoomAt<8000)return false;if(!w.__leaveRoomAt||t-w.__leaveRoomAt>15000){w.__leaveRoomAt=t;void w.__deApp.dispatch({type:'move',x:860,y:360}).catch(()=>{});}return false;})(window,Date.now()))))`;
 /** A row's name: its label past the level live's rows lead with ("Lv 1 Name"; an NPC's row has none). */
 const rowName = `(b=>(b.getAttribute('aria-label')??'').replace(/^Lv \\d+ /,''))`;
 export const listRow = (name:string) => `[...document.querySelectorAll('#htmlui-host .pl-row')].find(b=>${rowName}(b)===${JSON.stringify(name)}&&b.getClientRects().length)`;
