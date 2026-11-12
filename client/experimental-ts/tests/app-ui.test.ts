@@ -122,7 +122,8 @@ describe('actual ClientApp mounted through semantic UI', () => {
     const f = harness(); await f.enter(); await f.startNpc();
     findButton(f.root, 'Rock').onclick?.({}); await flush(); expect(f.game.chooseHand).toHaveBeenCalledWith(0);
     findButton(f.root, 'Go First').onclick?.({}); await flush(); expect(f.game.chooseFirst).toHaveBeenCalledWith(true);
-    findButton(f.root, 'Start Duel').onclick?.({}); await flush(); expect(f.game.beginDuel).toHaveBeenCalledTimes(1);
+    // live goes straight on into the duel after the hands and the first player (no Start Duel)
+    await flush(); expect(f.game.beginDuel).toHaveBeenCalledTimes(1); expect(f.root.querySelectorAll('button').some(b => b.textContent === 'Start Duel')).toBe(false);
     expect(f.app.getState().preparation).toBeUndefined(); f.dispose();
   });
   it('renders and accepts an actual session invitation through the app', async () => {

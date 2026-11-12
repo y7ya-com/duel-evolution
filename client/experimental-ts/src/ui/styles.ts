@@ -94,14 +94,6 @@ button.de-card { padding:2px; min-height:0; color:#fff; background:linear-gradie
 .de-lp-fill { display:block; height:100%; background:linear-gradient(#b8ff9a,#2fc843); transition:width .4s; }
 .de-lp-value { color:#fff79a; font-size:17px; min-width:52px; text-align:right; text-shadow:0 1px #0008; }
 .de-duel-clock { font-size:11px; color:#e6f8ff; }
-.de-janken { justify-content:center; gap:14px; }
-.de-client button.de-janken-card { display:flex; flex-direction:column; align-items:center; gap:4px; padding:6px; background:none; border:0; box-shadow:none; font-weight:bold; color:#13406e; }
-.de-janken-card img { width:clamp(64px,10vw,110px); aspect-ratio:200/290; transition:transform .15s; filter:drop-shadow(0 3px 5px #0006); }
-.de-janken-card:hover img,.de-janken-card:focus-visible img { transform:translateY(-6px) scale(1.04); }
-.de-client button.de-janken-order { padding:0; background:none; border:0; box-shadow:none; }
-.de-janken-plate { display:block; position:relative; overflow:hidden; width:clamp(150px,22vw,264px); aspect-ratio:352/64; }
-.de-janken-plate img { position:absolute; left:0; width:100%; height:400%; max-width:none; }
-.de-janken-order:hover .de-janken-plate img,.de-janken-order:focus-visible .de-janken-plate img { margin-top:calc(clamp(150px,22vw,264px) * -64 / 352); }
 .de-duel-end { position:absolute; left:50%; top:48%; width:min(70%,560px); aspect-ratio:352/128; transform:translateX(-50%); z-index:9; display:grid; place-items:center; pointer-events:none; }
 .de-duel-end>* { grid-area:1/1; }
 .de-duel-end img { width:100%; height:100%; }
@@ -113,6 +105,8 @@ button.de-card { padding:2px; min-height:0; color:#fff; background:linear-gradie
 .de-client button.de-zone-target { position:absolute; transform:translate(-50%,-50%); pointer-events:auto; min-height:0; padding:0; background:#fff59a55; border:2px solid #ffe14a; border-radius:3px; box-shadow:0 0 12px #ffe14a, inset 0 0 10px #fff7b0; animation:de-zone-pulse 1s ease-in-out infinite alternate; z-index:3; }
 .de-client button.de-zone-target:hover { background:#fff59a99; }
 /* the player's deck zone once its last card is gone: it still takes the click (its command list: Surrender), nothing drawn */
+/* behind the duel's result board live dims the field, its plates and its bar */
+.de-duel-board>.de-result-dim { position:absolute; inset:0; z-index:40; background:rgba(0,0,0,.45); pointer-events:none; }
 .de-client button.de-deck-zone { position:absolute; transform:translate(-50%,-50%); pointer-events:auto; min-height:0; padding:0; background:none; border:0; box-shadow:none; cursor:pointer; }
 button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zone-pulse 1s ease-in-out infinite alternate; z-index:3; }
 @keyframes de-zone-pulse { from { box-shadow:0 0 6px #ffe14a; } to { box-shadow:0 0 18px #fff38a; } }
@@ -161,7 +155,6 @@ html:has(.yo2r-board) .de-duel-info { display:none; }
 .de-phase-bar>button.de-phase { pointer-events:auto; cursor:pointer; padding:0; border:0; background:none; }
 .de-phase-bar>button.de-phase:hover img { filter:brightness(1.2); }
 .de-phase-bar>button.de-phase:disabled { cursor:default; }
-.de-duel-prompt { position:absolute; left:20%; right:20%; top:35%; max-height:52%; z-index:10; display:flex; flex-direction:column; gap:10px; }
 .de-connection { display:inline-block; width:8px; height:8px; border-radius:50%; background:#fbd56b; margin-right:5px; }
 .de-connection.online { background:#95f19a; }
 .de-connection.error,.de-connection.offline { background:#ffb3a2; }

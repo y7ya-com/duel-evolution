@@ -34,10 +34,10 @@ export const SKIN_CSS = `
 .de-client:not([data-scene=title]):not([data-scene=duel]) .de-stage>.de-scene { bottom:4.1667%; overflow:auto; }
 
 /* Keys: the original's blue bevelled key; gold for the primary. Metrics stay the layout's. */
-.de-client button:where(:not(.de-card,.de-avatar,.de-zone-target,.de-janken-card,.de-janken-order,.de-field-card,.de-card-shop *)) { color:#072b50; font-weight:bold; text-shadow:0 1px #f0ffff; border:1px solid #267dbb; border-radius:3px;
+.de-client button:where(:not(.de-card,.de-avatar,.de-zone-target,.de-field-card,.de-card-shop *)) { color:#072b50; font-weight:bold; text-shadow:0 1px #f0ffff; border:1px solid #267dbb; border-radius:3px;
   background:linear-gradient(180deg,#fff 0%,#e7fbff 12%,#b5eaff 48%,#83cef5 51%,#5bb3e9 100%); box-shadow:inset 0 1px #fff,inset 1px 0 #d9ffff,inset 0 -2px #2d83b74d,0 1px 0 #1f629a; transition:filter .1s,box-shadow .1s; }
-.de-client button:where(:not(.de-card,.de-avatar,.de-zone-target,.de-janken-card,.de-janken-order,.de-field-card,.de-card-shop *)):hover:not(:disabled) { filter:none; background:linear-gradient(180deg,#fff,#d7ffff 50%,#a3edff 52%,#7acdf5); box-shadow:inset 0 1px #fff,0 0 0 1px #bcffff,0 1px 0 #1e659a; }
-.de-client button:where(:not(.de-card,.de-avatar,.de-zone-target,.de-janken-card,.de-janken-order,.de-field-card,.de-card-shop *)):active:not(:disabled) { transform:translateY(1px); box-shadow:inset 0 2px 3px #12538455,0 0 0 1px #efffff; }
+.de-client button:where(:not(.de-card,.de-avatar,.de-zone-target,.de-field-card,.de-card-shop *)):hover:not(:disabled) { filter:none; background:linear-gradient(180deg,#fff,#d7ffff 50%,#a3edff 52%,#7acdf5); box-shadow:inset 0 1px #fff,0 0 0 1px #bcffff,0 1px 0 #1e659a; }
+.de-client button:where(:not(.de-card,.de-avatar,.de-zone-target,.de-field-card,.de-card-shop *)):active:not(:disabled) { transform:translateY(1px); box-shadow:inset 0 2px 3px #12538455,0 0 0 1px #efffff; }
 .de-client button:where(:not(.de-card-shop *)):disabled { opacity:.5; filter:saturate(.35); }
 .de-client button.gold:where(:not(.de-card-shop *)) { color:#432e08; text-shadow:0 1px #fffddd; border-color:#bf7819; background:linear-gradient(180deg,#fffbd0 0%,#fffba1 12%,#fae773 47%,#f2cd51 51%,#eca431 100%); box-shadow:inset 0 1px #ffffe6,inset 1px 0 #fff8bc,inset 0 -2px #be7c2440,0 1px #9e6117; }
 .de-client button.gold:where(:not(.de-card-shop *)):hover:not(:disabled) { background:linear-gradient(180deg,#fffbd0 0%,#fffba1 12%,#fae773 47%,#f2cd51 51%,#eca431 100%); filter:brightness(1.08); box-shadow:inset 0 1px #fff,0 0 0 1px #fffeb8,0 1px #a36a18; }
@@ -87,8 +87,6 @@ export const SKIN_CSS = `
 .de-client .de-notice { color:#111; font-weight:normal; letter-spacing:.03em; border:0; border-radius:2px; padding:14px 16px 12px; background:linear-gradient(#fff,#fff) 5px 5px / calc(100% - 10px) calc(100% - 46px) no-repeat,#ffbf44; box-shadow:${DIALOG},0 4px 14px #0005; }
 .de-client .de-notice { padding:10px 16px; background:#fff; box-shadow:${DIALOG}; }
 .de-client .de-notice.de-sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; box-shadow:none; }
-.de-client .de-duel-prompt[role=dialog][aria-label='Duel Invitation'] { box-shadow:${DIALOG},0 4px 14px #0005; border:0; background:#fff; }
-.de-client .de-duel-prompt[role=dialog][aria-label='Duel Invitation']>.de-panel-title { margin:-7px -7px 10px!important; }
 
 /* Title and character select. */
 /* the title: main's 2008 backdrop (backdrop.js, the layer's) shows through, as on live; and as live's stage.js the 4:3

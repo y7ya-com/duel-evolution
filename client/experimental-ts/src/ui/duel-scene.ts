@@ -22,7 +22,7 @@ const CSS = `
 /* the card box where live's duel screen has it: the bottom left beside the chat, over the bar (6 lines of the engine's
    16 px Arial: name, kind, 3 of text, the stats) */
 .de-duel-board>.de-duel-info { top:${614 / 768 * 100}%; height:${120 / 768 * 100}%; left:${4 / 1024 * 100}%; width:${248 / 1024 * 100}%; font:15px/16px Arial,'Segoe UI',sans-serif; letter-spacing:.03em; }
-.de-duel-board>.de-duel-portrait { position:absolute; inset:auto; width:${768 * PORTRAIT_SCALE / 1024 * 100}%; height:${768 * PORTRAIT_SCALE / 768 * 100}%; pointer-events:none; z-index:0; }
+:is(.de-duel-board,.de-janken-scene)>.de-duel-portrait { position:absolute; inset:auto; width:${768 * PORTRAIT_SCALE / 1024 * 100}%; height:${768 * PORTRAIT_SCALE / 768 * 100}%; pointer-events:none; z-index:0; }
 .de-duel-portrait>img { position:absolute; inset:0; width:100%; height:100%; display:block; }
 .de-duel-fx { position:absolute; inset:0; pointer-events:none; z-index:7; }
 .de-duel-fx>.de-duel-fx-layer { position:absolute; inset:0; }
@@ -186,6 +186,13 @@ export class DuelPresentation {
     const face = this.faces[side];
     for (const img of Object.values(face.frames)) { if (img.src?.startsWith('blob:')) URL.revokeObjectURL(img.src); img.remove(); }
     face.frames = {};
+  }
+  /** The two portraits for the rock-paper-scissors scene (janken-scene.ts), with the duelists' looks. */
+  jankenPortraits(players: readonly { parts?: Uint8Array | undefined }[] | null): HTMLElement[] {
+    if (!this.load || !players) return [];
+    for (const side of [0, 1] as const) this.portrait(side, players[side]?.parts);
+    // with the scene's CSS (the portraits' place and size), which the duel board carries otherwise
+    return [this.style, ...this.portraits];
   }
   private portrait(side: 0 | 1, parts: Uint8Array | undefined, expression: Expression = 'normal'): void {
     const box = this.portraits[side], key = parts ? `${Array.from(parts).join('.')}:${expression}` : '';

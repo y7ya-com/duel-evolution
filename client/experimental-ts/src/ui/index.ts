@@ -56,7 +56,8 @@ import { duelDialog, duelDialogCovers, duelOkDialog, loadDuelSpeed } from './htm
 import { NetNote } from './htmlui/net-note';
 import { duelCmdWindow, duelCmdRect, menuCommand, SURRENDER_COMMAND, type DuelCmdRow, type DuelCmdUi } from './htmlui/duel-cmd';
 import { DuelSpeedButton } from './htmlui/duel-speed';
-import { duelResultWindows, preparationDialog, type PrepChoice } from './htmlui/duel-result';
+import { duelResultWindows } from './htmlui/duel-result';
+import { jankenScene, JANKEN_CSS, type JankenView } from './janken-scene';
 export type * from './contracts';
 
 type Child = Node | string | null | undefined;
@@ -157,7 +158,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   let state = controller.getState();
   const local: LocalState = { message: '', inspected: null, inspectedFrom: 'collection', promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, noticeSeen: 0, tradeSearch: '', logScroll: null, duelCmd: null, helpText: '', helpFrom: 0 };
   const host = el('section', 'de-client'); host.setAttribute('aria-label', 'Duel Evolution');
-  const css = el('style'); css.textContent = CLIENT_CSS + TAG_CSS + SKIN_CSS + BADGE_CSS + LP_PLATE_CSS;
+  const css = el('style'); css.textContent = CLIENT_CSS + TAG_CSS + SKIN_CSS + BADGE_CSS + LP_PLATE_CSS + JANKEN_CSS;
   const header = el('header', 'de-top'), stage = el('main', 'de-stage'), nav = el('nav', 'de-nav'); nav.setAttribute('aria-label', 'Game menu');
   host.append(css, header, stage, nav); root.append(host);
   // phones and tablets: live's stage.js (the frame fitted to the visible viewport, the rotate prompt, first-tap fullscreen)
@@ -446,22 +447,31 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     return out;
   };
   let languageErrorSeen = '';
-  const sceneWindows = (): WindowSpec[] => { duelSpeedButton.show(state.scene === 'duel' && (!!state.duel || !!state.preparation)); return [...loginSpecs(), ...tradeSpecs(), ...npcTalkSpecs(), ...npcPackSpecs(), ...npcItemSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs(), ...prepSpecs()]; };
+  const sceneWindows = (): WindowSpec[] => { duelSpeedButton.show(state.scene === 'duel' && (!!state.duel || !!state.preparation)); return [...loginSpecs(), ...tradeSpecs(), ...npcTalkSpecs(), ...npcPackSpecs(), ...npcItemSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs()]; };
   // The duel's question dialogs (main's screens/duel.js: htmlui/duel-dialogs.ts) and the duel speed button (main's
   // duelspeed.js) while the layer is up; card lists, free number entry and declarations stay the duel screen's panel.
   // live's duel speed button (main's duelspeed.js) is the page's, in its top right corner beside the game, not a window
   const duelSpeedButton = new DuelSpeedButton({ stage: () => stage, changed: speed => { duelScene.fx.speed = speed; } });
   let duelHover: { selected: Set<string>; hover?: string | null; draft?: string; page?: number } = { selected: new Set(), hover: null };
   const htmlDuelPrompt = (prompt: DuelPromptView | null | undefined): boolean => !!prompt && duelDialogCovers(prompt) && !state.preparation;
-  // Janken, who goes first, Start Duel: main's duel.js dialog look (htmlui/duel-result.ts preparationDialog)
-  const prepChoice = (): PrepChoice | null => {
+  // Rock-paper-scissors and who goes first: live's own scene (janken-scene.ts) in place of the field; the step after
+  // the hands goes straight on into the duel (live has no Start Duel)
+  let jankenMine: number | null = null, jankenBegun: unknown = null;
+  const jankenView = (): JankenView | null => {
     const prep = state.preparation; if (!prep || state.sideboarding) return null;
-    const phase = prep.phase.toLowerCase(), seen = prep.opponentHand !== undefined && prep.opponentHand !== null ? ` Opponent chose ${['Rock', 'Scissors', 'Paper'][prep.opponentHand!] ?? 'an unknown hand'}.` : '';
-    if (prep.role === 'partner' || prep.role === 'spectator') return { text: prep.role === 'partner' ? 'Your captain is preparing the duel…' : 'Waiting for duel preparation…', buttons: [] };
-    if (/rps|hand|rock|scissors/.test(phase) && !/wait|result/.test(phase)) return { text: `Choose your hand.${seen}`, buttons: (['Rock', 'Scissors', 'Paper'] as const).map((label, hand) => ({ id: label.toLowerCase(), label, act: () => send({ type: 'chooseHand', hand: hand as 0 | 1 | 2 }) })) };
-    if (/first|order|turn/.test(phase) && !/wait|result/.test(phase)) return { text: `You won! Choose who goes first.${seen}`, buttons: [{ id: 'first', label: 'Go First', act: () => send({ type: 'chooseFirst', first: true }) }, { id: 'second', label: 'Go Second', act: () => send({ type: 'chooseFirst', first: false }) }] };
-    if (/ready|begin|confirm|invitation/.test(phase)) return { text: `Duel Preparation${seen}`, buttons: [{ id: 'start', label: 'Start Duel', act: () => send({ type: 'beginDuel' }) }] };
-    return { text: `Waiting for the other duelist…${seen}`, buttons: [] };
+    const phase = prep.phase.toLowerCase(), theirs = prep.opponentHand ?? null, busy = !!state.busy;
+    if (prep.role === 'partner' || prep.role === 'spectator') return { phase: 'wait', mine: null, theirs, busy, thinking: false, message: prep.role === 'partner' ? 'Your captain is preparing the duel…' : 'Waiting for duel preparation…' };
+    if (/ready|begin|confirm|invitation/.test(phase)) {
+      if (jankenBegun !== prep) { jankenBegun = prep; queueMicrotask(() => { if (!disposed && controller.getState().preparation === prep) send({ type: 'beginDuel' }); }); }
+      return { phase: 'wait', mine: jankenMine, theirs, busy, thinking: false };
+    }
+    if (/rps|hand|rock|scissors/.test(phase) && !/wait|result/.test(phase)) {
+      // a tie: the hands again
+      if (jankenMine !== null && theirs !== null) jankenMine = null;
+      return { phase: 'hand', mine: jankenMine, theirs: jankenMine === null ? null : theirs, busy, thinking: true };
+    }
+    if (/first|order|turn/.test(phase) && !/wait|result/.test(phase)) return { phase: 'first', mine: jankenMine, theirs, busy, thinking: false };
+    return { phase: 'wait', mine: jankenMine, theirs, busy, thinking: /first/.test(phase) };
   };
   // A card's open command menu (live's CUSummonDialogSp, htmlui/duel-cmd.ts): what renderDuel gathered for it; the row
   // under the pointer is the menu's own. As live (CUSummonDialogSp::onMain) it closes when the pointer leaves the card
@@ -490,7 +500,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   globalThis.addEventListener?.('pointermove', cmdPointer, true); globalThis.addEventListener?.('pointerdown', cmdPress, true);
   let referenceShown: string | null = null;
   const netNote = new NetNote();
-  const prepSpecs = (): WindowSpec[] => { const c = prepChoice(); return c ? [preparationDialog(htmlIds, !!state.busy, c)] : []; };
   const duelSpecs = (): WindowSpec[] => {
     const duel = state.duel; if (state.scene !== 'duel' || !duel) return [];
     const out: WindowSpec[] = [];
@@ -988,9 +997,18 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   function renderShop(): void {
     if (useCardShop()) sceneRoot('Card Shop').append(cardShop.node());
   }
+  function relayRoster(): HTMLElement { const relay = state.relay!; const roster = el('aside', 'de-relay-roster'); roster.setAttribute('aria-label', 'Tag relay teams'); for (const team of [0, 1] as const) { const group = el('section', 'de-relay-team'); for (const slot of [0, 1] as const) { const member = relay.players[2 * team + slot], active = relay.active[team] === slot; const row = el('div', 'de-relay-member', el('strong', '', member?.name ?? 'Waiting for player'), note(active ? relay.self === 255 ? 'Team pilot' : team ? 'Opponent playing' : relay.self === slot ? 'You are playing' : 'Partner playing' : 'Tag partner')); row.dataset.active = String(active); group.append(row); } roster.append(group); } return roster; }
   function renderDuel(): void {
-    // (before the field: rock-paper-scissors and who goes first are their own dialogs, prepSpecs; no veil over them)
-    const duel = state.duel; if (!duel) { if (state.preparation) sceneRoot('Duel'); else loadingScene('duel', 'Duel'); return; }
+    // before the field: rock-paper-scissors and who goes first, live's own scene (no field, plates, bar or chat)
+    const jv = jankenView();
+    if (jv) {
+      const portraits = duelScene.jankenPortraits(state.duel?.players ?? null);
+      stage.append(jankenScene(jv, { hand: hand => { jankenMine = hand; send({ type: 'chooseHand', hand }); }, first: first => send({ type: 'chooseFirst', first }) },
+        controller.loadArchiveImage ? loadArchiveArt : null, portraits));
+      if (state.relay) stage.append(relayRoster());
+      return;
+    }
+    const duel = state.duel; if (!duel) { loadingScene('duel', 'Duel'); return; }
     // The field keeps the original 4:3 geometry on every screen; on a tall phone the log, actions and prompts sit below it.
     const board = el('div', 'de-duel-board'); stage.append(board);
     // under the original field art (while it loads, or without it): the zone outlines of the original sheet
@@ -1047,7 +1065,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     board.append(bar);
     // A choice made on the board itself (a target, a Tribute, a zone) says what to choose in the duel bar's help line
     // only, as live (no banner over the field)
-    if (state.relay) { const roster = el('aside', 'de-relay-roster'); roster.setAttribute('aria-label', 'Tag relay teams'); for (const team of [0, 1] as const) { const group = el('section', 'de-relay-team'); for (const slot of [0, 1] as const) { const member = state.relay.players[2 * team + slot], active = state.relay.active[team] === slot; const row = el('div', 'de-relay-member', el('strong', '', member?.name ?? 'Waiting for player'), note(active ? state.relay.self === 255 ? 'Team pilot' : team ? 'Opponent playing' : state.relay.self === slot ? 'You are playing' : 'Partner playing' : 'Tag partner')); row.dataset.active = String(active); group.append(row); } roster.append(group); } stage.append(roster); }
+    if (state.relay) stage.append(relayRoster());
     const cards = el('div', 'de-field-cards');
     const visibleCardIds = new Set<string>();
     // Only the topmost card of a pile is drawn; counts remain visible without allocating one DOM tree per deck card.
@@ -1172,6 +1190,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (endedText && htmlUi) {
       // main's result screen (duel-result.ts: CWindowResult) shows it; the result is still announced (assistive technology)
       const status = el('div', 'de-duel-end de-sr', endedText); status.setAttribute('role', 'status'); status.setAttribute('aria-label', endedText); stage.append(status);
+      // live dims the whole field, its plates and bar behind the result board
+      if (!state.sideboarding && !state.replay) { const dim = el('div', 'de-result-dim'); dim.setAttribute('aria-hidden', 'true'); board.append(dim); }
     } else if (duel.ended && !htmlUi) {
       // data/y/duel_end: the result word (m01) over its glow (m02).
       const ended = endedText as string;
@@ -1193,32 +1213,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (currentState.busy) return;
     const error = validatePromptResponse(current, response); if (error) { local.message = error; requestRender(); return; }
     send({ type: 'duelRespond', promptId, response });
-  }
-  function renderPreparation(): void {
-    const prep = state.preparation; if (!prep) return;
-    const archiveImage = controller.loadArchiveImage ? (path: string) => { const image = el('img'); image.alt = ''; image.draggable = false; image.style.visibility = 'hidden'; image.onload = () => { image.style.visibility = ''; }; loadArchiveArt(path, image); return image; } : null;
-    const panel = el('section', 'de-panel de-duel-prompt de-stack', title('Duel Preparation'));
-    const phase = prep.phase.toLowerCase();
-    if (prep.role === 'partner' || prep.role === 'spectator') panel.append(el('p', '', prep.role === 'partner' ? 'Your captain is preparing the duel…' : 'Waiting for duel preparation…'));
-    else if (/rps|hand|rock|scissors/.test(phase) && !/wait|result/.test(phase)) {
-      // data/y/janken: jan_card_01..03 are rock, scissors and paper.
-      panel.append(el('p', '', 'Choose your hand.'), el('div', 'de-row de-janken', ...(['Rock', 'Scissors', 'Paper'] as const).map((label, hand) => {
-        const b = button(label, () => send({ type: 'chooseHand', hand: hand as 0 | 1 | 2 }), !!state.busy, true);
-        if (archiveImage) { b.className = 'de-janken-card'; b.replaceChildren(archiveImage(`data/y/janken/jan_card_0${hand + 1}.png`), el('span', '', label)); }
-        return b;
-      })));
-    } else if (/first|order|turn/.test(phase) && !/wait|result/.test(phase)) {
-      const order = (label: string, first: boolean) => {
-        const b = button(label, () => send({ type: 'chooseFirst', first }), !!state.busy, first);
-        // jan_dai_01_e: four 64px plates, "first" on rows 0-1 and "second" on rows 2-3.
-        if (archiveImage) { b.className = 'de-janken-order'; const plate = el('span', 'de-janken-plate'), image = archiveImage('data/y/janken/jan_dai_01_e.png'); image.style.top = first ? '0' : '-200%'; plate.append(image); b.replaceChildren(plate, el('span', 'de-sr', label)); }
-        return b;
-      };
-      panel.append(el('p', '', 'You won! Choose who goes first.'), el('div', 'de-row de-janken', order('Go First', true), order('Go Second', false)));
-    } else if (/ready|begin|confirm|invitation/.test(phase)) panel.append(button('Start Duel', () => send({ type: 'beginDuel' }), !!state.busy, true));
-    else panel.append(el('p', '', 'Waiting for the other duelist…'));
-    if (prep.opponentHand !== undefined && prep.opponentHand !== null) panel.append(note(`Opponent chose ${['Rock', 'Scissors', 'Paper'][prep.opponentHand] ?? 'an unknown hand'}.`));
-    stage.append(panel);
   }
   function tradeReason(): string | undefined { return [...(state.lobby?.chat ?? [])].reverse().find(line => /^Trade cancelled:/.test(line.text))?.text; }
   function socialOptions() {
@@ -1267,7 +1261,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (freeTarget && state.mode === 'free' && state.connection === 'online' && state.player && !state.busy && state.scene !== 'deck' && state.scene !== 'characters') { freeTarget = null; queueMicrotask(() => open('deck')); }
       if (!available(state.scene)) unavailableScene(state.scene, state.scene === 'deck' ? 'Edit Deck' : state.scene[0].toUpperCase() + state.scene.slice(1));
       else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': if (state.sideboarding) renderSideboarding(); else renderDuel(); break; }
-      if (state.preparation && !state.sideboarding && !htmlUi) renderPreparation();
       // the trade scene's ground under main's trade windows (htmlui/trade.ts) and its trunk (htmlui/trade-trunk.ts)
       if (state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene)) {
         const ground = el('section', 'de-trade-scene'); ground.setAttribute('aria-label', 'Card Swap'); deckBackdrop(ground); stage.append(ground);
