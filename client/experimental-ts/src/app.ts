@@ -267,7 +267,7 @@ export class ClientApp implements ClientController {
       this.view = { ...this.view, settings, languageStatus:{ loading:null, available:true, ...(localized?.missing ? { missing:localized.missing } : {}) } };
       if (this.game) this.updateSession(this.game.state);
       if (this.settledDuel) this.syncDuel();
-      if (this.view.packNames) { this.view = { ...this.view, packNames:undefined }; this.loadPackNames(); }
+      if (this.view.packNames) { this.view = { ...this.view, packNames:undefined, packInfo:undefined }; this.loadPackNames(); }
       const shop = this.lastShop;
       if (shop && this.view.shop) void this.shopView(shop).then(view => { if (token === this.languageToken && !this.disposed && this.view.shop) this.patch({ shop:{ ...this.view.shop, ...view } }); }).catch(() => {});
       this.emit();
@@ -355,7 +355,7 @@ export class ClientApp implements ClientController {
   /** Reward packs are named from the same original tables as the shop. */
   private loadPackNames(): void {
     if (this.view.packNames) return;
-    void this.loadPackCatalog()?.then(packs => { if (!this.disposed) this.patch({ packNames: Object.fromEntries([...packs].map(([id, pack]) => [id, pack.name])) }); }).catch(() => {});
+    void this.loadPackCatalog()?.then(packs => { if (!this.disposed) this.patch({ packNames: Object.fromEntries([...packs].map(([id, pack]) => [id, pack.name])), packInfo: Object.fromEntries([...packs].map(([id, pack]) => [id, { image: packImagePath(pack.image) ?? '', description: pack.description }])) }); }).catch(() => {});
   }
   /** Names, descriptions and art from the original pack tables and card catalogue; the server only sends ids. */
   private async shopView(shop: ShopCatalog): Promise<ClientView['shop'] & object> {

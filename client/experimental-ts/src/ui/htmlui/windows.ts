@@ -101,6 +101,8 @@ export interface BuildContext {
   prompts?: WindowSpec[];
   /** The trade scene covers the lobby (main's Card Swap: its windows and the chat, no place banner or player list). */
   covered?: boolean;
+  /** live's reward scenes after an NPC duel (the pack pick, the card get) fill the screen: no lobby window under them. */
+  rewardScene?: boolean;
 }
 
 const byY = (cs: HtmlControl[], name: string) => cs.filter(c => c.name === name).sort((a, b) => a.y - b.y);
@@ -873,7 +875,7 @@ export function htmlWindows(ctx: BuildContext): WindowSpec[] {
   if (account && state.scene !== 'characters') ui.dialog = null;   // its screen is gone
   // the account dialogs stand alone: main's game hides Select Player under them (its create capture)
   else if (state.scene === 'characters' && !account) out.push(playerSelect(ctx));
-  if (state.scene === 'lobby' && state.connection === 'online') {
+  if (state.scene === 'lobby' && state.connection === 'online' && !ctx.rewardScene) {
     // My Room shows none of the place plate, the chat and the player list (live: the room and the bar alone)
     const room = state.location === 'my-room';
     const place = !ctx.covered && !room && placeBanner(ctx); if (place) out.push(place);

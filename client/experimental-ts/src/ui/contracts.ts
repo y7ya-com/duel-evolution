@@ -140,6 +140,8 @@ export interface ClientView {
   npcGiftRecipes?: Readonly<Record<number, string>>;
   /** Original pack names by pack id, once the pack tables are read. */
   packNames?: Readonly<Record<number, string>>;
+  /** The reward packs' art (data/cardpack/<file>) and description (the original tables), for the pack scene. */
+  packInfo?: Readonly<Record<number, { image: string; description: string }>>;
   dataStatus?: { loading: boolean; issues: string[] };
   /** Options → Language: a switch in progress, its failure (the previous language stays), cards left in English. */
   languageStatus?: { loading: GameLanguage | null; available: boolean; error?: string; missing?: number };

@@ -38,7 +38,8 @@ export function npcItemMessages(npc: Readonly<NpcState>, d: Pick<NpcItemGetDeps,
   const out: NpcItemMessage[] = [];
   const refused = [npc.packStatus, npc.giftStatus].some(s => s === 'failed' || s === 'uncertain');
   if (refused && npc.error) out.push({ kind: 'error', text: npc.error });
-  for (const id of [...npc.cards.map(c => c.id), ...npc.giftCards]) out.push({ kind: 'ok', text: `You got ${d.cardName(id) ?? 'a card'}!` });
+  // (the pack's cards were shown in the card get scene, card-get.ts: only the gift's here)
+  for (const id of npc.giftCards) out.push({ kind: 'ok', text: `You got ${d.cardName(id) ?? 'a card'}!` });
   for (const bit of npc.giftBits) out.push({ kind: 'ok', text: `You got ${d.itemName(bit) ?? 'an item'}!` });
   return out;
 }

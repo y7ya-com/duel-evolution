@@ -48,8 +48,8 @@ describe('NPC gifts by name (CWindowModelItemGet)', () => {
     expect(giftItemName(9000)).toBeNull();
     expect(giftItemName(700, b => b === 700 ? 'Starter Recipe' : undefined)).toBe('Starter Recipe');
   });
-  it('says "You got <X>!" per received card and gift, one Ok dialog at a time, and the last OK ends the talk', async () => {
-    const npc = { ...state([229, 9000]), cards: [{ id: 7, isNew: true }], packs: [3], packStatus: 'confirmed' } as NpcState;
+  it('says "You got <X>!" per gifted card and item (not the pack\'s cards: the card get scene shows those), one Ok dialog at a time, and the last OK ends the talk', async () => {
+    const npc = { ...state([229, 9000]), cards: [{ id: 8, isNew: true }], giftCards: [7], packs: [3], packStatus: 'confirmed' } as NpcState;
     const names = { cardName: (id: number) => id === 7 ? 'Blast Juggler' : undefined, itemName: (b: number) => giftItemName(b) };
     expect(npcItemMessages(npc, names).map(m => m.text)).toEqual(['You got Blast Juggler!', 'You got GUNSLINGER!', 'You got an item!']);
     const ui = npcItemGetUi(); let closed = 0;

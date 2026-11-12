@@ -552,7 +552,7 @@ export async function claimNpcReward(page:Page):Promise<{ pack:string|null; rece
   const balloon = `[...document.querySelectorAll('button[data-key="npc-talk:next"]')].find(b=>!b.disabled&&b.getClientRects().length)`;
   const itemOk = `[...document.querySelectorAll('[data-key="npc-itemget-ok"]')].find(b=>!b.disabled&&b.getClientRects().length)`;
   const htmlRow = `document.querySelector('.yo2ps-list .yo2ps-row')`, htmlOk = `document.querySelector('.yo2ps-ok:not([hidden])')`;
-  const npcUp = `(Boolean(document.querySelector('button[data-key="npc-talk:next"]'))||Boolean(${htmlRow})||Boolean(document.querySelector('[data-key="npc-itemget-ok"]'))||!['idle','done'].includes(window.__deApp?.getState().npc?.stage ?? 'idle')||window.__deApp?.getState().npc?.stage==='done'&&window.__deApp?.getState().npc?.result!=null)`;
+  const npcUp = `(Boolean(document.querySelector('button[data-key="npc-talk:next"]'))||Boolean(${htmlRow})||Boolean(document.querySelector('[data-key="card-get-back"]'))||Boolean(document.querySelector('[data-key="npc-itemget-ok"]'))||!['idle','done'].includes(window.__deApp?.getState().npc?.stage ?? 'idle')||window.__deApp?.getState().npc?.stage==='done'&&window.__deApp?.getState().npc?.result!=null)`;
   let pack:string|null = null, dialog = '';
   const received:string[] = [];
   for (let i = 0; i < 60 && (await page.ev(npcUp) || i < 6); i++) {
@@ -564,7 +564,16 @@ export async function claimNpcReward(page:Page):Promise<{ pack:string|null; rece
     // main's pack picker (htmlui/npc-pack.ts: CWindowPackSelect): its first row, then OK
     if (!pack && await page.ev(`Boolean(${htmlRow})&&Boolean(${htmlOk})`)) {
       pack = (await page.ev(`[...${htmlRow}.querySelectorAll('span')].map(s=>s.textContent)[0] ?? ${htmlRow}.textContent`) as string).trim();
+      await sleep(600); await screenshot(page,'npc-pack-scene');
       await press(page,htmlRow); await sleep(200); await press(page,htmlOk); await sleep(800); continue;
+    }
+    // live's card get scene after the pack (htmlui/card-get.ts): the card the pack gave, then Back
+    const cardBack = `[...document.querySelectorAll('[data-key="card-get-back"]')].find(b=>!b.disabled&&b.getClientRects().length)`;
+    if (await page.ev(`Boolean(${cardBack})`)) {
+      const names = await page.ev(`(()=>{const s=window.__deApp?.getState();return (s?.npc?.cards??[]).map(c=>s.npcCardViews?.[c.id]?.name).filter(Boolean)})()`) as string[];
+      if (!received.length) { await sleep(800); await screenshot(page,'npc-card-get'); }
+      for (const n of names) if (!received.includes(n)) received.push(n);
+      await press(page,cardBack); await sleep(500); continue;
     }
     // "You got <X>!": the item-get dialog's text, then its OK
     if (await page.ev(`Boolean(${itemOk})`)) {

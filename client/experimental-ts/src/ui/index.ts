@@ -48,6 +48,7 @@ import { tradeLocal, tradeWindows, tradeScene, trunkOpen, partnerLeft } from './
 import { cardSwapMenu } from './htmlui/card-swap-menu';
 import { TradeTrunk, isTradeTrunk } from './htmlui/trade-trunk';
 import { SideSwap, isSideSwap, SIDE_SWAP_ZONES } from './htmlui/side-swap';
+import { CardGetScene, isCardGet } from './htmlui/card-get';
 import { deckBackdrop } from '@htmlui/screens/deck.js';
 import { PictureArt } from './htmlui/art';
 import { setPictureResolver, disposePictures } from './htmlui/pictures';
@@ -329,6 +330,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     notice: text => { swapNotice = text; showHtml(); },
   });
   let swapDom: DeckDom | null = null;
+  let cardGetDom: DeckDom | null = null;
   const swapSpecs = (): WindowSpec[] => {
     const side = state.scene === 'duel' && !endPhase() ? state.sideboarding ?? null : null, out = sideSwap.windows(htmlIds, side);
     if (!side) { swapNotice = ''; return out; }
@@ -413,7 +415,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // speaks once main's result boards are left (Next) and the lobby is back (not under the scene-loading veil), as live.
   // Then the reward pack pick (npc-pack.ts) and what the duel gave (npc-itemget.ts), each over everything.
   const npcTalkSpecs = (): WindowSpec[] => {
-    const npc = state.npc; if (state.scene !== 'lobby' || !npcTalkStage(npc) || sceneVeilUp()) return [];
+    const npc = state.npc; if (state.scene !== 'lobby' || !npcTalkStage(npc) || sceneVeilUp() || rewardScene()) return [];
     const parts = state.lobby?.avatars.find(a => a.npc && Math.abs(a.id) === npc!.npc!.id)?.parts ?? state.lobby?.avatars.find(a => a.npc && a.name === npc!.npc!.name)?.parts ?? null;
     return npcTalkWindows(npc, { ids: htmlIds, busy: !!state.busy, parts, send: command => { if (controller.getState().npc === npc) send(command); } });
   };
@@ -421,9 +423,17 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (e.key !== 'Escape' || state.scene !== 'lobby' || !htmlUi || !npcTalkDismissable(state.npc)) return false;
     e.preventDefault(); send({ type: 'npcDismiss' }); return true;
   };
-  // the reward pack pick follows the NPC's lines after the duel (the talk first, then the picker), in the lobby
-  const npcPackSpecs = (): WindowSpec[] => { if (state.scene !== 'lobby' || npcTalkStage(state.npc) || sceneVeilUp()) return [];
-    const spec = npcPackSelect(state.npc, { ids: htmlIds, ui: npcPack, packName: id => state.packNames?.[id], completion: packCompletion, busy: !!state.busy, rerender: () => showHtml(), contents: openContents,
+  // live's reward scenes come first after the result board (Next): the pack pick (CCardGetPackScene: the checker backdrop,
+  // the pack's cover, the list, the pack described in the bar's help line), then the card get scene for each card the
+  // pack gave (card-get.ts, Back), and only then the lobby with the NPC's lines
+  const cardGet = new CardGetScene({ card: pc => cardGetViews().find(c => c.passcode === pc), rerender: () => showHtml() });
+  const cardGetViews = (): CardView[] => (state.npc?.packStatus === 'confirmed' ? state.npc.cards : []).flatMap(c => state.npcCardViews?.[c.id] ?? []);
+  const cardGetKey = () => `${state.npc?.npc?.id}:${state.npc?.result}:${state.npc?.cards.map(c => c.id).join(',')}`;
+  const cardGetUp = (): boolean => { const v = cardGetViews(); return v.length > 0 && cardGet.pending(cardGetKey(), v.flatMap(c => c.passcode ?? [])); };
+  const rewardScene = (): boolean => state.scene === 'lobby' && (npcPackOpen(state.npc) || state.npc?.packStatus === 'pending' || cardGetUp());
+  const cardGetSpecs = (): WindowSpec[] => state.scene !== 'lobby' || sceneVeilUp() ? [] : state.npc?.packStatus === 'pending' ? cardGet.waiting(htmlIds) : !cardGetUp() ? [] : cardGet.windows(htmlIds, cardGetKey(), cardGetViews().flatMap(c => c.passcode ?? []));
+  const npcPackSpecs = (): WindowSpec[] => { if (state.scene !== 'lobby' || sceneVeilUp()) return [];
+    const spec = npcPackSelect(state.npc, { ids: htmlIds, ui: npcPack, packName: id => state.packNames?.[id], packImage: id => state.packInfo?.[id]?.image, completion: packCompletion, busy: !!state.busy, rerender: () => showHtml(), contents: openContents,
       send: command => { if (npcPackOpen(controller.getState().npc)) send(command); } });
     return spec ? [spec] : []; };
   const npcItems = npcItemGetUi();
@@ -481,7 +491,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     return out;
   };
   let languageErrorSeen = '';
-  const sceneWindows = (): WindowSpec[] => { duelSpeedButton.show(state.scene === 'duel' && (!!state.duel || !!state.preparation)); return [...loginSpecs(), ...tradeSpecs(), ...swapSpecs(), ...npcTalkSpecs(), ...npcPackSpecs(), ...npcItemSpecs(), ...unlockSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs()]; };
+  const sceneWindows = (): WindowSpec[] => { duelSpeedButton.show(state.scene === 'duel' && (!!state.duel || !!state.preparation)); return [...loginSpecs(), ...tradeSpecs(), ...swapSpecs(), ...npcTalkSpecs(), ...npcPackSpecs(), ...cardGetSpecs(), ...npcItemSpecs(), ...unlockSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs()]; };
   // The duel's question dialogs (main's screens/duel.js: htmlui/duel-dialogs.ts) and the duel speed button (main's
   // duelspeed.js) while the layer is up; card lists, free number entry and declarations stay the duel screen's panel.
   // live's duel speed button (main's duelspeed.js) is the page's, in its top right corner beside the game, not a window
@@ -598,7 +608,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const onTagDuel = () => { if (!state.tagLobby || state.scene !== 'lobby' || !state.lobby?.connected || state.busy) return; lobbyUi.open = null; send({ type: 'tagAction', action: { type: 'open' } }); showHtml(); };
   globalThis.addEventListener?.('yo2-tag-lobby-open', onTagDuel);
   const buildHtml = () => localized(htmlWindows({ state, ui: htmlUiState, ids: htmlIds, send, rerender: showHtml, changeAvatar: changeAvatar(), menu: menuView, social: socialLists(), mailBox: mailBox(), profileActions: profileActions(), cardActions: cardActions(), openPlayer: pid => send({ type: 'interact', playerId: pid }),
-    deckWindows: () => deckScene.windows(), deckChat: deckScene.chat(), scene: sceneWindows(), prompts: duelPrompts(), covered: !!state.socialDetail && tradeScene(state.socialDetail.trade),
+    deckWindows: () => deckScene.windows(), deckChat: deckScene.chat(), scene: sceneWindows(), prompts: duelPrompts(), covered: !!state.socialDetail && tradeScene(state.socialDetail.trade), rewardScene: rewardScene(),
     text: id => gameTexts.get(id), lobby: { list: ctx => lobbyList(ctx, lobbyDeps(), pid => send({ type: 'interact', playerId: pid })), windows: ctx => lobbyWindows(ctx, lobbyDeps()) },
     ...(checkPassword ? { checkPassword: (password: string) => checkPassword(password, new AbortController().signal) } : {}) }));
   const localized = (specs: WindowSpec[]): WindowSpec[] => { localizeSpecs(specs, uiText); return specs; };
@@ -612,11 +622,13 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const showHtml = () => {
     askGameTexts(); syncStartScene(); discord.tick();
     if (disposed) return;
-    if (!deckDom && state.scene === 'deck' && typeof globalThis.document !== 'undefined') deckDom = new DeckDom(host, deckScene, { art: '/ui/', ...cardArt(), owns: w => !isTradeTrunk(w) && !isSideSwap(w) });
+    if (!deckDom && state.scene === 'deck' && typeof globalThis.document !== 'undefined') deckDom = new DeckDom(host, deckScene, { art: '/ui/', ...cardArt(), owns: w => !isTradeTrunk(w) && !isSideSwap(w) && !isCardGet(w) });
     const trading = !!state.socialDetail && tradeScene(state.socialDetail.trade);
     if (!tradeDom && trading && typeof globalThis.document !== 'undefined') tradeDom = new DeckDom(htmlUi?.host ?? host, tradeTrunk, { art: htmlUi ? new URL('/ui/', location.href).href : '/ui/', ...cardArt(), owns: isTradeTrunk });
     const swapping = state.scene === 'duel' && !!state.sideboarding;
     if (!swapDom && swapping && typeof globalThis.document !== 'undefined') swapDom = new DeckDom(htmlUi?.host ?? host, sideSwap, { art: htmlUi ? new URL('/ui/', location.href).href : '/ui/', ...cardArt(), owns: isSideSwap, zones: SIDE_SWAP_ZONES, sideButtons: [] });
+    const gettingCard = cardGetUp();
+    if (!cardGetDom && gettingCard && typeof globalThis.document !== 'undefined') cardGetDom = new DeckDom(htmlUi?.host ?? host, cardGet, { art: htmlUi ? new URL('/ui/', location.href).href : '/ui/', ...cardArt(), owns: isCardGet, zones: {}, sideButtons: [] });
     if (!htmlUi) { const specs = deckDom || tradeDom || swapDom ? buildHtml() : []; if (deckDom) { const d = deckScene.stageView(); deckDom.show(specs, d.detail, d.drag); } tradeDom?.show(specs, tradeTrunk.detailView(), null); swapDom?.show(specs, sideSwap.detailView(), sideSwap.dragView()); syncPortrait(); return; }
     const specs = buildHtml(), deck = deckScene.stageView();
     // the title under its OPTIONS window: the movie and the backdrop at kTitleDimmed, the movie's buttons inactive
@@ -626,6 +638,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     deckDom?.show(specs, deck.detail, deck.drag);
     tradeDom?.show(specs, tradeTrunk.detailView(), null);
     swapDom?.show(specs, sideSwap.detailView(), sideSwap.dragView());
+    cardGetDom?.show(specs, gettingCard ? cardGet.detailView() : null, null);
     syncPortrait();
   };
   /** The waist-up portraits the game draws under its windows outside Select Player (src/ui/htmlui/start-scene.ts's
@@ -670,9 +683,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       gameCursor?.dispose();
       gameCursor = new GameCursor({ art, stage: () => stage, busy: () => !!controller.getState().busy });
       if (deckDom) deckDom.dispose();
-      deckDom = new DeckDom(htmlUi.host, deckScene, { art, ...cardArt(), owns: w => !isTradeTrunk(w) && !isSideSwap(w) });
+      deckDom = new DeckDom(htmlUi.host, deckScene, { art, ...cardArt(), owns: w => !isTradeTrunk(w) && !isSideSwap(w) && !isCardGet(w) });
       if (tradeDom) { tradeDom.dispose(); tradeDom = null; }
       if (swapDom) { swapDom.dispose(); swapDom = null; }
+      if (cardGetDom) { cardGetDom.dispose(); cardGetDom = null; }
       // what the editor holds, for tests and assistive tools (main's yo2Html.snapshot() has the windows only)
       const g = globalThis as { yo2Html?: Record<string, unknown> };
       if (g.yo2Html) {
@@ -1402,9 +1416,11 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       // bar: the shop page runs to the strip at its foot)
       // the sign-in window stands over the bar's empty strip, as live's CWindowLogin over CWindowModelMenu
       const trading = !!state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene);
-      menuView = state.scene === 'title' && !showsLogin() || state.scene === 'duel' || state.scene === 'shop' ? null : { entries, fieldShift, keys: !!state.player && !['deck', 'shop', 'characters'].includes(state.scene) && !trading, room: !!world && state.location === 'my-room',
+      // (the reward scenes' bar is its strip, the pack pick's help line the picked pack's description, as live)
+      const reward = rewardScene(), pickedPack = reward && npcPackOpen(state.npc) ? state.npc.packs[npcPack.selected] : undefined;
+      menuView = state.scene === 'title' && !showsLogin() || state.scene === 'duel' || state.scene === 'shop' ? null : { entries, fieldShift, keys: !!state.player && !['deck', 'shop', 'characters'].includes(state.scene) && !trading && !reward, room: !!world && state.location === 'my-room',
         // live's bar message is blank but for a pending request's wait (no "Online in Duel Academy.")
-        message: state.player ? (world && waitingMessage({ state, text: id => gameTexts.get(id) })) || '' : '',
+        message: reward ? (pickedPack !== undefined ? state.packInfo?.[pickedPack]?.description ?? '' : '') : state.player ? (world && waitingMessage({ state, text: id => gameTexts.get(id) })) || '' : '',
         mainOpen: () => { const p = state.profileDetail; return !!(htmlUiState.mail || htmlUiState.compose || htmlUiState.lists || htmlUiState.comment || optionsUi?.kind === 'options' || duellog || titleUi
           || p && p.selectedPid !== null && p.selectedPid === p.selfPid); },
         // My Room's bar has Main Menu, Wardrobe and Missions only (no Duel, no Move), as live
@@ -1466,5 +1482,5 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     else if (e.target instanceof Node && htmlUi?.host?.contains(e.target)) npcEscape(e); };
   globalThis.document?.addEventListener?.('keydown', bodyKeys);
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; netNote.dispose(); globalThis.removeEventListener?.('pointermove', cmdPointer, true); globalThis.removeEventListener?.('pointerdown', cmdPress, true); duelSpeedButton.dispose(); starterPicker.close(); discord.dispose(); cardShop.dispose(); pageMods.dispose(); offReserve(); deckDom?.dispose(); deckDom = null; tradeDom?.dispose(); tradeDom = null; swapDom?.dispose(); swapDom = null; deckScene.dispose(); htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; titleScene?.dispose(); titleScene = null; portraitScene?.dispose(); portraitScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.removeEventListener?.(VEIL_EVENT, onVeil); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); worldWalk?.dispose(); worldWalk = null; phone?.dispose(); duelScene.dispose(); observer?.disconnect(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; closeAudioPage(); packSheet?.close(); packSheet = null; gameCursor?.dispose(); gameCursor = null; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; netNote.dispose(); globalThis.removeEventListener?.('pointermove', cmdPointer, true); globalThis.removeEventListener?.('pointerdown', cmdPress, true); duelSpeedButton.dispose(); starterPicker.close(); discord.dispose(); cardShop.dispose(); pageMods.dispose(); offReserve(); deckDom?.dispose(); deckDom = null; tradeDom?.dispose(); tradeDom = null; swapDom?.dispose(); swapDom = null; cardGetDom?.dispose(); cardGetDom = null; deckScene.dispose(); htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; titleScene?.dispose(); titleScene = null; portraitScene?.dispose(); portraitScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.removeEventListener?.(VEIL_EVENT, onVeil); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); worldWalk?.dispose(); worldWalk = null; phone?.dispose(); duelScene.dispose(); observer?.disconnect(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; closeAudioPage(); packSheet?.close(); packSheet = null; gameCursor?.dispose(); gameCursor = null; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }
