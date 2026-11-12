@@ -556,10 +556,11 @@ export class ClientApp implements ClientController {
         chat: this.project('chat', state.chat, chat => chat.map((m, i) => ({ id: String(i), sender: m.name, text: m.text, channel: channelName(m.channel) }))),
         channels: ['global', 'trade', 'whisper', 'team'],
       } : null,
-      // the opponent's hand only once this player's own is in (after a draw the hands are asked again: the last round's
-      // hand is not shown then); live never prints it, its janken scene turns the cards over once both have chosen
+      // the opponent's hand once both have chosen (the server only sends it then): while the hands are asked it is a
+      // draw's, which the janken scene reads as the tie that offers the hands again (and hides until the next pick);
+      // the session forgets it as the next hand goes out
       preparation: duelPreparing && !state.duelCalledOff ? { role:state.duelRole, phase: state.duelFirst !== null ? 'ready' : state.phase === 'rock-paper-scissors' && state.rpsLost ? 'waiting-for-first' : state.phase,
-        opponentHand: state.phase === 'rock-paper-scissors' && !state.rpsLost ? null : state.opponentHand } : undefined,
+        opponentHand: state.opponentHand } : undefined,
       duelCalledOff: this.calledOffView(state),
       relay: this.project('relay',state.relay,relay => relay ? { active:[...relay.active] as [0|1,0|1], self:relay.self, players:relay.players.map(p => ({pid:p.pid,name:p.name})),canAct:relay.canAct } : undefined),
       matchmaking:this.project('matchmaking',state.matchmaking,matchmaking=>({...matchmaking,opponent:matchmaking.opponent ? {pid:matchmaking.opponent.pid,name:matchmaking.opponent.name,level:matchmaking.opponent.level} : null})),

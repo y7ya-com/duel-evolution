@@ -853,6 +853,8 @@ export class GameSession {
   }
   async chooseHand(hand: number): Promise<'draw' | 'win' | 'lose'> {
     if (![0, 1, 2].includes(hand) || this.state.phase !== 'rock-paper-scissors' || !this.duel) throw new Error('Rock-paper-scissors is unavailable');
+    // a new round's hand: the last round's (a draw) is forgotten until the server answers this one
+    if (this.state.opponentHand !== null) { this.state.opponentHand = null; this.emit(); }
     const result = await this.duel.request(0x6101, Uint8Array.of(hand), 0x6101);
     if (result.data.length < 2) throw new Error('Invalid rock-paper-scissors result');
     const rival = result.data[1], delta = (rival - hand + 3) % 3;
