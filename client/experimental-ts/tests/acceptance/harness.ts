@@ -136,8 +136,9 @@ export const roomShown = `(!!document.querySelector('[data-key="main-menu"]')&&!
  * lobby there walks it out through the red door (Duel Academy) unless the starter deck picker is up (claimStarter
  * waits for the lobby again after it), which also counts as shown. A new character's picker opens in the room once the
  * server says a starter is claimable: the player stays for it (a walk out under it would claim as the area changes,
- * "Join the lobby first"); with no word of it after 8 s, out. */
-export const lobbyShown = `((!!document.querySelector('[data-key="menubar-duel"]')&&${mapShown})||(${roomShown}&&(!!document.getElementById('starter')||((w,t)=>{const s=w.__deApp.getState().starter;if(!w.__inRoomAt||t-w.__inRoomSeen>2000)w.__inRoomAt=t;w.__inRoomSeen=t;if(s?.claimable||!s&&t-w.__inRoomAt<8000)return false;if(!w.__leaveRoomAt||t-w.__leaveRoomAt>15000){w.__leaveRoomAt=t;void w.__deApp.dispatch({type:'move',x:860,y:360}).catch(()=>{});}return false;})(window,Date.now()))))`;
+ * "Join the lobby first"); with no word of it after 8 s, out. A room whose map could not load (no art: no collision to walk
+ * out on either) is as far as the player gets. */
+export const lobbyShown = `((!!document.querySelector('[data-key="menubar-duel"]')&&${mapShown})||(${roomShown}&&(!!document.getElementById('starter')||document.querySelector('.de-world-view')?.dataset.mapFailed==='true'||((w,t)=>{const s=w.__deApp.getState().starter;if(!w.__inRoomAt||t-w.__inRoomSeen>2000)w.__inRoomAt=t;w.__inRoomSeen=t;if(s?.claimable||!s&&t-w.__inRoomAt<8000)return false;if(!w.__leaveRoomAt||t-w.__leaveRoomAt>15000){w.__leaveRoomAt=t;void w.__deApp.dispatch({type:'move',x:860,y:360}).catch(()=>{});}return false;})(window,Date.now()))))`;
 /** A row's name: its label past the level live's rows lead with ("Lv 1 Name"; an NPC's row has none). */
 const rowName = `(b=>(b.getAttribute('aria-label')??'').replace(/^Lv \\d+ /,''))`;
 export const listRow = (name:string) => `[...document.querySelectorAll('#htmlui-host .pl-row')].find(b=>${rowName}(b)===${JSON.stringify(name)}&&b.getClientRects().length)`;
@@ -287,7 +288,12 @@ export async function deleteCharacter(page:Page,name:string,password:string) {
 }
 /** Go Online, create a character named `name` in the first free slot, select it, claim a starter if offered. */
 export async function enterWorld(page:Page,name:string) {
-  await click(page,'Go Online',60000);
+  // ONLINE pressed again when Select Player has not come after a while (a press as the title movie settles can be lost,
+  // and a player presses again)
+  for (let i = 0; ; i++) {
+    await click(page,'Go Online',60000);
+    try { await until(page,freeSlot,i < 2 ? 20000 : 60000); break; } catch (e) { if (i >= 2 || !(await page.ev(`Boolean(${goOnlineButton})`))) throw e; }
+  }
   await createCharacter(page,name);
   await press(page,characterSlot(name));
   await until(page,lobbyShown,60000);
@@ -469,7 +475,7 @@ export async function pointerAway(page:Page) {
 }
 /** The duel's information box (live's CUOkDialog): its text, and its OK. */
 export const duelNotice = `document.querySelector('#htmlui-host .win[data-window-class="CUOkDialog"]')`;
-export const duelNoticeText = `(${duelNotice}?.innerText.replace(/\s+/g,' ').replace(/ OK$/,'').trim()??'')`;
+export const duelNoticeText = `(${duelNotice}?.innerText.replace(/\\s+/g,' ').replace(/ OK$/,'').trim()??'')`;
 export const duelNoticeOk = `document.querySelector('[data-key="duel-notice-ok"]')`;
 /** Play until the duel ends (or the time runs out); returns the result banner text. */
 export async function playDuel(page:Page,options:{ attack?:boolean; summon?:boolean; timeout?:number } = {}):Promise<string> {
