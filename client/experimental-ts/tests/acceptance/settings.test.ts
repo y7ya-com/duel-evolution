@@ -30,9 +30,13 @@ const langReady = `(${byKey('opt-lang-next')}&&!${byKey('opt-lang-next')}.disabl
 /** main's error dialog over OPTIONS: a language whose tables could not load. */
 const langError = byKey('language-error-ok');
 const soundShown = `${byKey('opt-sound-level')}?.textContent.trim()`;
-/** Back on the title (Main Menu: Return to Title, as a player would) and its OPTIONS open. */
+/** Back on the title (Main Menu: Return to Title, its key: the label follows the language; Yes to 'Disconnect from the
+ * game?', as a player would) and its OPTIONS open. */
 async function titleOptions(page:Page) {
-  if (!(await page.ev(`Boolean(${titleButton('options')}||${optionsShown})`))) await click(page,'Return to Title');
+  await until(page,`${titleButton('options')}||${optionsShown}||${byKey('main-menu')}`,60000);
+  if (!(await page.ev(`Boolean(${titleButton('options')}||${optionsShown})`)) && await page.ev(`Boolean(${byKey('main-menu')})`)) {
+    await menuEntry(page,'title'); await until(page,byKey('disconnect-yes'),30000); await press(page,byKey('disconnect-yes'));
+  }
   if (!(await page.ev(`Boolean(${optionsShown})`))) { await until(page,titleButton('options'),60000); await press(page,titleButton('options')); }
   await until(page,optionsShown,30000);
 }
