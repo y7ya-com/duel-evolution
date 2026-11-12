@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, sleep, screenshot, record, startNpcDuel, playDuel, byKey, type Page, placeName, cardOpen, cardButton, closeCard, lobbyShown, searchPlayers, listRow } from './harness';
-import { resultShown, resultLeave, leaveWatching, duelNoticeText } from './harness';
+import { resultShown, resultLeave, leaveWatching, duelNoticeText, moveToArea } from './harness';
 import { avatar, invitation, inLobby, onDuel, finished, playerMenu, startBoth, read, settled, mirrored, playBoth, backToLobby } from './pvp-helpers';
 
 /** Main's Duel menu (the bar's Duel key, src/ui/htmlui/lobby.ts) open. */
@@ -98,6 +98,8 @@ describe.skipIf(!enabled)('PvP matchmaking, disconnect and time-out endings, and
 
       // spectate (NPC): B watches A's NPC duel from A's player menu until it ends, then leaves.
       await startNpcDuel(a,'Yami Yugi');
+      // B goes where A went for the NPC (the Move list), as a player follows a friend's duel
+      await moveToArea(b,await a.ev(`window.__deApp.getState().lobby?.mapId`) as number);
       await until(b,`${avatar(names.a)}`,30000);
       let menu:string[] = [];
       for (let i = 0; i < 20; i++) {

@@ -30,7 +30,12 @@ export const pageText = async (page:Page) => (await page.ev('document.body.inner
 export async function startBoth(a:Page,b:Page) {
   const ready = `[...document.querySelectorAll('button')].some(x=>['Rock','Go First','Go Second','Start Duel'].includes(x.textContent.trim())&&!x.disabled)||(${onDuel})`;
   // Either side may be the one to act first (in a match the previous game's loser chooses who goes first).
-  await until(a,`(${ready})||document.querySelector('.de-duel-board')`,90000); await until(b,`(${ready})||document.querySelector('.de-duel-board')`,90000);
+  // (one side may wait on the other's choice: a match's previous loser chooses who goes first, the other waits)
+  const either = `(${ready})||document.querySelector('.de-duel-board')`;
+  for (const start = Date.now(); !(await a.ev(`Boolean(${either})`).catch(() => false)) && !(await b.ev(`Boolean(${either})`).catch(() => false));) {
+    if (Date.now() - start > 90000) await until(a,either,1000);
+    await sleep(200);
+  }
   const hands = ['Rock','Scissors','Paper'];
   for (let round = 0; round < 160; round++) {
     const dealt = await Promise.all([a,b].map(p => p.ev(`Boolean((${onDuel})&&!document.querySelector('.de-duel-prompt'))`)));
