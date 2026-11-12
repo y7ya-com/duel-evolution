@@ -110,7 +110,7 @@ describe.skipIf(process.env.BROWSER_PVP !== '1')('two real browsers duel each ot
       if (!await activate(b,alpha)) await b.ev(`${alpha}.click()`);
       await click(b,'Duel');
       await click(a,'Accept Duel');
-      for (const browser of [a,b]) await until(browser,`[...document.querySelectorAll('button')].some(x=>['Rock','Go First','Go Second','Start Duel'].includes(x.textContent)&&!x.disabled)||document.querySelector('canvas[aria-label="Duel field"]')&&!document.querySelector('.de-duel-prompt')`);
+      for (const browser of [a,b]) await until(browser,`[...document.querySelectorAll('button')].some(x=>['Rock','Go First','Go Second','Start Duel'].includes(x.textContent)&&!x.disabled)||document.querySelector('[aria-label="Duel field"]')&&!document.querySelector('.de-duel-prompt')`);
       // Rock-paper-scissors until one side wins, then the winner goes first and both start.
       for (let round = 0; round < 12; round++) {
         if (await a.ev(`Boolean(${buttonText('Rock')})`)) await click(a,'Rock');

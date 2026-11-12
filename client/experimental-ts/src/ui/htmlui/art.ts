@@ -1,7 +1,7 @@
 // The rewrite's art for pictures.ts (what the engine draws on main): archive textures, card faces by passcode, the
 // player's waist-up portrait (duel-portrait.ts WaistUpComposer) and the shop's clerk, composed from the original's NPC
 // picture (data/avatar/npc/<id>.csv: its id, place and a 3 x 3 grid of 256-pixel tiles, '****' an empty one).
-import { WaistUpComposer } from '../duel-portrait';
+import { WaistUpComposer, canvasUrl } from '../duel-portrait';
 import type { PictureResolver, PictureSource } from './pictures';
 
 type Lease = { url: string; release(): void };
@@ -18,6 +18,8 @@ export function npcTiles(csv: string): string[] {
 
 export class PictureArt {
   private leases: Lease[] = [];
+  /** The composed pictures' object URLs (a portrait, a clerk), revoked with the client. */
+  private urls: string[] = [];
   private composer: WaistUpComposer | null;
   constructor(private loaders: ArtLoaders) {
     const load = loaders.loadArchiveImage;
@@ -34,8 +36,8 @@ export class PictureArt {
     if ('archive' in source) return this.archive(source.archive, signal);
     if ('card' in source) { const load = this.loaders.loadCardImage; if (!load) throw new Error('No card art.'); return this.keep(await load(source.card, signal)); }
     const [kind, arg = ''] = source.canvas.split(':');
-    if (kind === 'portrait' && this.composer) return this.composer.compose(Uint8Array.from(arg.split('.').map(Number)), 1, signal);
-    if (kind === 'clerk') return this.clerk(arg, signal);
+    if (kind === 'portrait' && this.composer) return this.picture(await this.composer.compose(Uint8Array.from(arg.split('.').map(Number)), 1, signal));
+    if (kind === 'clerk') return this.picture(await this.clerk(arg, signal));
     throw new Error('Unknown picture.');
   };
   private async clerk(id: string, signal: AbortSignal): Promise<HTMLCanvasElement> {
@@ -53,5 +55,7 @@ export class PictureArt {
     }));
     return canvas;
   }
-  dispose(): void { for (const l of this.leases) l.release(); this.leases = []; }
+  /** A composition made off screen as the picture the window shows (an <img>). */
+  private async picture(canvas: HTMLCanvasElement): Promise<string> { const url = await canvasUrl(canvas); this.urls.push(url); return url; }
+  dispose(): void { for (const l of this.leases) l.release(); this.leases = []; for (const u of this.urls) URL.revokeObjectURL(u); this.urls = []; }
 }

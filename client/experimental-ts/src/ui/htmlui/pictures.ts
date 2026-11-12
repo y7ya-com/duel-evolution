@@ -6,7 +6,7 @@
 // One window, class CEnginePictures, its `pics` the list back to front (built from the same sprite objects the other
 // windows carry, so a picture switch's hover sprite shows here as the pointer moves).
 
-/** Where a picture's pixels come from: an archive texture, a card's face by passcode, or a canvas the rewrite composes. */
+/** Where a picture's pixels come from: an archive texture, a card's face by passcode, or a picture the rewrite composes. */
 export type PictureSource = { archive: string } | { card: number } | { canvas: string };
 export interface Picture {
   key: string; source: PictureSource;
@@ -18,21 +18,22 @@ export interface Picture {
   /** What the picture shows, for assistive technology (a card's name). */
   label?: string;
 }
-export type PictureResolver = (source: PictureSource, signal: AbortSignal) => Promise<string | HTMLCanvasElement>;
+/** A picture's URL (an archive lease, a card face, a composed picture's object URL). */
+export type PictureResolver = (source: PictureSource, signal: AbortSignal) => Promise<string>;
 
 let resolver: PictureResolver | null = null;
 /** The rewrite's art loaders (index.ts: the archive, card faces, composed portraits). */
 export function setPictureResolver(fn: PictureResolver | null): void { resolver = fn; }
 
 const sourceKey = (s: PictureSource) => 'archive' in s ? `a:${s.archive}` : 'card' in s ? `c:${s.card}` : `v:${s.canvas}`;
-const looks = new Map<string, Promise<string | HTMLCanvasElement | null>>();
+const looks = new Map<string, Promise<string | null>>();
 let abort = new AbortController();
-function look(source: PictureSource): Promise<string | HTMLCanvasElement | null> {
+function look(source: PictureSource): Promise<string | null> {
   const key = sourceKey(source);
   let p = looks.get(key);
   if (!p) {
     p = resolver ? resolver(source, abort.signal).catch(() => null) : Promise.resolve(null);
-    // a canvas source is recomposed by its owner (a new key): kept; a failed load is tried again next time
+    // a composed source is recomposed by its owner (a new key): kept; a failed load is tried again next time
     void p.then(v => { if (!v) looks.delete(key); });
     looks.set(key, p);
   }
@@ -60,15 +61,9 @@ function draw(p: Picture, signal: AbortSignal): Drawn {
   const d: Drawn = { el, inner: null, source: sourceKey(p.source), natural: null };
   void look(p.source).then(v => {
     if (!v || signal.aborted) return;
-    let inner: HTMLElement;
-    if (typeof v === 'string') {
-      const img = document.createElement('img'); img.alt = ''; img.draggable = false; img.decoding = 'async';
-      img.onload = () => { d.natural = [img.naturalWidth, img.naturalHeight]; place(d, current.get(d) ?? p); };
-      img.src = v; inner = img;
-    } else {
-      const c = document.createElement('canvas'); c.width = v.width; c.height = v.height; c.getContext('2d')?.drawImage(v, 0, 0);
-      d.natural = [v.width, v.height]; inner = c;
-    }
+    const inner = document.createElement('img'); inner.alt = ''; inner.draggable = false; inner.decoding = 'async';
+    inner.onload = () => { d.natural = [inner.naturalWidth, inner.naturalHeight]; place(d, current.get(d) ?? p); };
+    inner.src = v;
     Object.assign(inner.style, { position: 'absolute', display: 'block' });
     d.inner = inner; el.append(inner); place(d, current.get(d) ?? p);
   });

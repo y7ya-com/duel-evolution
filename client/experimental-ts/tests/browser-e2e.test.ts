@@ -121,7 +121,7 @@ describe('actual headless browser against real game authority',() => {
       const first = await browser.ev(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Go First'&&!b.disabled)`);
       if (first) await click(browser,'Go First',viewport.mobile);
       await click(browser,'Start Duel',viewport.mobile);
-      await until(browser,`document.querySelector('canvas[aria-label="Duel field"]')`);
+      await until(browser,`document.querySelector('[aria-label="Duel field"]')`);
       // the hand draws art only (live's look): each face-up card's picture carries its name
       const named = `[...document.querySelectorAll('.de-field-card:not(.de-card-back) img')].map(n=>n.alt).filter(Boolean)`;
       await until(browser,`${named}.length>0`);
