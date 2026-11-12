@@ -326,7 +326,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   });
   let swapDom: DeckDom | null = null;
   const swapSpecs = (): WindowSpec[] => {
-    const side = state.scene === 'duel' ? state.sideboarding ?? null : null, out = sideSwap.windows(htmlIds, side);
+    const side = state.scene === 'duel' && !endPhase() ? state.sideboarding ?? null : null, out = sideSwap.windows(htmlIds, side);
     if (!side) { swapNotice = ''; return out; }
     const say = swapNotice || side.error || '';
     if (say) out.push(stockDialog({ ids: htmlIds }, 'swap-notice', 'ok', say, [{ from: 'OK', key: 'swap-notice-ok', click: () => { swapNotice = ''; showHtml(); } }]));
@@ -518,6 +518,23 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   };
   globalThis.addEventListener?.('pointermove', cmdPointer, true); globalThis.addEventListener?.('pointerdown', cmdPress, true);
   let referenceShown: string | null = null;
+  // The duel's end as live plays it: "YOU WIN" / "YOU LOSE" / "DRAW" over the dimmed field (data/y/duel_end), then
+  // between a match's games its score board (data/y/duel/match), then the result board or Card Swap
+  const END_BANNER_MS = 2200, END_BOARD_MS = 3200;
+  let endSeq: { key: string; at: number } | null = null, matchMarks: string[] = [], matchMarked = '';
+  const endPhase = (): 'banner' | 'board' | null => {
+    const duel = state.scene === 'duel' ? state.duel : null;
+    if (!duel?.ended || state.replay || duel.spectating) { endSeq = null; return null; }
+    const key = `${duel.ended}:${duel.turn}:${duel.players.map(p => p.lp).join('/')}`;
+    if (endSeq?.key !== key) {
+      endSeq = { key, at: Date.now() };
+      // this game's mark on the match board (O won, X lost, triangle drawn), once
+      if (state.match && matchMarked !== key) { matchMarked = key; matchMarks = [...matchMarks, duel.ended === 'Victory' ? 'O' : duel.ended === 'Defeat' ? 'X' : 'D'].slice(-3); }
+      for (const ms of [END_BANNER_MS, END_BANNER_MS + END_BOARD_MS]) setTimeout(() => { if (!disposed) requestRender(); }, ms + 20);
+    }
+    const t = Date.now() - endSeq.at, between = !!state.match && (!!state.sideboarding || !state.match.complete);
+    return t < END_BANNER_MS ? 'banner' : between && t < END_BANNER_MS + END_BOARD_MS ? 'board' : null;
+  };
   const netNote = new NetNote();
   const duelSpecs = (): WindowSpec[] => {
     const duel = state.duel; if (state.scene !== 'duel' || !duel) return [];
@@ -525,7 +542,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     // the end: main's result.js records and its Next plate (back to the lobby once the duel or the match is over); a
     // match's sideboarding (the original's Card Swap) replaces the game's result, as the result screen gives way to it there
     const npcRec = state.npc?.npc && state.npc.record && state.npc.result && !['idle', 'duel'].includes(state.npc.stage) ? { name: state.npc.npc.name, record: state.npc.record } : undefined;
-    if (duel.ended && !state.sideboarding && !state.replay) out.push(...duelResultWindows({ ids: htmlIds, duel, match: state.match, npc: npcRec, ...(!state.match || state.match.complete ? { next: () => open('lobby') } : {}) }));
+    if (duel.ended && !state.sideboarding && !state.replay && !endPhase()) out.push(...duelResultWindows({ ids: htmlIds, duel, match: state.match, npc: npcRec, ...(!state.match || state.match.complete ? { next: () => open('lobby') } : {}) }));
     if (state.replay) out.push(replayWindow(htmlIds, state.replay, action => send({ type: 'replayControl', action })));
     if (duelCmdView && local.duelCmd === duelCmdView.owner) out.push(duelCmdWindow({ ids: htmlIds, ...duelCmdView, ui: duelCmdUi, rerender: showHtml }));
     // the duel's information box (a refused surrender, a lost opponent, time up): live's CUOkDialog, until OK; it stands
@@ -1190,17 +1207,30 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       // main's result screen (duel-result.ts: CWindowResult) shows it; the result is still announced (assistive technology)
       const status = el('div', 'de-duel-end de-sr', endedText); status.setAttribute('role', 'status'); status.setAttribute('aria-label', endedText); stage.append(status);
       // live dims the whole field, its plates and bar behind the result board
-      if (!state.sideboarding && !state.replay) { const dim = el('div', 'de-result-dim'); dim.setAttribute('aria-hidden', 'true'); board.append(dim); }
-    } else if (duel.ended && !htmlUi) {
-      // data/y/duel_end: the result word (m01) over its glow (m02).
-      const ended = endedText as string;
-      const kind = ended === 'Victory' ? 'win' : ended === 'Defeat' ? 'lose' : ended === 'Draw' ? 'drow' : null;
-      const banner = el('div', 'de-duel-end', el('strong', 'de-duel-end-text', ended)); banner.setAttribute('role', 'status'); banner.setAttribute('aria-label', ended);
-      if (kind && controller.loadArchiveImage) for (const layer of ['m02', 'm01']) {
-        const image = el('img', `de-duel-end-${layer}`); image.alt = ''; image.style.visibility = 'hidden';
-        image.onload = () => { image.style.visibility = ''; banner.classList.add('has-art'); }; loadArchiveArt(`data/y/duel_end/duel_ef_${kind}_${layer}_e.png`, image); banner.append(image);
-      }
-      stage.append(banner);
+      if (!state.replay) { const dim = el('div', 'de-result-dim'); dim.setAttribute('aria-hidden', 'true'); board.append(dim); }
+    }
+    const phase = endPhase();
+    if (phase === 'banner' && !duel.spectating) {
+      // data/y/duel_end: the word (m01) over its glow (m02), 352 x 128 drawn twice the size, centred on 512, 288
+      const kind = duel.ended === 'Victory' ? 'win' : duel.ended === 'Defeat' ? 'lose' : 'drow';
+      const banner = el('div', 'de-duel-end'); banner.setAttribute('aria-hidden', 'true');
+      for (const layer of kind === 'win' || kind === 'lose' ? ['m02', 'm01'] : ['m01']) { const image = el('img', `de-duel-end-${layer}`); image.alt = ''; if (controller.loadArchiveImage) loadArchiveArt(`data/y/duel_end/duel_ef_${kind}_${layer}_e.png`, image); banner.append(image); }
+      board.append(banner);
+    } else if (phase === 'board' && state.match) {
+      // between a match's games: its board (duel_match_dai_01, 472 x 200 at 274, 186), the duelists' names on their bars,
+      // each game's mark (duel_match_mark_01: O / triangle / X / -, 62 x 58 cells, row 0 the player's blue, row 1 pink)
+      const mb = el('div', 'de-match-board'); mb.setAttribute('role', 'status'); mb.setAttribute('aria-label', `Match: ${matchMarks.join(' ')}`);
+      const img = (path: string, cls: string) => { const i = el('img', cls); i.alt = ''; if (controller.loadArchiveImage) loadArchiveArt(path, i); return i; };
+      mb.append(img('data/y/duel/match/duel_match_dai_01.png', 'de-match-dai'));
+      ([0, 1] as const).forEach(side => {
+        mb.append(el('div', `de-match-name side-${side}`, duel.players[side].name));
+        matchMarks.forEach((m, g) => {
+          const mine = m === 'D' ? 'D' : side === 0 ? m : m === 'O' ? 'X' : 'O', col = { O: 0, D: 1, X: 2 }[mine as 'O' | 'D' | 'X'] ?? 3;
+          const cell = el('div', `de-match-mark game-${g} side-${side}`); const sheet = img('data/y/duel/match/duel_match_mark_01.png', 'de-match-sheet');
+          sheet.style.left = `${-col * 100}%`; sheet.style.top = `${-side * 100}%`; cell.append(sheet); mb.append(cell);
+        });
+      });
+      board.append(mb);
     }
     if (duel.issue) { const issue = el('div', 'de-error de-notice de-duel-issue', duel.issue); issue.setAttribute('role', 'alert'); stage.append(issue); }
   }
@@ -1228,6 +1258,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     try {
       state = controller.getState();
       if (!state.preparation) jankenMine = null;   // each duel's rock-paper-scissors anew
+      if (!state.match) { matchMarks = []; matchMarked = ''; }
       // the starter deck chooser: main's (web-shell/starter.js), from the lobby or Edit Deck like main's My Room / lobby / deck
       starterPicker.sync(state.mode !== 'free' && state.player ? state.player.id : null, state.starter?.claimable && (state.scene === 'lobby' || state.scene === 'deck') ? state.starter.decks : undefined);
       if (state.scene !== 'lobby') { Object.assign(lobbyUi, { open: null, searching: false, npc: null, join: null, cancel: false }); worldRenderer?.hide(); }
@@ -1260,7 +1291,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (state.auth?.signedIn || state.scene !== 'title') loginUi.open = false;
       if (freeTarget && state.mode === 'free' && state.connection === 'online' && state.player && !state.busy && state.scene !== 'deck' && state.scene !== 'characters') { freeTarget = null; queueMicrotask(() => open('deck')); }
       if (!available(state.scene)) unavailableScene(state.scene, state.scene === 'deck' ? 'Edit Deck' : state.scene[0].toUpperCase() + state.scene.slice(1));
-      else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': if (state.sideboarding) renderSideboarding(); else renderDuel(); break; }
+      else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': if (state.sideboarding && !endPhase()) renderSideboarding(); else renderDuel(); break; }
       // the trade scene's ground under main's trade windows (htmlui/trade.ts) and its trunk (htmlui/trade-trunk.ts)
       if (state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene)) {
         const ground = el('section', 'de-trade-scene'); ground.setAttribute('aria-label', 'Card Swap'); deckBackdrop(ground); stage.append(ground);

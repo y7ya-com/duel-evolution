@@ -92,17 +92,23 @@ button.de-card { padding:2px; min-height:0; color:#fff; background:linear-gradie
 .de-lp-fill { display:block; height:100%; background:linear-gradient(#b8ff9a,#2fc843); transition:width .4s; }
 .de-lp-value { color:#fff79a; font-size:17px; min-width:52px; text-align:right; text-shadow:0 1px #0008; }
 .de-duel-clock { font-size:11px; color:#e6f8ff; }
-.de-duel-end { position:absolute; left:50%; top:48%; width:min(70%,560px); aspect-ratio:352/128; transform:translateX(-50%); z-index:9; display:grid; place-items:center; pointer-events:none; }
-.de-duel-end>* { grid-area:1/1; }
-.de-duel-end img { width:100%; height:100%; }
-.de-duel-end-m02 { animation:de-end-glow 1.6s ease-in-out infinite alternate; }
-.de-duel-end-text { font:900 clamp(28px,6vw,64px)/1 Arial Black,Arial,sans-serif; color:#ffe14a; -webkit-text-stroke:2px #b3260e; text-shadow:0 0 18px #ffde5a; }
-.de-duel-end.has-art .de-duel-end-text { visibility:hidden; }
 @keyframes de-end-glow { from { opacity:.35; transform:scale(.98); } to { opacity:1; transform:scale(1.03); } }
 .de-trade-scene { position:absolute; inset:0; z-index:20; overflow:hidden; }
 .de-client button.de-zone-target { position:absolute; transform:translate(-50%,-50%); pointer-events:auto; min-height:0; padding:0; background:#fff59a55; border:2px solid #ffe14a; border-radius:3px; box-shadow:0 0 12px #ffe14a, inset 0 0 10px #fff7b0; animation:de-zone-pulse 1s ease-in-out infinite alternate; z-index:3; }
 .de-client button.de-zone-target:hover { background:#fff59a99; }
 /* the player's deck zone once its last card is gone: it still takes the click (its command list: Surrender), nothing drawn */
+/* the duel's end word (data/y/duel_end, 352 x 128 drawn at 704 x 256, centred on 512, 288) over the dimmed field */
+.de-duel-board>.de-duel-end { position:absolute; left:${160 / 1024 * 100}%; top:${160 / 768 * 100}%; width:${704 / 1024 * 100}%; height:${256 / 768 * 100}%; z-index:41; pointer-events:none; }
+.de-duel-end>img { position:absolute; inset:0; width:100%; height:100%; }
+/* between a match's games: its board (duel_match_dai_01 472 x 200 at 274, 186), names, marks (62 x 58 cells) */
+.de-duel-board>.de-match-board { position:absolute; left:${274 / 1024 * 100}%; top:${186 / 768 * 100}%; width:${472 / 1024 * 100}%; height:${200 / 768 * 100}%; z-index:41; pointer-events:none; }
+.de-match-board>.de-match-dai { position:absolute; inset:0; width:100%; height:100%; }
+.de-match-board>.de-match-name { position:absolute; left:${37 / 472 * 100}%; width:${210 / 472 * 100}%; height:${22 / 200 * 100}%; font:15px/22px Arial,sans-serif; letter-spacing:.06em; color:#000; padding-left:4px; white-space:nowrap; overflow:hidden; }
+.de-match-name.side-0 { top:${81 / 200 * 100}%; } .de-match-name.side-1 { top:${145 / 200 * 100}%; }
+.de-match-board>.de-match-mark { position:absolute; width:${62 / 472 * 100}%; height:${58 / 200 * 100}%; overflow:hidden; }
+.de-match-mark.side-0 { top:${62 / 200 * 100}%; } .de-match-mark.side-1 { top:${126 / 200 * 100}%; }
+.de-match-mark.game-0 { left:${257 / 472 * 100}%; } .de-match-mark.game-1 { left:${321 / 472 * 100}%; } .de-match-mark.game-2 { left:${385 / 472 * 100}%; }
+.de-match-mark>.de-match-sheet { position:absolute; width:400%; height:200%; }
 /* behind the duel's result board live dims the field, its plates and its bar */
 .de-duel-board>.de-result-dim { position:absolute; inset:0; z-index:40; background:rgba(0,0,0,.45); pointer-events:none; }
 .de-client button.de-deck-zone { position:absolute; transform:translate(-50%,-50%); pointer-events:auto; min-height:0; padding:0; background:none; border:0; box-shadow:none; cursor:pointer; }
