@@ -1,6 +1,7 @@
 import { CanvasSource, Container, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js';
 import type { AvatarLoadOptions, AvatarResource } from '../avatars';
 import { avatarParts } from '../avatars/appearance';
+import { NPC_STARS_X, NPC_STARS_Y, npcStarCells, type NpcStars } from '../avatars/npc';
 import { AVATAR_BOX_HEIGHT, AVATAR_BOX_WIDTH, AVATAR_FOOT_X, AVATAR_FOOT_Y, FLAG_HEIGHT, FLAG_TOP, FLAG_WIDTH, MAX_STRIP_FRAMES, NAME_TAG_Y } from '../world/actors';
 
 /** One pose (look x world x motion x direction) baked into a strip of 128 x 160 frames: the chibi's walk cycle as a
@@ -10,6 +11,10 @@ export type CanvasFactory = (width: number, height: number) => HTMLCanvasElement
 const defaultCanvas: CanvasFactory = (w, h) => { if (typeof OffscreenCanvas === 'function') return new OffscreenCanvas(w, h); const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
 
 export function poseKey(parts: string, world: 0 | 1, motion: 'stand' | 'walk', direction: number): string { return `${world}/${motion}/${direction}/${parts}`; }
+/** A famous NPC's own art (its cn_ set): standing or the blink, per facing. */
+export function npcPoseKey(set: string, motion: 'stand' | 'blink', direction: number): string { return `npc/${set}/${motion}/${direction}`; }
+/** What a pose strip is loaded from (AvatarLoader.load's options without the signal). */
+export type PoseRequest = Omit<AvatarLoadOptions, 'signal'>;
 
 /** Draws each movie frame into its own cell (clipped, so a frame never bleeds into the next), as AvatarView did with
  * sourceOrigin: the movie's origin on the feet at (64, 144). Movies longer than MAX_STRIP_FRAMES are sampled. */
@@ -35,27 +40,31 @@ interface CacheEntry { strip: PoseStrip; refs: number; used: number }
 export class PoseCache {
   private readonly entries = new Map<string, CacheEntry>();
   private readonly pending = new Map<string, Promise<PoseStrip>>();
-  private readonly failed = new Set<string>();
+  private readonly failures = new Set<string>();
   private abort = new AbortController();
   private clock = 0;
   constructor(private readonly load: (parts: Uint8Array, options: AvatarLoadOptions) => Promise<AvatarResource>, private readonly bake: (key: string, resource: AvatarResource) => PoseStrip = bakeStrip, private readonly keep = 32) {}
   get size(): number { return this.entries.size; }
-  /** The strip now (taking a reference), or null while it loads; `ready` runs once it can be taken. */
-  acquire(key: string, parts: Uint8Array, world: 0 | 1, motion: 'stand' | 'walk', direction: number, ready: () => void): PoseStrip | null {
+  /** Whether this pose's art could not be loaded (its files missing or broken) since the map was entered. */
+  failed(key: string): boolean { return this.failures.has(key); }
+  /** The strip now (taking a reference), or null while it loads; `ready` runs once it can be taken, or once it failed
+   * (failed(key) then says so, and the caller picks another look). */
+  acquire(key: string, parts: Uint8Array, request: PoseRequest, ready: () => void): PoseStrip | null {
     const entry = this.entries.get(key);
     if (entry) { entry.refs++; entry.used = ++this.clock; return entry.strip; }
-    if (this.failed.has(key)) return null;
+    if (this.failures.has(key)) return null;
     let pending = this.pending.get(key);
     if (!pending) {
       const signal = this.abort.signal;
-      pending = this.load(avatarParts(parts), { world, motion, direction, signal }).then(resource => {
+      pending = this.load(avatarParts(parts), { ...request, signal }).then(resource => {
         try { if (signal.aborted) throw new DOMException('Avatar load canceled', 'AbortError'); return this.bake(key, resource); } finally { resource.dispose(); }
       });
       this.pending.set(key, pending);
       void pending.then(strip => { if (this.pending.get(key) !== pending) { strip.release(); return; } this.pending.delete(key); this.entries.set(key, { strip, refs: 0, used: ++this.clock }); this.trim(); },
-        (e: unknown) => { if (this.pending.get(key) === pending) { this.pending.delete(key); if (!signal.aborted) { this.failed.add(key); console.warn('avatar art', key, e); } } });
+        (e: unknown) => { if (this.pending.get(key) === pending) { this.pending.delete(key); if (!signal.aborted) { this.failures.add(key); console.warn('avatar art', key, e); } } });
     }
-    void pending.then(() => { if (!this.abort.signal.aborted) ready(); }, () => {});
+    const epoch = this.abort.signal;
+    void pending.then(() => { if (!epoch.aborted) ready(); }, () => { if (!epoch.aborted) ready(); });
     return null;
   }
   release(strip: PoseStrip): void { const entry = this.entries.get(strip.key); if (entry?.strip === strip) { entry.refs = Math.max(0, entry.refs - 1); this.trim(); } }
@@ -64,17 +73,28 @@ export class PoseCache {
     for (const e of idle.slice(0, Math.max(0, idle.length - this.keep))) { this.entries.delete(e.strip.key); e.strip.release(); }
   }
   /** Leaving the map: every strip's texture goes, pending loads are dropped. */
-  clear(): void { this.abort.abort(); this.abort = new AbortController(); this.pending.clear(); this.failed.clear(); for (const e of this.entries.values()) e.strip.release(); this.entries.clear(); }
+  clear(): void { this.abort.abort(); this.abort = new AbortController(); this.pending.clear(); this.failures.clear(); for (const e of this.entries.values()) e.strip.release(); this.entries.clear(); }
 }
 
-/** One avatar on the field: its body (a strip frame), a placeholder until the art is in, the name and the flag. */
+/** One avatar on the field: its body (a strip frame), a placeholder until the art is in, the name, the flag and (an
+ * NPC) its level stars. A famous NPC also holds its blink strip, played over the standing frame now and then. */
 export class AvatarActor {
   readonly root = new Container();
   readonly body = new Sprite(Texture.EMPTY);
   readonly placeholder = new Graphics();
   readonly name: Text;
   readonly flag = new Sprite(Texture.EMPTY);
+  readonly stars = new Container();
   strip: PoseStrip | null = null;
+  /** A famous NPC's blink (cn_t), its key, when it started (null: standing) and when the next one starts. */
+  blink: PoseStrip | null = null;
+  blinkWanted = '';
+  blinkAt: number | null = null;
+  nextBlink = 0;
+  /** An NPC drawn in the default look (its own art failed): warned once. */
+  fellBack = false;
+  /** The stars shown (big/small), '' for none. */
+  starsKey = '';
   wanted = '';
   frame = 0;
   started = 0;
@@ -94,10 +114,19 @@ export class AvatarActor {
     this.name = new Text({ text: name, style: { fontFamily: 'Arial, sans-serif', fontSize: 16, fill: 0xffffff, letterSpacing: 0.64, stroke: { color: 0x000000, width: 3, join: 'round' } }, resolution: 1 });
     this.name.anchor.set(0, 0.5); this.name.position.set(0, NAME_TAG_Y);
     this.flag.visible = false; this.flag.position.set(-FLAG_WIDTH, NAME_TAG_Y + FLAG_TOP);
-    this.root.addChild(this.placeholder, this.body, this.flag, this.name);
+    this.stars.label = 'stars'; this.stars.visible = false; this.stars.position.set(NPC_STARS_X, NPC_STARS_Y);
+    this.root.addChild(this.placeholder, this.body, this.stars, this.flag, this.name);
+  }
+  /** The level stars from the two star pictures (16 px and 8 px), rebuilt only when the count changes. */
+  setStars(stars: NpcStars | undefined, big: Texture | null, small: Texture | null): void {
+    const key = stars && (stars.big || stars.small) && big && small ? `${stars.big}/${stars.small}` : '';
+    if (key === this.starsKey) return;
+    this.starsKey = key; for (const child of this.stars.removeChildren()) child.destroy();
+    this.stars.visible = !!key; if (!key || !stars) return;
+    for (const cell of npcStarCells(stars)) { const star = new Sprite(cell.big ? big! : small!); star.position.set(cell.x, cell.y); this.stars.addChild(star); }
   }
   setName(name: string): void { if (this.name.text !== name) this.name.text = name; }
   setFlag(texture: Texture | null): void { this.flag.texture = texture ?? Texture.EMPTY; this.flag.visible = !!texture; this.flag.width = FLAG_WIDTH; this.flag.height = FLAG_HEIGHT; }
-  show(strip: PoseStrip, now: number): void { this.strip = strip; this.started = now; this.frame = 0; this.body.texture = strip.frames[0]; this.body.visible = true; this.placeholder.visible = false; this.drawn = true; }
+  show(strip: PoseStrip, now: number): void { this.strip = strip; this.started = now; this.frame = 0; this.blinkAt = null; this.body.texture = strip.frames[0]; this.body.visible = true; this.placeholder.visible = false; this.drawn = true; }
   destroy(): void { this.root.destroy({ children: true }); }
 }

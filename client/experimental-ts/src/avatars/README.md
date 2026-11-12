@@ -1,6 +1,6 @@
 # Layered player avatars
 
-Browser entry point: `src/avatars/index.ts`. No original asset bytes or generated motion records are tracked here. This implements the **chibi player** path, not the waist-up PBIN portrait compositor or NPC renderer.
+Browser entry point: `src/avatars/index.ts`. No original asset bytes or generated motion records are tracked here. This implements the **chibi player** path and the famous NPCs' own chibi art (`npc.ts`, CNpcChibiAvatar: cn_ sets, blink, level stars; `load(parts, { npc: { set } })`), not the waist-up PBIN portrait compositor.
 
 ```ts
 import { AvatarLoader } from './avatars';

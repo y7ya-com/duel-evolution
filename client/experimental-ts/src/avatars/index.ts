@@ -4,14 +4,23 @@ import { checkAbort } from '../assets/async';
 import { avatarParts, avatarPose, resolveAvatarPngs } from './appearance';
 import type { AvatarMotion } from './appearance';
 import { AvatarMovie } from './movie';
+import { isNpcChibiSet, npcPose, resolveNpcPngs } from './npc';
 export { AvatarMovie, multiply } from './movie';
 export type { AvatarLayer, Matrix } from './movie';
 export { avatarParts, defaultAvatar, resolveAvatarPngs, avatarPose, avatarDirection, AVATAR_MOTIONS } from './appearance';
 export type { AvatarMotion } from './appearance';
+export { npcChibiSet, npcPose, npcStars, npcBlinkDelay, resolveNpcPngs } from './npc';
+export type { NpcMotion, NpcStars } from './npc';
 /** AssetManager satisfies this interface; loader never owns/disposes the manager. */
 export interface AvatarAssets { readScene(path: string, signal?: AbortSignal): Promise<AssetLease>; }
 export interface AvatarBitmap { readonly width: number; readonly height: number; close(): void; }
-export interface AvatarLoadOptions { world?: 0 | 1; motion?: AvatarMotion; direction?: number; signal?: AbortSignal; }
+export interface AvatarLoadOptions { world?: 0 | 1; motion?: AvatarMotion; direction?: number; signal?: AbortSignal;
+  /** A famous NPC's own art (CNpcChibiAvatar): its cn_ set (a03 Alexis Rhodes) and the blink instead of standing. The
+   * parts are not read and `motion` / `world` do not apply. */
+  npc?: { set: string; blink?: boolean };
+}
+/** What drawing needs of a pose: the movie, its mirroring, the root offset and the foot point, and whether it loops. */
+export interface AvatarPoseInfo { readonly path: string; readonly mirrored: boolean; readonly offset: readonly [number, number]; readonly foot: readonly [number, number]; readonly loop: boolean }
 export interface AvatarLoaderOptions {
   /** Aggregate decoded pixels + retained bytes, including live resources. Default 32 MiB. */
   budgetBytes?: number;
@@ -26,7 +35,7 @@ export interface AvatarDrawOptions { x?: number; y?: number; scale?: number; fra
 }
 export class AvatarResource {
   private closed = false;
-  constructor(readonly movie: AvatarMovie, readonly pose: ReturnType<typeof avatarPose>, readonly paths: readonly string[],
+  constructor(readonly movie: AvatarMovie, readonly pose: AvatarPoseInfo, readonly paths: readonly string[],
     private readonly images: ReadonlyMap<number, AvatarBitmap>, private cleanup: () => void) {}
   /** Milliseconds at source frame rate; non-looping motions hold their last frame. */
   frameAt(elapsedMs: number): number {
@@ -83,11 +92,18 @@ export class AvatarLoader {
   async load(appearance: ArrayLike<number>, options: AvatarLoadOptions = {}): Promise<AvatarResource> {
     if (this.closed) throw new Error('Avatar loader disposed');
     checkAbort(options.signal);
+    if (options.npc) {
+      const set = options.npc.set; if (!isNpcChibiSet(set)) throw new Error('Invalid NPC chibi set');
+      return this.build(npcPose(options.npc.blink ? 'blink' : 'stand', options.direction), files => resolveNpcPngs(files, set), options.signal);
+    }
     const parts = avatarParts(appearance), pose = avatarPose(options.motion, options.direction), world = options.world ?? 0;
     if (world !== 0 && world !== 1) throw new Error('Invalid avatar world');
+    return this.build(pose, files => resolveAvatarPngs(files, parts, world), options.signal);
+  }
+  private async build(pose: AvatarPoseInfo, resolveNames: (files: readonly string[]) => string[], outer?: AbortSignal): Promise<AvatarResource> {
     const controller = new AbortController(), signal = controller.signal;
     const cancel = (): void => controller.abort();
-    options.signal?.addEventListener('abort',cancel,{once:true}); this.pending.add(controller);
+    outer?.addEventListener('abort',cancel,{once:true}); this.pending.add(controller);
     const leases: AssetLease[] = [], images = new Map<number, AvatarBitmap>(); let charged = 0;
     const reserve = (bytes: number): void => {
       if (bytes > this.budget - this.used) throw new Error('Avatar decoded resource budget exceeded');
@@ -109,7 +125,7 @@ export class AvatarLoader {
         movie = new AvatarMovie(local ?? new TextDecoder('utf-8',{fatal:true}).decode(metadata!.value.bytes));
       } finally { metadata?.release(); }
       if (movie.issues.length) throw new Error(`Unsupported avatar features: ${movie.issues.join(', ')}`);
-      const names = resolveAvatarPngs(movie.files,parts,world);
+      const names = resolveNames(movie.files);
       const paths = names.map(n => `data/Avatar/chibi/${n}`), byPath = new Map<string, AvatarBitmap>();
       // Source movie may reference different images on later frames: retain exactly one lease per filename.
       for (let i = 0; i < paths.length; i++) {
@@ -131,7 +147,7 @@ export class AvatarLoader {
       const resource = new AvatarResource(movie,pose,paths,images,() => { this.live.delete(resource); cleanup(); });
       this.live.add(resource); return resource;
     } catch (error) { cleanup(); throw error; }
-    finally { this.pending.delete(controller); signal.removeEventListener('abort',cleanup); options.signal?.removeEventListener('abort',cancel); }
+    finally { this.pending.delete(controller); signal.removeEventListener('abort',cleanup); outer?.removeEventListener('abort',cancel); }
   }
   /** Cancels pending loads and closes every owned bitmap/lease; does not dispose the asset source. */
   dispose(): void {

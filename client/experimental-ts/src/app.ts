@@ -49,6 +49,7 @@ import { chooseInitialArrival } from './world/arrival';
 import { isWalkable } from './world/pathfinding';
 import { WorldRuntime } from './world/runtime';
 import { npcsOnMap, npcStance } from './world/npcs';
+import { npcChibiSet, npcStars } from './avatars/npc';
 import { arrivalEntries, chooseArrival, SHOP_DOOR, SHOP_DOOR_REARM } from './world/exits';
 import type { ExitTrigger } from './world/exits';
 import type { WorldMap, WorldPosition } from './world/maps';
@@ -623,16 +624,18 @@ export class ClientApp implements ClientController {
   private npcAvatarCache:{key:readonly unknown[];avatars:LobbyAvatar[]}|null = null;
   /** The NPCs standing on this map (the area map's NPC builder, src/world/npcs.ts) as avatars: id -npc (the NPC
    * card's own entry), standing idle where their spot puts them; built once per map visit and NPC list, so a spot
-   * that faces a random way keeps that facing while the player stays. */
+   * that faces a random way keeps that facing while the player stays. The famous NPCs (ids 51..94, sent with all-zero
+   * parts) carry their own art's set and every NPC its level stars, as CNpcChibiAvatar (src/avatars/npc.ts). */
   private mapNpcAvatars(state:SessionState,worldMap:WorldMap|undefined): LobbyAvatar[] {
     if (!worldMap || this.freeMode || state.location==='my-room' || !worldMap.npcSpots.length) return [];
-    const key = [worldMap,state.npcs,state.npcbin,this.worldSpawnContext];
+    const key = [worldMap,state.npcs,state.npcbin,state.pbin,this.worldSpawnContext];
     if (this.npcAvatarCache && this.npcAvatarCache.key.every((v,i)=>v===key[i])) return this.npcAvatarCache.avatars;
     const npcbin = state.npcbin, rank = (id:number) => npcbin && id*4+3 < npcbin.length ? npcbin[id*4+3]! : 0;
     const world = ([4,5,6,7].includes(worldMap.id)?1:0) as 0|1, old = new Map((this.npcAvatarCache?.avatars ?? []).map(a=>[a.id,a]));
     const avatars = npcsOnMap(worldMap,state.npcs,rank).map(({npc,spot}):LobbyAvatar => {
       const kept = old.get(-npc.id), at = kept && kept.x===spot.x && kept.y===spot.y ? { x:kept.x,y:kept.y,direction:kept.direction ?? 0 } : npcStance(spot,this.options.random);
-      return { id:-npc.id,name:npc.name,x:at.x,y:at.y,direction:at.direction,npc:true,parts:npc.parts,world,motion:'stand' };
+      const set = npcChibiSet(npc.id), stars = npcbin ? npcStars(npc,state.npcs,npcbin,state.pbin) : undefined;
+      return { id:-npc.id,name:npc.name,x:at.x,y:at.y,direction:at.direction,npc:true,parts:npc.parts,...(set ? { npcArt:set } : {}),...(stars ? { stars } : {}),world,motion:'stand' };
     });
     this.npcAvatarCache = { key,avatars }; return avatars;
   }
