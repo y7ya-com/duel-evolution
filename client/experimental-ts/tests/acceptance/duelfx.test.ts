@@ -12,8 +12,9 @@ const SAMPLER = `(()=>{window.__fx={};window.__fxSeen=[];window.__fxShots={};set
   let n=0;for(let i=3;i<d.length;i+=64)if(d[i]>16)n++;
   for(const k of kinds){if(!(k in window.__fx))window.__fxSeen.push(k);if(n>(window.__fx[k]||0)){window.__fxShots[k]=c.toDataURL();}window.__fx[k]=Math.max(window.__fx[k]||0,n);}},30);})()`;
 const painted = (page:Awaited<ReturnType<typeof openPage>>) => page.ev(`JSON.stringify(window.__fx||{})`).then(s => JSON.parse(s as string) as Record<string,number>);
-/** A portrait's painted pixels: its shown eye frame (an <img> of the 768×768 composition) read through a 2D copy. */
-const portrait = (side:0|1) => `(()=>{const p=document.querySelector('.de-duel-portrait.side-${side}');const c=p&&!p.hidden&&[...p.querySelectorAll('img')].find(i=>i.style.visibility!=='hidden'&&i.complete&&i.naturalWidth);if(!c)return 0;const t=document.createElement('canvas');t.width=t.height=768;const g=t.getContext('2d');g.drawImage(c,0,0);const d=g.getImageData(0,0,768,768).data;let n=0;for(let i=3;i<d.length;i+=256)if(d[i]>16)n++;return n;})()`;
+/** A portrait's painted pixels: its shown eye frame (an <img> of the 768×768 composition, or a famous NPC's 1024×768
+ * screen picture) read through a 2D copy of its whole size. */
+const portrait = (side:0|1) => `(()=>{const p=document.querySelector('.de-duel-portrait.side-${side}');const c=p&&!p.hidden&&[...p.querySelectorAll('img')].find(i=>i.style.visibility!=='hidden'&&i.complete&&i.naturalWidth);if(!c)return 0;const t=document.createElement('canvas');t.width=c.naturalWidth;t.height=c.naturalHeight;const g=t.getContext('2d');g.drawImage(c,0,0);const d=g.getImageData(0,0,t.width,t.height).data;let n=0;for(let i=3;i<d.length;i+=256)if(d[i]>16)n++;return n;})()`;
 
 describe.skipIf(!enabled)('duel presentation with original art',() => {
   it('draws portraits, the card box and the original effects during a live NPC duel',async () => {
