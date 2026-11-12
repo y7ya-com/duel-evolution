@@ -6,7 +6,7 @@ import type { SocialTrade } from '../src/features/social';
 
 const trade = (patch: Partial<SocialTrade> = {}, view: Partial<SocialTrade['view']> = {}): SocialTrade => ({ phase: 'open', partner: { pid: 2, name: 'B' }, ownOffer: [], pendingMove: null,
   view: { ...initialTradeView(), trunk: [{ passcode: 11, count: 2 }, { passcode: 22, count: 1 }, { passcode: 33, count: 1 }], limit: [{ passcode: 33, count: 1 }], ...view }, ...patch });
-const card = (passcode: number) => ({ id: String(passcode), passcode, name: `Card ${passcode}`, type: 'Spell Card', limit: 0 });
+const card = (passcode: number) => ({ id: String(passcode), passcode, name: `Card ${passcode}`, type: 'Spell Card', limit: 0, rarity: 'SR' });
 
 describe("the trade's trunk (the deck screen's CWindowModelKaban)", () => {
   it('lists the copies this side may offer as trunk rows, and offers the card a row is pressed on', () => {
@@ -22,6 +22,7 @@ describe("the trade's trunk (the deck screen's CWindowModelKaban)", () => {
     expect(rows.every(r => (r.parts as { sprites: { col: number[] }[] }).sprites.every(s => s.col[0] === 1))).toBe(true);
     // the count box: the cards offered
     expect(spec.win.controls.find(c => c.cls === 'CWindowTaskKabanNumber')?.count).toBe(1);
+    expect(t.card(22)?.rarity).toBeUndefined();   // no crafting rarity badge on a trade's rows
     t.pick('trunk', 1, 22); expect(dispatch).toHaveBeenCalledWith({ type: 'addTradeCard', passcode: 22 });
     t.quick(); expect(dispatch).toHaveBeenCalledTimes(1);
   });

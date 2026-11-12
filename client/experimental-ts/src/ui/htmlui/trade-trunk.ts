@@ -32,8 +32,10 @@ export class TradeTrunk implements DeckDomScene {
       if (seen.has(entry.passcode)) continue; seen.add(entry.passcode);
       const left = tradeableCopies(t, entry.passcode); if (left < 1) continue;
       // owned = what may be offered plus what is offered (the deck's copies: the offer), so the row's figure is the
-      // copies left; no banlist dimming (limit 3): a trade is no deck
-      const card: CardView = { ...this.o.card(entry.passcode), owned: left + (offered.get(entry.passcode) ?? 0), limit: 3 };
+      // copies left; no banlist dimming (limit 3): a trade is no deck; no rarity badge (main's crafting mark, the
+      // deck editor's own addition)
+      const { rarity: _rarity, ...base } = this.o.card(entry.passcode);
+      const card: CardView = { ...base, owned: left + (offered.get(entry.passcode) ?? 0), limit: 3 };
       this.cards.push(card); this.byPc.set(entry.passcode, card);
     }
     const deck: DeckView = { name: '', main: [...t.ownOffer], side: [], extra: [] };
