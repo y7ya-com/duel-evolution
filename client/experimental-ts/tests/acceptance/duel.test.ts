@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, click, openDeckEditor, exitDeckEditor, until, press, pressAvatar, type, byKey, sleep, screenshot, record, prepareDuel, duelBot, startNpcDuel, surrender, claimStarter, type Page, createCharacter, freeSlot, cardButton, lobbyShown, listedNames, npcNames, claimNpcReward, pointerAway } from './harness';
-import { resultShown, resultLeave } from './harness';
+import { resultShown, resultLeave, findNpc } from './harness';
 import { ArchiveReader } from '../../src/assets/archive';
 
 /** Duel mechanics through two real browsers: each player's screen is the oracle for the other's (mirrored), and the
@@ -378,6 +378,8 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
         // after a duel its result's Next; in the lobby the Main Menu has no Return to Lobby (as live)
         if (!await page.ev(lobbyShown) && await page.ev(resultShown)) await press(page,resultLeave).catch(() => {});
         await until(page,lobbyShown,60000);
+        // the NPC's area (a character starts out in Duel Academy; the famous Domino NPCs stand elsewhere)
+        await findNpc(page,npc).catch(() => {});
         const listed = await npcNames(page);
         if (!listed.includes(npc)) { results.push(`${npc}: not in this area (${listed.join(', ')})`); continue; }
         try { await startNpcDuel(page,npc); } catch (error) { results.push(`${npc}: no duel (${String(error).slice(0,120)})`); continue; }
