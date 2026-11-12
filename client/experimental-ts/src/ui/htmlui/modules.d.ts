@@ -56,10 +56,6 @@ declare module '@htmlui/screens/duelsetup.js' {
   export function prep(win: unknown): { controls: { id: number | string; x: number; y: number; w: number; h: number }[] };
 }
 declare module '@htmlui/screens/*.js' { const screen: HtmlUiScreen; export default screen; }
-declare module '@htmlui/mock/*.json' {
-  const snapshot: { windows: { cls: string; x: number; y: number; w: number; h: number; controls: Record<string, unknown>[] }[] };
-  export default snapshot;
-}
 declare module '@htmlui/shop/index.js' {
   /** main's full-screen card shop (bridge.js onYo2ShopOpen): GET /api/de/shop, /api/de/shop/pack, POST /api/de/shop/buy, the
    * Cosmetic Boxes tab (/api/de/cosmetics), all same-origin with the session cookie. */

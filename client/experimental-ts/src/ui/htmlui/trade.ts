@@ -13,8 +13,8 @@ import { WindowBuilder } from './snapshot';
 import type { Ids, WindowSpec } from './snapshot';
 import type { Picture } from './pictures';
 import { messageDialog } from './windows';
-import dialogYesNo from '@htmlui/mock/dialog-yesno.json';
-import dialogOk from '@htmlui/mock/dialog-ok.json';
+import dialogYesNo from './templates/dialog-yesno.json';
+import dialogOk from './templates/dialog-ok.json';
 
 /** The trade's own state between snapshots: the final Yes sent (the server's answer is the trade's end). */
 export interface TradeLocal { confirmed: boolean; cancelAsk: boolean }
