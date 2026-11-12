@@ -15,14 +15,13 @@ import social from '@htmlui/screens/social.js';
 import dialog from '@htmlui/screens/dialog.js';
 import duelsetup, { prep as duelsetupPrep } from '@htmlui/screens/duelsetup.js';
 import deck from '@htmlui/screens/deck.js';
-import shop from '@htmlui/screens/shop.js';
 import trade from '@htmlui/screens/trade.js';
 import duel from '@htmlui/screens/duel.js';
 import packselect from '@htmlui/screens/packselect.js';
 import avatar from '@htmlui/screens/avatar.js';
 import result from '@htmlui/screens/result.js';
 import { chatBubblesFrame } from '@htmlui/chat-bubbles.js';
-import { pictures, balloon } from './pictures';
+import { pictures } from './pictures';
 import { npcBalloonScreen, npcInfoScreen } from './npc-talk';
 import { syncWindow, covers } from '@htmlui/controls/basic.js';
 import { duelWindow } from '@htmlui/controls/skin.js';
@@ -33,19 +32,19 @@ import type { ControlHandlers, HtmlSnapshot, HtmlWindow, WindowSpec } from './sn
 
 /** main's modules by class (bridge.js loadScreens' order: a later group's class wins), plus the windows the engine
  * draws on main that the rewrite draws with main's modules (the account dialogs: social.js's owned dialogs). */
-const MODULES: HtmlUiScreen[] = [select, lobby, chat, social, deck, shop, trade, packselect, dialog, duelsetup, duel, avatar, result];
+const MODULES: HtmlUiScreen[] = [select, lobby, chat, social, deck, trade, packselect, dialog, duelsetup, duel, avatar, result];
 // no screen runs in pass mode: the deck editor is owned, its cards and buttons DOM over main's windows (deck-dom.ts);
 // Change Avatar is owned, its plates, page arrows and Confirm / Back each take input on their own element
 const RELAID = new Set(['CWindowModelDuel', 'CWindowModelDuelFind', 'CWindowModelDuelWait']);   // duelsetup.js LAYOUT
-// what the engine draws on main around main's screens (the shop's and the trade's pictures, the clerk's balloon)
-const EXTRA: Record<string, HtmlUiScreen> = { CEnginePictures: pictures, CShopBalloon: balloon, CNpcTalkBalloon: npcBalloonScreen, CNpcTalkInfo: npcInfoScreen };
-// the windows whose module rebuilds its buttons on every change (screens/shop.js, trade.js; duel.js redraws a control
+// what the engine draws on main around main's screens (the trade's pictures), the NPC talk's balloon and plate
+const EXTRA: Record<string, HtmlUiScreen> = { CEnginePictures: pictures, CNpcTalkBalloon: npcBalloonScreen, CNpcTalkInfo: npcInfoScreen };
+// the windows whose module rebuilds its buttons on every change (screens/trade.js; duel.js redraws a control
 // whose snapshot changes, so its hover and pressed looks replace the button under the pointer: janken, Yes / No, the
 // lists): clicked on release
 // result.js (pass mode on main) replaces its Next plate on each look too: Next is clicked on release
 const DECK_PANELS = /^(CWindowModelDeck|CWindowModelKaban|CCardDetailViewDlg)$/;
 const DUEL_DIALOGS = new Set([...duel.classes, ...result.classes]);
-const REBUILT = { test: (cls: string) => /^(CShop|CWindowModelTrade$|CWindowTaskCardArea$|CWindowResultNext$)/.test(cls) || DUEL_DIALOGS.has(cls) };
+const REBUILT = { test: (cls: string) => /^(CWindowModelTrade$|CWindowTaskCardArea$|CWindowResultNext$)/.test(cls) || DUEL_DIALOGS.has(cls) };
 // a window with no module: main's generic controls (controls/basic.js syncWindow, owned: its buttons are real,
 // focusable and click their control), and a plain visible button for a clickable control no renderer draws, so a
 // window the rewrite adds before its screen is never a dead box
@@ -159,7 +158,7 @@ export class HtmlUiLayer {
       // a duel command menu's row is its drawn stripe (htmlui/duel-cmd.ts): its caption and icon over it let the pointer through
       // main's chat.js adds a DOM Duels tab after the game's tabs; the rewrite's chat has its own Duels tab (CHAT_TABS, Join through
       // the rewrite's session), so main's second one (.dz-layer) stays hidden: one Duels tab, as live
-      st.textContent = '#htmlui-host[data-rewrite] { z-index: 45; } body #starter { z-index: 46; } body .de-npc-panel { z-index: 46; } #htmlui-host[data-rewrite] :is(.txt, .win div:not([class]):has(> .txt):not(:has(button, input, textarea, [data-key]))) { pointer-events: none; } #htmlui-host[data-rewrite] :is(.shop-btn, .win[data-window-class^="CWindowTaskCardArea"] button, .win[data-window-class="CWindowModelTrade"] button, .yo2ps-ok, .yo2ps-row) { pointer-events: auto; } #htmlui-host[data-rewrite] .av-arrow > svg { pointer-events: none; } #htmlui-host[data-rewrite] .win:has(.dk-pop) { z-index: 59000 !important; } #htmlui-host[data-rewrite] .win[data-window-class="CWindowTaskCardArea"] { pointer-events: auto !important; } #htmlui-host[data-rewrite] .dz-layer { display: none !important; } #htmlui-host[data-rewrite] .win[data-window-class="CUSummonDialogSp"] :is(.yo2d-text, .yo2d-icon, .yo2d-thin) { pointer-events: none; }';
+      st.textContent = '#htmlui-host[data-rewrite] { z-index: 45; } body #starter { z-index: 46; } #htmlui-host[data-rewrite] :is(.txt, .win div:not([class]):has(> .txt):not(:has(button, input, textarea, [data-key]))) { pointer-events: none; } #htmlui-host[data-rewrite] :is(.shop-btn, .win[data-window-class^="CWindowTaskCardArea"] button, .win[data-window-class="CWindowModelTrade"] button, .yo2ps-ok, .yo2ps-row) { pointer-events: auto; } #htmlui-host[data-rewrite] .av-arrow > svg { pointer-events: none; } #htmlui-host[data-rewrite] .win:has(.dk-pop) { z-index: 59000 !important; } #htmlui-host[data-rewrite] .win[data-window-class="CWindowTaskCardArea"] { pointer-events: auto !important; } #htmlui-host[data-rewrite] .dz-layer { display: none !important; } #htmlui-host[data-rewrite] .win[data-window-class="CUSummonDialogSp"] :is(.yo2d-text, .yo2d-icon, .yo2d-thin) { pointer-events: none; }';
       document.head.append(st);
     }
     document.body.append(this.host);
@@ -315,7 +314,7 @@ export class HtmlUiLayer {
     const id = this.control(e.target); if (!id || !this.looks(id) || !this.handlers.get(id)?.hover) return;
     this.hover = this.pressed = id; this.draw();
   };
-  // main's shop.js and trade.js rebuild their windows on every change (the pressed look too), so the browser's click
+  // main's trade.js rebuilds its windows on every change (the pressed look too), so the browser's click
   // lands on no button (the pressed one was replaced): there a release on the element of the control pressed clicks it
   private onUp = (e: PointerEvent): void => {
     // a touch tap: the layer clicked the control under the finger itself (one click; the browser's own is dropped)
@@ -393,9 +392,8 @@ export class HtmlUiLayer {
   /** main's module, owned, with what the rewrite adds after each update: data-key / aria-label on the elements that
    * stand for the controls that have them (found by where they are: main's screens place one per control). */
   private wrap(mod: HtmlUiScreen): HtmlUiScreen {
-    // the shop's and the trade's roots overlap (the mileage plate over the item window's Confirm): as on main, where the
-    // engine has the pointer, only their buttons take it
-    return { ...mod, mode: 'owned', ...(mod === shop || mod === trade ? { rootInput: 'none' } : {}),
+    // the trade's roots overlap: as on main, where the engine has the pointer, only their buttons take it
+    return { ...mod, mode: 'owned', ...(mod === trade ? { rootInput: 'none' } : {}),
       mount: (win, root, api) => { this.roots.set((win as HtmlWindow).id, root); this.watch(root); return mod.mount ? mod.mount(win, root, api) : new Map(); },
       update: (win, prev, root, api, st) => { mod.update?.(win, prev, root, api, st); this.tag(win as HtmlWindow, root); this.specs.find(s => s.win.id === (win as HtmlWindow).id)?.after?.(root); },
       unmount: (root, st) => { mod.unmount?.(root, st); this.watched.get(root)?.disconnect(); this.watched.delete(root); for (const [id, r] of this.roots) if (r === root) this.roots.delete(id); } };

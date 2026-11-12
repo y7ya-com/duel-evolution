@@ -55,11 +55,3 @@ export function chatCommand(text: string, kind: 0 | 1 | 2 | 3 | 5 = 1, targetPid
   if (chars.length > 128 || text.includes('\0')) throw new RangeError('Chat must be at most 128 characters without NUL');
   return command(0x4400, payload().u8(0).u8(kind).u32(0).u32(targetPid).u32(0).text(text, chars.length + 1).build());
 }
-/** Compatibility path in server/src/duel/tagRelay.ts chat. Full tag controls use HTTP in social.ts. */
-export const tagChatCommands = {
-  invite: (teammate: string, opponent: string, opponentTeammate: string) => {
-    for (const name of [teammate, opponent, opponentTeammate]) if (!name.trim() || /[,\r\n\0]/.test(name)) throw new RangeError('Invalid tag player name');
-    return chatCommand(`/tag invite ${teammate},${opponent},${opponentTeammate}`);
-  },
-  accept: (host = '') => chatCommand(`/tag accept${host ? ` ${host}` : ''}`),
-};

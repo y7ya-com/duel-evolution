@@ -50,6 +50,6 @@ a v2 build (`DRY=1 infra/ship-v2.sh`), then from infra/v2:
     ../../server/node_modules/.bin/wrangler dev -c wrangler.jsonc -c dev/live-stub.jsonc --port 8796 \
       --var PUBLIC_ORIGIN:http://localhost:8796 --var LIVE_ORIGIN:http://127.0.0.1:8895
 
-`dev/live-stub.ts` stands in for `duel-evolution` (it forwards to the stack, and reads /game/, /ui/ files from original,
-read-only). Browser check: `V2_FRONT=1 ACCEPTANCE_CLIENT=http://localhost:8796 ACCEPTANCE_STACK=<stack json>
+`dev/live-stub.ts` stands in for `duel-evolution` (it forwards to the stack, and reads /game/, /cards/, /ui/ files and
+the site icons from original, read-only). Browser check: `V2_FRONT=1 ACCEPTANCE_CLIENT=http://localhost:8796 ACCEPTANCE_STACK=<stack json>
 tools/acceptance.sh tests/acceptance/v2-front.test.ts` from client/experimental-ts.

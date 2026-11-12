@@ -1,6 +1,6 @@
 import type { CardView, DuelCardView, DuelView } from './contracts';
 import { DuelFx, type ArchiveLoader } from './duel-fx';
-import { WaistUpComposer, blinkSchedule, canvasUrl, type EyeFrame } from './duel-portrait';
+import { WaistUpComposer, blinkSchedule, canvasUrl, type EyeFrame, type Expression } from './duel-portrait';
 import { fieldCardPosition } from './helpers';
 
 /** The original duel screen's furniture around the field, with its art: the two waist-up portraits between the backdrop
@@ -144,7 +144,9 @@ export class DuelPresentation {
     if (!this.load) return;
     this.fx.update(duel, reducedMotion);
     this.fx.thinking = thinkingSide(duel);
-    for (const side of [0, 1] as const) this.portrait(side, duel.players[side].parts);
+    // the loser's face at the duel's end (live: the result screen's sweating, gritted-teeth portrait)
+    const loser = duel.ended === 'Victory' ? 1 : duel.ended === 'Defeat' ? 0 : -1;
+    for (const side of [0, 1] as const) this.portrait(side, duel.players[side].parts, side === loser ? 'lose' : 'normal');
     this.drawStats();
   }
   private lastCue: number | null = null;
@@ -185,13 +187,13 @@ export class DuelPresentation {
     for (const img of Object.values(face.frames)) { if (img.src?.startsWith('blob:')) URL.revokeObjectURL(img.src); img.remove(); }
     face.frames = {};
   }
-  private portrait(side: 0 | 1, parts: Uint8Array | undefined): void {
-    const box = this.portraits[side], key = parts ? Array.from(parts).join('.') : '';
+  private portrait(side: 0 | 1, parts: Uint8Array | undefined, expression: Expression = 'normal'): void {
+    const box = this.portraits[side], key = parts ? `${Array.from(parts).join('.')}:${expression}` : '';
     if (key === this.portraitKeys[side]) return;
     this.portraitKeys[side] = key;
     const face = this.faces[side]; if (face.timer !== null) this.clearTimer(face.timer); face.timer = null;
     if (!parts || !this.composer) { this.dropFrames(side); box.hidden = true; return; }
-    void this.composer.composeFrames(parts, side === 0 ? 1 : 0, this.abort.signal).then(async composed => {
+    void this.composer.composeFrames(parts, side === 0 ? 1 : 0, this.abort.signal, expression).then(async composed => {
       if (this.portraitKeys[side] !== key || !composed[1]) return;
       // each frame a picture of its own, decoded before it can show, so a blink never waits on one
       const frames: Partial<Record<EyeFrame, HTMLImageElement>> = {};
@@ -201,7 +203,7 @@ export class DuelPresentation {
         await img.decode().catch(() => {}); frames[f] = img;
       }));
       if (this.portraitKeys[side] !== key || this.abort.signal.aborted || !frames[1]) { for (const img of Object.values(frames)) URL.revokeObjectURL(img.src); return; }
-      this.dropFrames(side); face.frames = frames; box.append(...Object.values(frames)); box.dataset.parts = key;
+      this.dropFrames(side); face.frames = frames; box.append(...Object.values(frames)); box.dataset.parts = key.replace(/:.*$/, ''); box.dataset.expression = expression;
       this.showEyes(side, 1); box.hidden = false;
       this.blink(side);
     }).catch(() => { box.hidden = true; });

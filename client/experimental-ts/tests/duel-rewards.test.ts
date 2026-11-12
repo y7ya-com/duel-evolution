@@ -34,9 +34,11 @@ describe('result board (main\'s result.js windows)', () => {
   it('an NPC duel shows the two records (WIN / LOSE / SCORE, the NPC\'s the other way round), the titles\' art and Next, as live', () => {
     const specs = duelResultWindows({ ids: ids as never, duel: duel({ npcRecord: { name: 'Chumley', wins: 3, losses: 2, draws: 1 }, rewards: { mp: 150, score: 90, level: [7, 8] } }), next: () => {} });
     expect(specs.map(s => s.win.cls)).toEqual(['CWindowResult', 'CWindowResult', 'CEnginePictures', 'CWindowResultNext']);
-    expect(texts(specs)).toEqual(expect.arrayContaining(['Chumley', 'WIN', 'LOSE', 'SCORE', 'MP', 'Level']));
-    expect(specs[3]!.win.controls[0]!.label).toBe('Next');
-    expect((specs[0]!.win.nums ?? []).map(n => n.text)).toEqual(['3', '2', '90', '+150', '7 → 8']);
+    // live's record: one 24 px ShadowText, the name and the captions a blank line apart; no MP or level row
+    expect(texts(specs)).toEqual(expect.arrayContaining(['Jaden\n\nWIN\n\nLOSE\n\nSCORE', 'Chumley\n\nWIN\n\nLOSE\n\nSCORE']));
+    expect([...specs[3]!.handlers.values()].map(h => [h.key, h.label])).toEqual([['duel-result-next', 'Next']]);
+    expect(texts([specs[3]!])).toContain('Next');
+    expect((specs[0]!.win.nums ?? []).map(n => n.text)).toEqual(['3', '2', '90']);
     expect((specs[1]!.win.nums ?? []).map(n => n.text)).toEqual(['2', '3', '0']);
     expect(((specs[2]!.win as unknown as { pics: { source: { archive: string } }[] }).pics).map(p => p.source.archive)).toEqual(expect.arrayContaining([expect.stringMatching(/result_(winner|loser|draw)_01_\?\.png$/)]));
   });
@@ -46,10 +48,10 @@ describe('result board (main\'s result.js windows)', () => {
     expect(counts(duel({ npcRecord: { name: 'Chumley', wins: 3, losses: 2, draws: 1 } }))).toEqual(['3', '2']);
     expect(counts(duel({}))).toEqual(['1', '0']);
   });
-  it('a PvP duel keeps one record per side and adds the player\'s rewards on their own board', () => {
+  it('a PvP duel keeps one record per side and the player\'s score on their own board (no MP row: live shows none)', () => {
     const specs = duelResultWindows({ ids: ids as never, duel: duel({ rewards: { mp: 0, score: -20, level: [9, 9] } }), next: () => {} });
     expect(specs.map(s => s.win.cls).filter(c => c !== 'CEnginePictures')).toEqual(['CWindowResult', 'CWindowResult', 'CWindowResultNext']);
-    expect((specs[0]!.win.nums ?? []).map(n => n.text)).toEqual(['3200', '9', '0', '-20']);
+    expect((specs[0]!.win.nums ?? []).map(n => n.text)).toEqual(['3200', '9', '-20']);
     expect((specs[1]!.win.nums ?? []).map(n => n.text)).toEqual(['0', '9']);
   });
 });

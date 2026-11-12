@@ -160,7 +160,6 @@ describe('ClientApp with actual server and GameSession', () => {
     expect(a.app.getState().sideboarding!.ready).toBe(false);
     await expect(a.app.dispatch({type:'submitSideboard'})).rejects.toThrow(/original Main and Side counts/);
     await a.send({type:'sideboardMove',passcode:original.main[0],from:'side',to:'main',index:0});
-    await a.send({type:'openScene',scene:'settings'});
     await expect(a.app.dispatch({type:'openScene',scene:'lobby'})).rejects.toThrow(/Finish or surrender/);
     await a.send({type:'openScene',scene:'duel'});
     await drive(Promise.all([a.app.dispatch({type:'submitSideboard'}),b.app.dispatch({type:'submitSideboard'})]));
@@ -171,10 +170,9 @@ describe('ClientApp with actual server and GameSession', () => {
     expect(a.app.getState().duel?.ended).toBeUndefined(); expect(a.app.diagnostics.duel.sequence).toBeGreaterThan(0);
     expect(a.app.diagnostics.duel.errors).toEqual([]); expect(a.app.diagnostics.duel.unsupported).toEqual([]);
   });
-  it('cannot leave an unfinished duel through the settings scene', async () => {
+  it('cannot leave an unfinished duel for another scene', async () => {
     setDuelCore(await createNodeDuelCore()); const f = harness(); await f.enter(); await beginNpc(f);
     expect(f.app.diagnostics.duel.status).not.toBe('finished');
-    await f.send({ type: 'openScene', scene: 'settings' });
     await expect(f.app.dispatch({ type: 'openScene', scene: 'lobby' })).rejects.toThrow(/Finish or surrender/);
   });
   it('plays projected NPC prompts to a natural result and rejects stale/double responses', async () => {

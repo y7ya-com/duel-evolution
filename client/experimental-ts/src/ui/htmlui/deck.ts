@@ -8,7 +8,7 @@
 import type { CardView, DeckView, DeckZone } from '../contracts';
 import { cardKind, cardSearchRank } from '../deck';
 import { Ids, WindowBuilder } from './snapshot';
-import type { HtmlControl, HtmlWindow, WindowSpec } from './snapshot';
+import type { HtmlControl, WindowSpec } from './snapshot';
 
 // ---------------------------------------------------------------- the editor's own state (what the engine's windows keep)
 /** main's trunk search (screens/deck.js searchPanel: emptyFilter), as its panel hands it to the game. */
@@ -377,21 +377,6 @@ export function deckWindow(ctx: DeckContext): WindowSpec {
   return b.spec();
 }
 
-/** Which deck card is under a game point (the one drawn on top: the later column), from the window built. */
-export function deckCardAt(win: HtmlWindow, x: number, y: number): { zone: DeckZone; index: number; passcode: number } | null {
-  let best: HtmlControl | null = null;
-  for (const c of win.controls) {
-    const cx = Number(c.wx), cy = Number(c.wy);
-    if (c.cls === 'CWindowTaskDeckCard' && Number(c.card) > 0 && x >= cx && x < cx + 50 && y >= cy && y < cy + 72 && (!best || c.z > best.z)) best = c;
-  }
-  return best ? { zone: best.zone as DeckZone, index: Number(best.index), passcode: Number(best.passcode) } : null;
-}
-/** A grid's slot at a game point (a reorder's target), or the end of the grid. */
-export function gridIndex(zone: DeckZone, count: number, x: number, y: number): number {
-  if (zone === 'side') return Math.max(0, Math.min(count - 1, Math.floor((x - GRID.x) / sideDx(count))));
-  const col = Math.max(0, Math.min(GRID.perRow - 1, Math.floor((x - GRID.x) / GRID.dx))), row = Math.max(0, Math.floor((y - GRID.y) / GRID.dy));
-  return Math.max(0, Math.min(count - 1, row * GRID.perRow + col));
-}
 /** The drop zones (DeckEntryMain.cpp deckDropTarget / inTrunkZone): the grids 256..728, the trunk 744..956. */
 export function dropZone(view: 'main' | 'extra', x: number, y: number): DeckFrom | null {
   if (x > 744 && x < 956 && y > 88 && y < 704) return 'trunk';

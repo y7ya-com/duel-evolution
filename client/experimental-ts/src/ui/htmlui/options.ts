@@ -4,7 +4,7 @@
 // setting), the help text the engine writes for the hovered choice (yo2text 0x1982..0x1989), OK keeps the choices and
 // Cancel drops them (the engine keeps a choice only on OK). The title's OPTIONS (the engine's COptionDlg): language,
 // screen mode and volume, OK / Cancel. Pure: no DOM.
-import duelConfigMock from '@htmlui/mock/duelsetup-config.json';
+import duelConfigMock from './templates/duelsetup-config.json';
 import { GAME_LANGUAGES, type GameLanguage } from '../../features/language';
 import { duelOptions, type ActivationMessage, type DuelOptions, type SettingsView } from '../contracts';
 import { Ids, WindowBuilder } from './snapshot';

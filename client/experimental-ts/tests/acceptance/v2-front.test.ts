@@ -57,8 +57,8 @@ describe.skipIf(!on)('v2 front over the live server', () => {
       for (let i = 0; ; i++) {
         try { await startNpcDuel(page, 'Yami Yugi'); break; } catch (e) {
           if (i >= 2) throw e;
-          const close = `[...document.querySelectorAll('[aria-label="NPC interaction"] button')].find(b=>b.textContent==='Close NPC')`;
-          if (await page.ev(`Boolean(${close})`)) await press(page, close).catch(() => {});
+          // a wrong row's talk: its balloon's No / Escape leaves it
+          await page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }); await page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
           await sleep(1000);
         }
       }

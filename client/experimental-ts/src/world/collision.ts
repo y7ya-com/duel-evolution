@@ -11,8 +11,6 @@ export function exitIndexFromPixel(argb: number): ExitIndex | null {
 }
 /** Exact ARGB comparisons, no brightness/alpha tolerance. Exits also count as walls. */
 export function isWallPixel(argb: number): boolean { return argb === BLACK_HIT_PIXEL || exitIndexFromPixel(argb) !== null; }
-/** Exact region classification from CFieldMap::heightAt. */
-export function heightPixelRegion(argb: number): 'red' | 'other' { return argb === RED_HEIGHT_PIXEL ? 'red' : 'other'; }
 /** Verified PE constants at 0x00bf24c0 / 0x00be8198, not inferred from art. */
 export function heightScaleFromPixel(argb: number): number { return argb === RED_HEIGHT_PIXEL ? Math.fround(0.7) : 1; }
 function abort(signal?: AbortSignal): void { if (signal?.aborted) throw new DOMException('Collision operation aborted', 'AbortError'); }

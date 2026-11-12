@@ -4,13 +4,12 @@ import type { NpcState } from '../features/npc';
 import type { AvatarLoadOptions, AvatarResource } from '../avatars';
 import type { WorldScene } from '../world/scene';
 import type { AccountAction, AccountState } from '../features/account';
-import type { CaptureStatus } from '../parity/live';
 import type { AudioAction, AudioState } from '../features/audio';
 import type { SocialAction, SocialState } from '../features/social';
 import type { OnlineAction, OnlineState } from '../features/online';
 import type { TagLobbyAction, TagLobbyState } from '../features/tag';
 /** Render-only browser UI contract. No component reads guest memory or opens a socket. */
-export type Scene = 'title' | 'characters' | 'lobby' | 'deck' | 'shop' | 'duel' | 'settings';
+export type Scene = 'title' | 'characters' | 'lobby' | 'deck' | 'shop' | 'duel';
 export type DeckZone = 'main' | 'side' | 'extra';
 export interface CharacterView { slot: number; name: string; level?: number; selected?: boolean; /** The 16 avatar bytes Select Player's waist-up portrait wears. */ parts?: number[]; }
 export interface PlayerView { id: number; name: string; level?: number; mp?: number; }
@@ -157,7 +156,6 @@ export interface ClientView {
   location?: 'world' | 'my-room';
   matchmaking?: { status: 'idle' | 'searching' | 'matched'; style: 3 | 6; similarLevel: boolean; opponent: { pid: number; name: string } | null; counts: { single: number; match: number; either: number }; matchSupported: false };
   accountDetail?: AccountState;
-  capture?: CaptureStatus;
   audio?: AudioState;
   socialDetail?: SocialState;
   online?: OnlineState;
@@ -207,7 +205,6 @@ export type ClientCommand =
   | { type: 'startMatchmaking'; style?: 3 | 4 | 6; similarLevel?: boolean }
   | { type: 'cancelMatchmaking' | 'refreshMatchmaking' | 'retryMatchmaking' }
   | { type: 'accountAction'; action: AccountAction }
-  | { type: 'captureStart' | 'captureStop' | 'captureDownload' }
   | { type: 'audioAction'; action: AudioAction }
   | { type: 'socialAction'; action: SocialAction }
   | { type: 'onlineAction'; action: OnlineAction }
@@ -277,6 +274,8 @@ export interface ClientController {
   loadArchiveImage?(path: string, signal: AbortSignal): Promise<{ url: string; release(): void }>;
   /** One original file's bytes for main's page modules (htmlui/lazy-shim.ts). */
   readGameFile?(path: string, signal?: AbortSignal): Promise<Uint8Array>;
+  /** merge.dat's URL, which main's page modules look for in lazyfs's file list (htmlui/lazy-shim.ts). */
+  readonly gameArchiveUrl?: string | undefined;
   /** A card's big art by YO2 id for main's page modules (lazyfs.js cardArt: card.dat's 2x art, merge.dat's as fallback). */
   readCardArt?(id: number, signal?: AbortSignal): Promise<Uint8Array | null>;
   /** The original's own UI strings (data/common/yo2text_?) by text id; absent without the original data. */

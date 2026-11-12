@@ -25,19 +25,8 @@ try {
   await browser.go(url, "document.querySelector('input[autocomplete=username]')");
   const desktop = await browser.ev(`({title:document.title,password:!!document.querySelector('input[type=password]'),legacy:typeof Module,wasmRequests:performance.getEntriesByType('resource').filter(x=>x.name.endsWith('.wasm')).length,overflow:document.documentElement.scrollWidth>innerWidth})`);
   assert.equal(desktop.password, true); assert.equal(desktop.legacy, 'undefined'); assert.equal(desktop.wasmRequests, 0); assert.equal(desktop.overflow, false);
-  await browser.ev(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Options').click()`);
-  assert.equal(await browser.ev(`!!document.querySelector('input[type=range]')`), true);
   await browser.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   assert.equal(await browser.ev('document.documentElement.scrollWidth <= innerWidth'), true);
-  await browser.ev(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Back').click()`);
-  assert.equal(await browser.ev(`!!document.querySelector('input[type=password]')`), true);
-  const cycle = async count => browser.ev(`(async()=>{for(let i=0;i<${count};i++){Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Options').click();await new Promise(requestAnimationFrame);Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Back').click();await new Promise(requestAnimationFrame);}return document.querySelectorAll('*').length})()`);
-  await cycle(10); await browser.send('HeapProfiler.collectGarbage');
-  const before = (await browser.send('Runtime.getHeapUsage')).result;
-  const nodes = await cycle(100); await browser.send('HeapProfiler.collectGarbage');
-  const after = (await browser.send('Runtime.getHeapUsage')).result;
-  const heapGrowthBytes = after.usedSize - before.usedSize;
-  assert.ok(heapGrowthBytes < 8 * 1024 * 1024, `Unexpected retained heap growth: ${heapGrowthBytes}`);
   assert.equal(browser.logs.some(line => line.startsWith('exception:')), false, browser.logs.join('\n'));
-  console.log(JSON.stringify({ desktop, mobileWidth:390, exceptionCount:0, sceneCycles:100, retainedDomNodes:nodes, heapGrowthBytes, requests, scope:'Bootstrap/account/options with fixture HTTP; no gameplay or original-visual parity claim.' },null,2));
+  console.log(JSON.stringify({ desktop, mobileWidth:390, exceptionCount:0, requests, scope:'Bootstrap/account with fixture HTTP; no gameplay or original-visual parity claim.' },null,2));
 } finally { browser?.close(); await new Promise(resolve => server.close(resolve)); }

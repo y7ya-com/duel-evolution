@@ -47,7 +47,6 @@ export function parseDiscordOnline(j: unknown): DiscordDuelist[] {
   });
 }
 /** the Discord duelists after the players here (the game's row, a Discord logo by the name); in-game names win */
-export const DISCORD_LOGO = '\u{1F3AE}';
 export function discordRows(players: readonly DiscordDuelist[], here: readonly { id: number; name: string }[]) {
   const ids = new Set(here.map(h => h.id)), names = new Set(here.map(h => h.name.toLowerCase()));
   return players.filter(p => !ids.has(p.pid) && !names.has(p.name.toLowerCase()))

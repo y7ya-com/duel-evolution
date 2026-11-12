@@ -55,7 +55,6 @@ import type { ExitTrigger } from './world/exits';
 import type { WorldMap, WorldPosition } from './world/maps';
 import { MAP_NAMES, SceneLoader } from './world/scene';
 import type { WorldMaps } from './world';
-import { LiveCapture, captureDownload } from './parity/live';
 import { BrowserAudioManager } from './features/audio';
 import { gameLanguage, isGameLanguage, loadGameLanguage, type GameLanguage, type LocalizedGameText } from './features/language';
 import { decodeDialogTable, decodeStringTable } from './features/ui-text';
@@ -124,7 +123,6 @@ export class ClientApp implements ClientController {
   readonly npc: NpcController;
   readonly loadWorldScene?: (mapId:number,signal:AbortSignal)=>Promise<WorldScene>;
   readonly loadAvatar?: (parts:Uint8Array,options:AvatarLoadOptions)=>Promise<AvatarResource>;
-  readonly capture = new LiveCapture();
   private scope = new ResourceScope();
   private connectionScope = this.scope.child();
   private view: ClientView;
@@ -247,7 +245,7 @@ export class ClientApp implements ClientController {
       const changed = accountDetail.session !== this.observedAccountSession; this.observedAccountSession = accountDetail.session;
       this.patch({ accountDetail, ...(changed && accountDetail.session ? { auth: { signedIn: accountDetail.session.signedIn, ...(accountDetail.session.signedIn && accountDetail.session.name ? { name: accountDetail.session.name } : {}) } } : {}) });
     } });
-    this.view = { ...this.view, accountDetail: this.account.state, profileDetail:this.profile.state, npc:this.npc.state, capture: this.capture.status,
+    this.view = { ...this.view, accountDetail: this.account.state, profileDetail:this.profile.state, npc:this.npc.state,
       ...(options.reloadData ? {dataStatus:{loading:false,issues:[...(options.dataIssues ?? [])]}} : {}),
       languageStatus:{ loading:null, available:!!options.assets && !!options.cardTexts?.size } };
     const language = this.view.settings.language;
@@ -315,7 +313,7 @@ export class ClientApp implements ClientController {
     if (this.disposed) return () => {};
     this.listeners.add(listener); return () => this.listeners.delete(listener);
   }
-  private emit(): void { if (!this.disposed) { this.view = { ...this.view, capture: this.capture.status, ...this.place() }; this.syncAudioScene(); this.options.preloader?.observe(this.view.scene, this.game?.state.area ?? null, this.game?.state.phase ?? null); for (const listener of this.listeners) listener(this.view);this.scheduleNpcEligibility(); } }
+  private emit(): void { if (!this.disposed) { this.view = { ...this.view, ...this.place() }; this.syncAudioScene(); this.options.preloader?.observe(this.view.scene, this.game?.state.area ?? null, this.game?.state.phase ?? null); for (const listener of this.listeners) listener(this.view);this.scheduleNpcEligibility(); } }
   private scheduleNpcEligibility():void {
     const game=this.game,state=this.npc?.state;
     if(!this.eligibilityDue || this.eligibilityQueued || this.view.busy || this.freeMode || !game || game.state.phase!=='lobby' || !game.state.pbin || !game.state.npcbin || !state ||
@@ -396,6 +394,8 @@ export class ClientApp implements ClientController {
     const lease = await this.options.assets.readScene(path, signal ?? this.scope.signal);
     try { return lease.value.bytes.slice(); } finally { lease.release(); }
   }
+  /** merge.dat's URL, for main's page modules (lazy-shim.ts `files`); absent without configured assets. */
+  get gameArchiveUrl(): string | undefined { return this.options.assets?.archiveUrl; }
   /** A card's big art by its YO2 id (lazy-shim.ts cardArt: the card shop's faces, the crafting editor), the 2x art as live's lazyfs reads it. */
   async readCardArt(id: number, signal?: AbortSignal): Promise<Uint8Array | null> {
     if (!this.options.assets) throw new Error('Original artwork is not configured.');
@@ -522,7 +522,7 @@ export class ClientApp implements ClientController {
     if (state.phase === 'characters' && !profile) scene = 'characters';
     // a Duel Log replay holds the duel screen while the session sits in the lobby (any lobby update kept sending it back)
     if (state.phase === 'lobby' && ['title', 'characters', 'duel'].includes(scene) && !(scene === 'duel' && this.replay)) scene = 'lobby';
-    if ((duelPreparing || state.phase === 'duel' || state.phase === 'sideboarding') && scene !== 'settings') scene = 'duel';
+    if (duelPreparing || state.phase === 'duel' || state.phase === 'sideboarding') scene = 'duel';
     if (state.match?.stage === 'sideboarding' && !state.match.complete && this.sideboardRound !== state.match.round) {
       this.sideboard = { name:'Match Deck', main:[...state.match.deck.main], side:[...(state.match.deck.side ?? [])], extra:[...state.match.deck.extra] };
       this.sideboardRound = state.match.round;
@@ -576,7 +576,6 @@ export class ClientApp implements ClientController {
   }
   private receive(channel: Channel, message: WireMessage): void {
     if (this.disposed) return;
-    this.capture.receive(channel, message, channel === this.game?.duel ? 'duel' : channel === this.game?.lobby ? 'lobby' : 'account');
     if (channel === this.game?.lobby) { this.social.receive(message); this.profile.receive(message); this.npc.receive(message); }
     if (channel === this.game?.lobby && message.id === 0x4140) { const record = pduNpcRecord(message.data); if (record) this.duelNpcRecord = record; }
     if ( !duelIds.has(message.id) || channel !== this.game?.duel) return;
@@ -849,7 +848,7 @@ export class ClientApp implements ClientController {
       : scene === 'duel' ? this.duelState.result ? this.duelState.result.result === 1 ? 28 : this.duelState.result.result === 2 ? 27 : 26
       : this.view.preparation ? 10 : this.duelState.sides[0].lp - this.duelState.sides[1].lp >= 3000 ? 24
       : this.duelState.sides[1].lp - this.duelState.sides[0].lp >= 3000 ? 25 : this.fieldAudioSlot
-      : scene === 'settings' ? this.audioSlot : [4,5,6,7].includes(this.game?.state.area ?? 4) ? 6 : 5;
+      : [4,5,6,7].includes(this.game?.state.area ?? 4) ? 6 : 5;
     if (slot >= 0 && slot !== this.audioSlot) {
       this.audioSlot = slot;
       void audio.playSlot(slot).catch(e => this.failure(e));
@@ -876,7 +875,6 @@ export class ClientApp implements ClientController {
     const game = make({ url: this.options.gatewayUrl, portOffset: this.options.portOffset ?? 1000, freeMode:this.freeMode,
       onState: state => { if (this.game === game && epoch === this.epoch) this.updateSession(state); },
       onMessage: (channel, message) => this.receive(channel, message),
-      onOutgoing: (channel, message) => this.capture.outgoing(channel, message, channel === this.game?.duel ? 'duel' : channel === this.game?.lobby ? 'lobby' : 'account'),
       onDuelRecord: record => { void this.saveRecord(record); },
       onDuelOffer: offer => {
         if (offer.source !== 'pvp' || this.attachingOffer) return;
@@ -913,7 +911,7 @@ export class ClientApp implements ClientController {
   private disconnect(): void {
     ++this.epoch;this.eligibilityDue=false;this.eligibilityQueued=false;this.lockToken = null; this.stopWorld(); this.worldArea = null; this.worldSpawnContext = null;this.worldTransition=false;this.arrivalFrom=null;this.resetWorldRuntime();
     this.connectionScope.dispose(); this.connectionScope = this.scope.child();
-    this.services.reset(); this.social.reset(); this.profile.reset(); this.profileContext = null; this.npc.reset(); this.npcPlayer=null; this.online.reset(); this.tagLobby.reset(); this.account.reset(); this.capture.sessionBoundary();
+    this.services.reset(); this.social.reset(); this.profile.reset(); this.profileContext = null; this.npc.reset(); this.npcPlayer=null; this.online.reset(); this.tagLobby.reset(); this.account.reset();
     this.game?.dispose(); this.game = null;
     this.collectionRef = null; this.collection = []; this.editor = null; this.projections.clear();
     this.sideboard = null; this.sideboardRound = null;
@@ -1009,8 +1007,8 @@ export class ClientApp implements ClientController {
         case 'openScene':
           if (command.scene !== 'lobby') this.stopWorld();
           if (this.view.unavailable?.[command.scene]) throw new Error(this.view.unavailable[command.scene]);
-          if (!['title', 'settings', 'characters'].includes(command.scene) && !this.view.player) throw new Error('Select a character first.');
-          if ((this.view.scene === 'duel' || ['preparing-duel', 'rock-paper-scissors', 'choose-first', 'duel', 'sideboarding'].includes(this.game?.state.phase ?? '')) && (this.duelState.status !== 'finished' || this.game?.state.match && !this.game.state.match.complete) && !['duel', 'settings'].includes(command.scene)) throw new Error('Finish or surrender the duel first.');
+          if (!['title', 'characters'].includes(command.scene) && !this.view.player) throw new Error('Select a character first.');
+          if ((this.view.scene === 'duel' || ['preparing-duel', 'rock-paper-scissors', 'choose-first', 'duel', 'sideboarding'].includes(this.game?.state.phase ?? '')) && (this.duelState.status !== 'finished' || this.game?.state.match && !this.game.state.match.complete) && command.scene !== 'duel') throw new Error('Finish or surrender the duel first.');
           if (command.scene === 'lobby' && this.duelState.status === 'finished') {this.eligibilityDue=true;await this.requireGame().finishDuel();}
           this.patch({ scene: command.scene });
           if (['deck', 'shop'].includes(command.scene)) await this.refresh(command.scene); break;
@@ -1197,12 +1195,6 @@ export class ClientApp implements ClientController {
         }
         case 'inspectCard': break;
         case 'accountAction': await this.account.dispatch(command.action); break;
-        case 'captureStart': this.capture.start(); this.emit(); break;
-        case 'captureStop': this.capture.stop(); this.emit(); break;
-        case 'captureDownload': {
-          const output = captureDownload(this.capture); this.download(output.blob, output.filename);
-          break;
-        }
         case 'audioAction': {
           if (!this.options.audio) throw new Error('Audio is unavailable.');
           if (command.action.type === 'export-pack') {
@@ -1268,7 +1260,7 @@ export class ClientApp implements ClientController {
     if (this.disposed) return;
     this.disposed = true; ++this.epoch; this.cancelAnimation(); this.stopWorld(); this.world.dispose();this.worldRuntime?.dispose(); this.duelAudio.dispose();
     const game = this.game;
-    const cleanup = [() => game?.dispose(), () => this.social.dispose(), () => this.profile.dispose(), () => this.npc.dispose(), () => this.account.dispose(), () => this.capture.dispose(), () => this.online.dispose(), () => this.tagLobby.dispose(), () => this.services.dispose(), () => this.scope.dispose(), () => this.avatars?.dispose(), () => this.scenes?.dispose(), () => this.options.assets?.dispose(), () => this.options.audio?.dispose()];
+    const cleanup = [() => game?.dispose(), () => this.social.dispose(), () => this.profile.dispose(), () => this.npc.dispose(), () => this.account.dispose(), () => this.online.dispose(), () => this.tagLobby.dispose(), () => this.services.dispose(), () => this.scope.dispose(), () => this.avatars?.dispose(), () => this.scenes?.dispose(), () => this.options.assets?.dispose(), () => this.options.audio?.dispose()];
     this.game = null; this.listeners.clear(); this.projections.clear();
     const errors: unknown[] = [];
     for (const close of cleanup) try { close(); } catch (e) { errors.push(e); }

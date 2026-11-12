@@ -16,5 +16,3 @@ export function objectDepth(object: { readonly y: number; readonly height: numbe
 /** CSS z-index is an integer: the floor keeps "avatar key > object key" (an avatar a fraction below an object's
  * bottom edge is in front); an exact tie draws the avatar in front (the exe's std::sort leaves ties unordered). */
 export function avatarDepth(y: number): number { return Math.floor(y * 10); }
-/** True when the original draws the avatar standing at foot `y` in front of `object`. */
-export function avatarInFront(y: number, object: { readonly y: number; readonly height: number }): boolean { return y * 10 >= objectDepth(object); }

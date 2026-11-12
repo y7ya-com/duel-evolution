@@ -11,7 +11,6 @@
 import { parseSwfText, SwfInstance, type SwfMovie } from '../../duel/swf-text';
 import type { ArchiveLoader } from '../duel-fx';
 
-export const SHOW_AFTER_MS = 350;
 export const STUCK_MS = 45_000;
 
 export interface SceneLoadEvents { begin(name: string): () => void }

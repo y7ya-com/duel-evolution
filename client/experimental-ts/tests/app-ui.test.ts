@@ -59,7 +59,7 @@ function harness() {
     const rows = control('Players here', 'CPlayerListDlg')!.c.items as string[], row = rows.findIndex(r => r.endsWith(`/${name}`));
     expect(row).toBeGreaterThanOrEqual(0); pressRow('Players here', row, 'CPlayerListDlg'); await flush();
   };
-  const startNpc = async () => { session.npcs = [{ id: 1, name: 'Test NPC', parts: new Uint8Array(16), threshold: 0, spot: 42, previous: 0 }]; emit(); await flush(); await pickNpc('Test NPC', 1); findButton(root, 'Duel NPC').onclick?.({}); await flush(); };
+  const startNpc = async () => { session.npcs = [{ id: 1, name: 'Test NPC', parts: new Uint8Array(16), threshold: 0, spot: 42, previous: 0 }]; emit(); await flush(); await pickNpc('Test NPC', 1); expect(mounted.htmlUi.press('npc-start:yes')).toBe(true); await flush(); };
   return { app, game, api, session, root, mounted, enter, startNpc, pickNpc, openPlayer, emit, dispose: () => { mounted.dispose(); app.dispose(); } };
 }
 afterEach(() => vi.unstubAllGlobals());
@@ -105,20 +105,17 @@ describe('actual ClientApp mounted through semantic UI', () => {
     expect(f.game.enterArea).toHaveBeenCalledWith(3); expect(f.app.getState().lobby?.name).toContain('Area 3'); f.dispose();
   });
   it('buys through the authenticated idempotency token and confirms the returned balance', async () => {
-    // the older CShop* windows (the fallback: online now mounts main's shop/index.js, which calls /api/de/shop itself)
-    (globalThis as { YO2_LEGACY_SHOP?: boolean }).YO2_LEGACY_SHOP = true;
-    // the store's door opens the shop (live has no Main Menu entry for it)
+    // the store's door opens the shop (live has no Main Menu entry for it); the purchase itself is the app's buy command
     const f = harness(); await f.enter(); await f.app.dispatch({ type: 'openScene', scene: 'shop' }); await flush();
     expect(f.mounted.htmlUi.press('main-menu')).toBe(false);
-    // main's HTML shop (screens/shop.js): the singles window, the product, Confirm, then Yes.
-    for (const key of ['shop-category:cards', 'shop-item:10', 'shop-confirm', 'shop-yes']) { expect(f.mounted.htmlUi.press(key)).toBe(true); await flush(); }
+    await f.app.dispatch({ type: 'buy', itemId: 10, count: 1 }); await flush();
     expect(f.api.purchase).toHaveBeenCalledWith({ itemId: 10, count: 1, requestId: 'server-token' }, expect.any(Object));
-    expect(f.app.getState().shop?.mp).toBe(900); f.dispose(); delete (globalThis as { YO2_LEGACY_SHOP?: boolean }).YO2_LEGACY_SHOP;
+    expect(f.app.getState().shop?.mp).toBe(900); f.dispose();
   });
   it('starts the selected NPC from the explicit server NPC list without invented coordinates', async () => {
     const f = harness(); await f.enter(); f.session.npcs = [{ id: 5, name: 'A-lien', parts: new Uint8Array(), threshold: 0, spot: 42, previous: 0 }]; f.emit(); await flush();
     await f.pickNpc('A-lien', 5);
-    expect(f.game.startNpcDuel).not.toHaveBeenCalled(); expect(f.app.getState().npc?.stage).toBe('ask'); findButton(f.root, 'Duel NPC').onclick?.({}); await flush();
+    expect(f.game.startNpcDuel).not.toHaveBeenCalled(); expect(f.app.getState().npc?.stage).toBe('ask'); expect(f.mounted.htmlUi.press('npc-start:yes')).toBe(true); await flush();
     expect(f.game.startNpcDuel).toHaveBeenCalledWith(5, { main: [1], side: [], extra: [] }); f.dispose();
   });
   it('shows and submits every duel-preparation step through the session controller', async () => {

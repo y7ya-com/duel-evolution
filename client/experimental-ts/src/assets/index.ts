@@ -27,6 +27,7 @@ export interface AssetManagerOptions {
    * mounts it as its own manifest); absent: `baseUrl`. merge.dat's data/card stays the fallback for a card card.dat lacks. */
   cardsBaseUrl?: string;
   fetch?: AssetFetch;
+  /** The byte budget of the art kept for reuse (default 192 MiB). Art on screen past it is still served, uncached (load). */
   cacheBytes?: number;
   limits?: Partial<ArchiveLimits>;
   imageLimits?: Partial<ImageLimits>;
@@ -56,6 +57,9 @@ export class AssetManager {
   private readonly card: ArchiveReader;
   private readonly mini: ArchiveReader;
   private readonly cache: BudgetCache<string, Asset>;
+  /** Art served past the budget (load): its own URL, revoked at its release or at disposal. */
+  private readonly uncached = new Set<string>();
+  private uncachedBytes = 0;
   private readonly jobs = new SharedJobs<string, { bytes: Uint8Array; path: string }>();
   private readonly fallback: Readonly<Record<string, string>>;
   private readonly imageLimits: Partial<ImageLimits>;
@@ -71,9 +75,13 @@ export class AssetManager {
     this.onScene = options.onScene;
     this.fallback = { ...options.mergeCardPaths };
     this.imageLimits = { ...options.imageLimits };
-    this.cache = new BudgetCache(options.cacheBytes ?? 64 * 1024 * 1024, asset => URL.revokeObjectURL(asset.url));
+    // A card's 2x art charges ~1 MiB (its decoded RGBA estimate): a full deck screen (main, extra, side and the trunk's
+    // rows) holds ~80 of them at once, a duel ~40 with the field's art. 64 MiB refused the deck screen's last cards.
+    this.cache = new BudgetCache(options.cacheBytes ?? 192 * 1024 * 1024, asset => URL.revokeObjectURL(asset.url));
   }
   get cacheBytes(): number { return this.cache.bytes; }
+  /** merge.dat's URL (main's page modules find the archive by it: htmlui/lazy-shim.ts). */
+  get archiveUrl(): string { return this.merge.url; }
   private check(signal?: AbortSignal): void {
     checkAbort(signal);
     if (this.closed) throw new Error('Asset manager disposed');
@@ -133,10 +141,18 @@ export class AssetManager {
     if (!Number.isSafeInteger(charge) || charge > this.cache.budget) throw new Error('Asset exceeds cache byte budget');
     const url = URL.createObjectURL(new Blob([result.bytes.slice().buffer], { type }));
     const asset: Asset = Object.freeze({ bytes: result.bytes, url, mimeType: type, ...(image ? { width: image.width, height: image.height } : {}) });
-    if (!this.cache.insert(key, asset, charge)) {
-      URL.revokeObjectURL(url); throw new Error('Asset cache budget exhausted by live leases');
-    }
-    return this.cache.acquire(key)!;
+    if (this.cache.insert(key, asset, charge)) return this.cache.acquire(key)!;
+    // The budget is all live leases (everything kept is on screen): the art is still served, outside the cache, its URL
+    // revoked at its release. A refusal here was a picture missing for good (a card face, an avatar) until something
+    // else let go. Bounded at the budget again (twice the budget in all), past which a load fails as before.
+    if (this.uncachedBytes + charge > this.cache.budget) { URL.revokeObjectURL(url); throw new Error('Asset cache budget exhausted by live leases'); }
+    this.uncached.add(url); this.uncachedBytes += charge;
+    let active = true;
+    return { value: asset, release: () => {
+      if (!active) return;
+      active = false;
+      if (this.uncached.delete(url)) { this.uncachedBytes -= charge; URL.revokeObjectURL(url); }
+    } };
   }
   loadCard(passcode: string | number, signal?: AbortSignal): Promise<AssetLease> {
     const pc = passcodeName(passcode);
@@ -180,5 +196,7 @@ export class AssetManager {
     if (this.closed) return;
     this.closed = true; this.jobs.dispose();
     this.merge.dispose(); this.card.dispose(); this.mini.dispose(); this.cache.dispose();
+    for (const url of this.uncached) URL.revokeObjectURL(url);
+    this.uncached.clear(); this.uncachedBytes = 0;
   }
 }

@@ -3,7 +3,7 @@ import { autoAnswer } from '../src/duel/auto-answer';
 import { createDuelState } from '../src/duel/model';
 import type { DuelPrompt, DuelState } from '../src/duel/types';
 import { duelOptions } from '../src/ui/contracts';
-import { duelConfigWindow } from '../src/ui/htmlui/options';
+import { duelConfigWindow, titleOptionsWindow } from '../src/ui/htmlui/options';
 import { Ids } from '../src/ui/htmlui/snapshot';
 
 const playing = (prompt: Partial<DuelPrompt>): DuelState => {
@@ -64,5 +64,22 @@ describe('DUEL OPTIONS window (CWindowModelDuelConfig, main\'s capture)', () => 
     by('duel-config:place-on').h.pointer!(true); s = spec(); expect(s.win.controls.find(c => c.name === '説明')!.text).toMatch(/place the card/);
     by('duel-config-ok').h.click!();
     expect(set).toEqual([{ autoTracking: true, autoPlacing: false, activationMessage: 0 }]); expect(closed).toBe(1);
+  });
+});
+
+describe('the title\'s OPTIONS window (COptionDlg)', () => {
+  it('turns fullscreen on and off from its Screen row and Cancel puts the screen mode and volume back', () => {
+    const set: unknown[] = []; let closed = 0, toggles = 0; const ui = { kind: 'title' as const };
+    const fs = { active: false, supported: true, pending: false, toggle: () => { toggles++; fs.active = !fs.active; } };
+    const settings = { sound: 0.5, music: 1, reducedMotion: false, showCardNames: true };
+    const spec = () => titleOptionsWindow(new Ids(), ui, { settings, fullscreen: fs, languageReady: true, set: s => set.push(s), close: () => { closed++; }, rerender: () => {} });
+    let s = spec();
+    const by = (key: string) => { const c = s.win.controls.find(c => s.handlers.get(c.id)?.key === key); if (!c) throw new Error(key); return { c, h: s.handlers.get(c.id)! }; };
+    expect(by('opt-windowed').c.checked).toBe(true); expect(by('opt-windowed').c.state).toBe('disabled');
+    by('opt-fullscreen').h.click!(); expect(toggles).toBe(1);
+    s = spec(); expect(by('opt-fullscreen').c.checked).toBe(true); expect(by('opt-fullscreen').c.state).toBe('disabled');
+    by('opt-sound-up').h.click!(); expect(set).toEqual([{ sound: 0.6 }]); settings.sound = 0.6;
+    s = spec(); by('opt-cancel').h.click!();
+    expect(set).toEqual([{ sound: 0.6 }, { sound: 0.5 }]); expect(toggles).toBe(2); expect(fs.active).toBe(false); expect(closed).toBe(1);
   });
 });

@@ -39,8 +39,6 @@ function look(source: PictureSource): Promise<string | null> {
   }
   return p;
 }
-/** Forget a canvas source (its owner composed a new one). */
-export function dropPicture(source: PictureSource): void { looks.delete(sourceKey(source)); }
 
 interface Drawn { el: HTMLElement; inner: HTMLElement | null; source: string; natural: [number, number] | null }
 function place(d: Drawn, p: Picture): void {
@@ -97,26 +95,3 @@ export const pictures: HtmlUiScreen = {
 };
 /** The page's client went away: loads in flight stop, nothing is kept. */
 export const disposePictures = (): void => { abort.abort(); abort = new AbortController(); looks.clear(); };
-
-// The clerk's speech balloon (the engine's on main: a white rounded box with a black rim, its tail out to the clerk on
-// the right; the text black Arial 16 at its place). Class CShopBalloon, its text in the window's `text`.
-const BALLOON_CSS = `.shop-balloon { position: absolute; left: 0; top: 0; width: 486px; height: 142px; box-sizing: border-box; background: #fff;
-  border: 2px solid #1a1a1a; border-radius: 26px; box-shadow: inset 0 0 0 2px #cfd8de; }
-.shop-balloon::after { content: ''; position: absolute; right: -24px; top: 82px; width: 26px; height: 22px; background: #fff;
-  clip-path: polygon(0 0, 100% 50%, 0 100%); }
-.shop-balloon::before { content: ''; position: absolute; right: -28px; top: 79px; width: 30px; height: 28px; background: #1a1a1a;
-  clip-path: polygon(0 0, 100% 50%, 0 100%); }
-.shop-balloon p { position: absolute; left: 44px; top: 30px; margin: 0; font: 16px/22px Arial, Helvetica, sans-serif; color: #000; white-space: pre-wrap; width: 420px; }`;
-export const balloon: HtmlUiScreen = {
-  classes: ['CShopBalloon'],
-  mode: 'pass',
-  rootInput: 'none',
-  mount(_win, root) {
-    if (!document.getElementById('htmlui-balloon-css')) { const st = document.createElement('style'); st.id = 'htmlui-balloon-css'; st.textContent = BALLOON_CSS; document.head.append(st); }
-    const box = document.createElement('div'); box.className = 'shop-balloon'; box.setAttribute('role', 'status');
-    const p = document.createElement('p'); box.append(p); root.append(box); root.style.overflow = 'visible';
-    return { p };
-  },
-  update(win, _prev, root, _api, st) { (st as { p: HTMLElement }).p.textContent = String((win as { text?: string }).text ?? ''); root.style.overflow = 'visible'; root.style.zIndex = '5'; },
-  unmount(root) { root.replaceChildren(); },
-};

@@ -29,10 +29,6 @@ export function cardSearchRank(card: CardView, query: string): number {
   }
   return words.every(w => normalizeCardSearch(card.description ?? '').includes(w)) ? 9 : -1;
 }
-export function reorderDeckCards(cards: readonly number[], fromIndex: number, toIndex: number): number[] {
-  if (![fromIndex, toIndex].every(n => Number.isSafeInteger(n) && n >= 0 && n < cards.length)) throw new Error('That card position is no longer available.');
-  const next = [...cards], [card] = next.splice(fromIndex, 1); next.splice(toIndex, 0, card); return next;
-}
 const validName = (value: unknown): value is string => typeof value === 'string' && value.trim() !== '' && [...value].length <= 40 && !/[\\/:*?"<>|\u0000-\u001f\u007f]/.test(value);
 export function validateImportedDeck(value: unknown): DeckView {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Expected a deck object.');

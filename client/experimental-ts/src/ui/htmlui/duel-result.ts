@@ -81,44 +81,59 @@ export function npcResultWindow(ctx: DuelResultContext, record = npcResultRecord
  * plate), per side. */
 const TITLE_ART = { WIN: 'winner', LOSE: 'loser', DRAW: 'draw' } as const;
 
+/** live's Next plate (result_btn_01 stretched, measured on live's result screen, 2026-11-12): 150 x 54 centred at
+ * 437, 512, its word white in a black edge, about 30 px (the engine's CWindowTaskResultNext label). */
+export const NEXT_PLATE = { x: 437, y: 512, w: 150, h: 54, px: 30 } as const;
+const BLACK = [0, 0, 0, 1];
+/** The black edge round the Next plate's word (the engine draws it outlined; result.js's ShadowText takes one offset). */
+const OUTLINE = '-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 1px 0 #000, 1px 0 0 #000, 0 -1px 0 #000, -1px 0 0 #000, 2px 2px 0 #000';
+
 export function duelResultWindows(ctx: DuelResultContext): WindowSpec[] {
   const { duel, match } = ctx, out: WindowSpec[] = [];
   const npcRecord = npcResultRecord(ctx), titles: Picture[] = [];
-  // An NPC duel's end on live is the two records too (the player's and the NPC's: WIN, LOSE, SCORE against each other)
+  // An NPC duel's end on live is the two records too (the player's and the NPC's: WIN, LOSE, SCORE against each other).
+  // As live's capture (mock/result-pvp.json): one ShadowText at 16, 99 (216 wide, 24 px lines) holding the name and
+  // the captions a blank line apart, its shadow half 1, 1 black, and the numbers (CTextElms, 24 px) right-aligned on
+  // the lines between, at the window's y + 168 / 216 / 264. Live shows no MP or level rows.
   ([0, 1] as const).forEach(side => {
     const p = duel.players[side], x = side === 0 ? 250 : 530, y = 64, w = 244, h = 442;
     const b = new WindowBuilder(ctx.ids, `duel-result:${side}`, 'CWindowResult', { x, y, w, h }, { z: 51150 });
     const tex = side === 0 ? 'result_dai_01_c01' : 'result_dai_01_c02';
     b.add('CWindowTaskResultBase', 'base', { x: 0, y: 0, w, h }, { parts: { sprites: [{ id: ctx.ids.of(`duel-result:${side}/board`), shown: true, tex, wx: x, wy: y, x: 0, y: 0, src: [0, 0, w, h], sx: 1, sy: 1 }] } });
-    const text = (name: string, t: string, ty: number, px = 16, color = WHITE, tx = 16, tw = w - 32, align = 0) =>
-      b.add('CWindowTaskShadowText', name, { x: tx, y: ty, w: tw, h: px + 4 }, { text: t, align, fontSize: px, color });
     const result = outcome(duel.ended, side);
     if (result) titles.push({ key: `title:${side}`, source: { archive: `data/result/result_${TITLE_ART[result]}_01_?.png` }, x: x + 15, y: y + 11, w: 214, h: 56, z: side, shown: true, label: result === 'WIN' ? 'WINNER' : result === 'LOSE' ? 'LOSER' : 'DRAW' });
-    else text('title', duel.ended || '', 30, 24, GOLD, 16, w - 32, 1);
-    text('name', npcRecord && side === 1 ? npcRecord.name : p.name, 100, 16, WHITE, 16, w - 32, 0);
-    const nums: { id: number; shown: boolean; text: string; wy: number }[] = [];
-    const row = (key: string, label: string, value: string, ty: number) => { text(`l:${key}`, label, ty); nums.push({ id: ctx.ids.of(`duel-result:${side}/n:${key}`), shown: true, text: value, wy: y + ty + 18 }); };
-    // Rows 48 apart, as the original's placeNumber rows (168 / 216 / 264): the duel, then what it earned this player.
+    else {
+      const t = b.add('CWindowTaskShadowText', 'title', { x: 16, y: 30, w: w - 32, h: 28 }, { text: duel.ended || '', align: 1, fontSize: 24, color: GOLD });
+      b.add('CWindowTaskText', 'title/shadow', { x: 17, y: 31, w: w - 32, h: 28 }, { parent: t.id, text: t.text, color: BLACK });
+    }
+    // the duel's rows: against an NPC its record and this duel's score; between players the duel itself
     const rows: [string, string, string][] = npcRecord
       ? [['win', 'WIN', String(side === 0 ? npcRecord.wins : npcRecord.losses)], ['lose', 'LOSE', String(side === 0 ? npcRecord.losses : npcRecord.wins)],
-        ['score', 'SCORE', String(side === 0 ? duel.rewards?.score ?? 0 : 0)], ...(side === 0 && duel.rewards ? rewardRows(duel.rewards).filter(r => r[0] !== 'score') : [])]
-      : [['lp', 'Life Points', String(Math.max(0, p.lp))], ['turns', 'Turns', String(duel.turn)]];
-    if (!npcRecord && match) rows.push(['match', 'Games Won', String(match.scores[side] ?? 0)]);
-    if (!npcRecord && side === 0) rows.push(...rewardRows(duel.rewards));
-    rows.forEach(([key, label, value], i) => row(key, label, value, 148 + i * 48));
-    b.win.nums = nums;
-    const spec = b.spec(); spec.win.controls[0]!.label = `${npcRecord && side === 1 ? npcRecord.name : p.name}: ${result || duel.ended || ''}, ` + rows.map(([, l, v]) => `${l} ${v}`).join(', ');
+        ['score', 'SCORE', String(side === 0 ? duel.rewards?.score ?? 0 : 0)]]
+      : [['lp', 'Life Points', String(Math.max(0, p.lp))], ['turns', 'Turns', String(duel.turn)], ...(match ? [['match', 'Games Won', String(match.scores[side] ?? 0)] as [string, string, string]] : []),
+        ...(side === 0 && duel.rewards ? [['score', 'SCORE', String(duel.rewards.score)] as [string, string, string]] : [])];
+    const name = npcRecord && side === 1 ? npcRecord.name : p.name, lines = [name, ...rows.flatMap(([, label]) => ['', label])];
+    const text = lines.join('\n'), th = lines.length * 24;
+    const record = b.add('CWindowTaskShadowText', 'record', { x: 16, y: 99, w: 216, h: th }, { text, align: 0, fontSize: 24, lineGap: 0, firstLine: 0, pageLines: lines.length, color: WHITE });
+    b.add('CWindowTaskText', 'record/shadow', { x: 17, y: 100, w: 216, h: th }, { parent: record.id, text, color: BLACK });
+    b.win.nums = rows.map(([key, , value], i) => ({ id: ctx.ids.of(`duel-result:${side}/n:${key}`), shown: true, text: value, wy: y + 168 + i * 48 }));
+    const spec = b.spec(); spec.win.controls[0]!.label = `${name}: ${result || duel.ended || ''}, ` + rows.map(([, l, v]) => `${l} ${v}`).join(', ');
     out.push(spec);
   });
   if (titles.length) out.push(new WindowBuilder(ctx.ids, 'duel-result:titles', 'CEnginePictures', { x: 0, y: 0, w: 1024, h: 768 }, { z: 51155, pics: titles }).spec());
-  const W = 200, H = 40, b = new WindowBuilder(ctx.ids, 'duel-result:next', 'CWindowResultNext', { x: 512 - W / 2, y: 524, w: W, h: H }, { z: 51160 });
+  const { x: NX, y: NY, w: W, h: H, px } = NEXT_PLATE, b = new WindowBuilder(ctx.ids, 'duel-result:next', 'CWindowResultNext', { x: NX, y: NY, w: W, h: H }, { z: 51160 });
+  // live's plate says Next after every duel (NPC or PvP); while a match's next game is coming it waits, wordless
+  const word = ctx.next ? 'Next' : 'Next game…', ty = Math.round((H - px) / 2) - 1;
   if (ctx.next) {
-    // live's plate says Next after every duel (NPC or PvP)
-    const label = 'Next';
-    const next = ctx.next, c = b.add('CWindowTaskResultNext', 'next', { x: 0, y: 0, w: W, h: H }, { label, align: 1, state: 'normal' });
-    b.on(c, { key: 'duel-result-next', label, click: next });
-  } else b.add('CWindowTaskShadowText', 'wait', { x: 0, y: 10, w: W, h: 20 }, { text: 'Next game…', align: 1, fontSize: 16, color: WHITE });
-  out.push(b.spec());
+    const next = ctx.next, c = b.add('CWindowTaskResultNext', 'next', { x: 0, y: 0, w: W, h: H }, { label: '', align: 1, state: 'normal' });
+    b.on(c, { key: 'duel-result-next', label: 'Next', click: next });
+  }
+  const t = b.add('CWindowTaskShadowText', 'word', { x: 0, y: ty, w: W, h: px + 4 }, { text: word, align: 1, fontSize: ctx.next ? px : 16, color: WHITE });
+  b.add('CWindowTaskText', 'word/shadow', { x: 1, y: ty + 1, w: W, h: px + 4 }, { parent: t.id, text: word, color: BLACK });
+  const spec = b.spec();
+  // the word's black edge all round, as live's
+  spec.after = root => { for (const el of root.querySelectorAll<HTMLElement>('.txt')) if (el.textContent?.trim().startsWith('Next') && el.style.textShadow !== OUTLINE) el.style.textShadow = OUTLINE; };
+  out.push(spec);
   return out;
 }
 

@@ -341,17 +341,17 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
   it('shows retry or fallback states for unavailable data, HTTP and sign-in failures and missing art',async () => {
     try {
       const page = await openPage(); await page.send('Network.enable');
-      // Game data the client could not load at start: listed in Options with a retry.
+      // Game data the client could not load at start: the app lists it and loads it again on reloadData (live's screens
+      // have no such list: the dev app's state and command)
       await page.send('Network.setBlockedURLs',{ urls:['*/card-texts.json','*/npc-data.json'] });
       await online(page,`TestRa${RUN}`);
-      await click(page,'Options'); await until(page,byKey('options-data'),30000);
-      const missing = await page.ev(`document.querySelector('[data-key="options-data"]').innerText.replace(/\\s+/g,' ')`) as string;
+      await until(page,`window.__deApp.getState().dataStatus?.issues.length>0`,30000);
+      const missing = (await page.ev(`window.__deApp.getState().dataStatus.issues`) as string[]).join(', ');
       expect(missing).toMatch(/Card rules/); expect(missing).toMatch(/NPC dialogue/);
       await page.send('Network.setBlockedURLs',{ urls:[] });
-      await click(page,'Retry loading game data');
-      await until(page,`document.querySelector('[data-key="options-data"]')?.innerText.includes('Game data loaded.')`,30000);
-      const reloaded = await page.ev(`document.querySelector('[data-key="options-data"]').innerText.replace(/\\s+/g,' ')`) as string;
-      await click(page,'Back');
+      await page.ev(`void window.__deApp.dispatch({ type:'reloadData' })`);
+      await until(page,`window.__deApp.getState().dataStatus?.loading===false&&window.__deApp.getState().dataStatus.issues.length===0`,30000);
+      const reloaded = 'Game data loaded.';
       const me = `Api ${RUN}`; await enterWorld(page,me);
       // An HTTP failure: the shop catalogue answers 500; the shop says so and Refresh recovers.
       await page.ev(`window.__net.http.fail=/\\/api\\/de\\/shop/`);
