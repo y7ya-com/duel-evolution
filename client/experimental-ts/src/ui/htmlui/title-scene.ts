@@ -4,9 +4,11 @@
 // rt/debrand.cpp drops the KONAMI badge (depth 21), the copyright line (23) and QUIT (25) from the movie; its other
 // buttons (DefineButton2: ONLINE 40, OPTIONS 37, and in free mode rows 3 and 4, 33 and 29, captioned DECK EDITOR and
 // FREE DUEL by rt/freetitle.cpp, ported below) stay the movie's art, with real HTML buttons over them (`controls`) that
-// give each its normal / hover / pressed frame. One 1024 x 768 canvas, pointer-transparent, and the buttons' layer.
+// give each its normal / hover / pressed frame. One 1024 x 768 PixiJS layer (pixi-painter.ts), pointer-transparent, and
+// the buttons' layer.
 import { parseSwfText, SwfInstance, type SwfMovie } from '../../duel/swf-text';
 import type { ArchiveLoader } from '../duel-fx';
+import { PixiPainter, type PaintSource } from '../pixi-painter';
 import { drawSwfItems } from './start-scene';
 
 export const TITLE_MOVIE = 'data/title/title_flash_01.txt';
@@ -40,23 +42,22 @@ export function filterTitleMovie(text: string, drop: readonly number[] = TITLE_D
 export function titleImagePath(file: string, language = 'e'): string { return `data/title/${file.replace('?', language.toLowerCase())}`; }
 
 export class TitleScene {
-  readonly element: HTMLCanvasElement;
+  readonly element: HTMLElement;
   /** The movie's buttons as HTML buttons over their art (pressable once the movie has played, as freemode.c). */
   readonly controls: HTMLElement;
   private readonly buttons = new Map<TitleButton, HTMLButtonElement>();
   private readonly states = new Map<number, number>();
   private press: (name: TitleButton) => void = () => {};
-  private readonly ctx: CanvasRenderingContext2D | null;
+  private readonly ctx: PixiPainter;
   private readonly abort = new AbortController();
   private movie: SwfMovie | null = null; private loading = false; private instance: SwfInstance | null = null;
-  private readonly images = new Map<string, CanvasImageSource | null>();
-  private timer: ReturnType<typeof setInterval> | null = null; private disposed = false; private reducedMotion = false;
+  private readonly images = new Map<string, PaintSource | null>();
+  private timer: ReturnType<typeof setInterval> | null = null; private disposed = false; private reducedMotion = false; private shown = false;
   constructor(private readonly load: ArchiveLoader) {
-    this.element = document.createElement('canvas');
-    this.element.width = 1024; this.element.height = 768;
-    this.element.className = 'de-title-scene'; this.element.setAttribute('aria-hidden', 'true');
+    // the movie starts once both it and Pixi are up, so its first frame is seen
+    this.ctx = new PixiPainter({ width: 1024, height: 768, className: 'de-title-scene', ready: () => { if (this.movie && !this.instance && this.shown) this.start(); else this.draw(); } });
+    this.element = this.ctx.element;
     Object.assign(this.element.style, { position: 'absolute', left: '0', top: '0', width: '100%', height: '100%', pointerEvents: 'none', zIndex: '0' });
-    this.ctx = this.element.getContext('2d');
     this.controls = document.createElement('div'); this.controls.className = 'de-title-buttons';
     Object.assign(this.controls.style, { position: 'absolute', left: '0', top: '0', width: '100%', height: '100%', pointerEvents: 'none', zIndex: '1' });
     for (const b of TITLE_BUTTONS) {
@@ -83,14 +84,14 @@ export class TitleScene {
   /** Shown: plays the movie once from its first frame (reduced motion: straight to its last), then holds it. */
   show(reducedMotion: boolean): void {
     if (this.disposed) return;
-    this.reducedMotion = reducedMotion;
+    this.reducedMotion = reducedMotion; this.shown = true;
     if (!this.movie) { this.loadMovie(); return; }
     if (!this.instance) this.start();
   }
   /** Hidden: the next show plays the movie from its start again. */
-  hide(): void { if (this.timer) clearInterval(this.timer); this.timer = null; this.instance = null; }
+  hide(): void { if (this.timer) clearInterval(this.timer); this.timer = null; this.instance = null; this.shown = false; }
   private start(): void {
-    const movie = this.movie; if (!movie) return;
+    const movie = this.movie; if (!movie || !this.ctx.ready) return;
     this.instance = new SwfInstance(movie, movie.timeline, false);
     this.instance.buttonState = depth => this.states.get(depth) ?? 1;
     this.instance.step();
@@ -111,7 +112,7 @@ export class TitleScene {
         const movie = parseSwfText(filterTitleMovie(new TextDecoder().decode(await (await fetch(lease.url)).arrayBuffer())));
         this.captions();
         for (const file of movie.files) if (!FREE_CAPTION.test(file)) this.image(titleImagePath(file));
-        this.movie = movie; if (!this.disposed) this.start();
+        this.movie = movie; if (!this.disposed && this.shown) this.start();
       } finally { lease.release(); }
     }).catch(e => { this.loading = false; console.warn('title movie', e); this.plainButtons(); });
   }
@@ -162,11 +163,12 @@ export class TitleScene {
     }, e => console.warn('title captions', e));
   }
   private draw(): void {
-    const ctx = this.ctx, movie = this.movie, instance = this.instance; if (!ctx || this.disposed) return;
-    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, 1024, 768);
-    if (!movie || !instance) return;
+    const ctx = this.ctx, movie = this.movie, instance = this.instance; if (this.disposed) return;
+    ctx.begin();
+    if (!movie || !instance) { ctx.end(); return; }
     const items: Parameters<SwfInstance['draw']>[0] = []; instance.draw(items);
     drawSwfItems(ctx, items, movie, file => this.images.get(titleImagePath(file)), { x: 0, y: 0 });
+    ctx.end();
     // the buttons over their plates: where the movie has them now, pressable once it has played
     const ready = instance.ended || instance.stopped;
     for (const el of this.buttons.values()) if (el.dataset.plain) { delete el.dataset.plain; Object.assign(el.style, { color: 'transparent', background: 'transparent', textShadow: 'none' }); }
@@ -180,7 +182,7 @@ export class TitleScene {
       el.tabIndex = ready ? 0 : -1;
     }
   }
-  dispose(): void { this.disposed = true; this.abort.abort(); if (this.timer) clearInterval(this.timer); this.timer = null; this.element.remove(); this.controls.remove(); }
+  dispose(): void { this.disposed = true; this.abort.abort(); if (this.timer) clearInterval(this.timer); this.timer = null; this.ctx.destroy(); this.controls.remove(); }
 }
 
 // ---- rt/freetitle.cpp, ported: a caption = row 1's empty bar + glyph fill masks lifted from the English captions +
