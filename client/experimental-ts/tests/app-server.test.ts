@@ -9,6 +9,7 @@ import type { ClientCommand, DuelResponse } from '../src/ui/contracts';
 import { createNodeDuelCore } from '../../../server/src/duel/engine/node';
 import { NPC_DECKS, setDuelCore } from '../../../server/src/duel/data';
 import { starterInfo, starterClaim } from '../../../server/src/game/starter';
+import { rankView } from '../../../server/src/game/ranking';
 import { setup, drive, sessionFactory } from './network-server-fixture';
 import { memoryRecordStore } from '../src/services/duel-records';
 const apps: ClientApp[] = [];
@@ -101,7 +102,10 @@ describe('ClientApp with actual server and GameSession', () => {
     const f=harness(undefined,'recipe-app','51',{recipes});await f.enter();expect(f.app.getState().deckEditor?.recipes).toEqual([]);
     const account=f.server.game.store.accountOfUser('recipe-app')!,session=f.server.game.hub.sessions.get(account)!;
     f.server.game.withCtx(session,()=>{const state=f.server.game.loadState();PP.pbinSet(PP.profile(state,0,false)!,769);f.server.game.saveState(state);});
-    await f.send({type:'openScene',scene:'deck'});expect(f.app.getState().deckEditor?.recipes).toEqual([recipe]);
+    // as live, opening the editor does not re-read the flags: the recipe comes with the server's next 0x3114 (a purchase's push)
+    await f.send({type:'openScene',scene:'deck'});expect(f.app.getState().deckEditor?.recipes).toEqual([]);
+    f.server.game.withCtx(session,()=>{const p=PP.profile(f.server.game.loadState(),0,false)!;session.conns.get(f.server.game.ports.game)!.post(0x3114,PP.pbinBytes(p,rankView(p)));});
+    await vi.waitFor(()=>expect(f.app.getState().deckEditor?.recipes).toEqual([recipe]));
     await f.send({type:'replaceDeck',deck:recipe,source:'recipe'});
     expect(f.app.getState().deckEditor?.current).toEqual({name:recipe.name,main:recipe.main,side:[],extra:[]});expect(f.app.getState().deckEditor?.dirty).toBe(true);
     expect(f.app.services.decks.state.data?.current.world).toBe('Fixture');expect(f.requests.some(r=>r.method==='PUT')).toBe(false);

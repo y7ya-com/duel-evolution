@@ -7,6 +7,7 @@
 // row offers that card, the wheel scrolls the list; the
 // count box shows the cards offered. Taking a card back is the trade window's (htmlui/trade.ts). Pure but for the
 // scene object's callbacks.
+import { peekTable } from '@htmlui/crafting/cards.js';
 import type { SocialAction, SocialTrade } from '../../features/social';
 import { tradeableCopies } from '../../features/social';
 import type { CardView, DeckView } from '../contracts';
@@ -43,7 +44,7 @@ export class TradeTrunk implements DeckDomScene {
     }
     const deck: DeckView = { name: '', main: [...t.ownOffer], side: [], extra: [] };
     this.ui.filter = emptyKabanFilter();
-    const spec = kabanWindow({ ids, ui: this.ui, deck, card: pc => this.byPc.get(pc), trunk: this.cards, busy: !this.o.editable() });
+    const spec = kabanWindow({ ids, ui: this.ui, deck, card: pc => this.byPc.get(pc), trunk: this.cards, busy: !this.o.editable(), yo2: pc => peekTable()?.id(pc) ?? 0, owned: deck.main.length });   // the count box: the cards offered
     spec.win.tradeTrunk = true;
     // in Card Swap the trunk stops at the chat window (live: 608 high, nine rows; the editor's runs to 712, eleven)
     for (const c of spec.win.controls) {
@@ -66,7 +67,7 @@ export class TradeTrunk implements DeckDomScene {
   /** The card detail beside the menu (CCardDetailViewDlg at 0, 175: live shows it in Card Swap too): the card last
    * pressed in the trunk, the card back before. */
   detail(ids: Ids): WindowSpec {
-    const spec = detailWindow({ ids, ui: this.ui, deck: null, card: pc => this.byPc.get(pc) ?? (pc === this.ui.shown ? this.shownCard ?? undefined : undefined), trunk: [], busy: false });
+    const spec = detailWindow({ ids, ui: this.ui, deck: null, card: pc => this.byPc.get(pc) ?? (pc === this.ui.shown ? this.shownCard ?? undefined : undefined), trunk: [], busy: false, yo2: pc => peekTable()?.id(pc) ?? 0, owned: 0 });
     spec.win.tradeTrunk = true;
     return spec;
   }

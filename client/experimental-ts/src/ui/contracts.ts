@@ -35,7 +35,9 @@ export interface CardView {
   extra?: boolean;
 }
 export interface DeckView { name: string; main: number[]; side: number[]; extra: number[]; }
-export interface DeckEditorView { allCards?: CardView[]; recipes?: (DeckView & { id: string })[]; decks: DeckView[]; current: DeckView | null; collection: CardView[]; dirty?: boolean; loading?: boolean; error?: string; }
+/** The deck file every character's folder starts with on live (empty; the game lists it beside the saved decks). */
+export const DEFAULT_DECK = 'deck';
+export interface DeckEditorView { allCards?: CardView[]; recipes?: (DeckView & { id: string })[]; decks: DeckView[]; /** Deck names the server keeps deleted. */ deleted?: string[]; current: DeckView | null; collection: CardView[]; dirty?: boolean; loading?: boolean; error?: string; }
 export interface LobbyAvatar { id: number; name: string; /** The server's area list (0x... player record): level and the nation code (CNationFlag). */ level?: number; country?: string; x: number; y: number; self?: boolean; npc?: boolean; image?: string; parts?: Uint8Array; /** A famous NPC drawn with its own archive art (CNpcChibiAvatar): its cn_ set, a03 Alexis Rhodes. */ npcArt?: string; /** An NPC's level stars (16 px per level passed, 8 px toward the next). */ stars?: { big: number; small: number }; direction?: number; motion?: 'stand' | 'walk'; world?: 0 | 1; /** In a duel others may watch (the server's duelling states). */ duelling?: boolean; }
 export interface ChatLine { id: string; sender: string; text: string; channel: string; }
 export interface LobbyView { mapId?: number; /** The area block this player stands in (0x4203), and the players in the whole lobby (the place plate's (n/1000))). */ block?: number; population?: number; rooms?: { id: number; owner: number; name: string; state: number; password?: boolean; /** 3 single, 4 match. */ style?: number; /** Watch On, and who the owner duels (0: waiting). */ watch?: boolean; opponent?: number }[]; invitation?: { name: string; pid: number }; /** The challenge this player sent and is waiting on. */ outgoing?: { name: string }; areas?: { area: number; block: number; name: string; population?: number; /** The area's room kind (13 Domino City, 14 Duel Academy). */ kind?: number }[]; npcs?: { id: number; name: string }[]; name: string; mapImage?: string; width?: number; height?: number; avatars: LobbyAvatar[]; chat: ChatLine[]; channels: string[]; connected: boolean; }
@@ -276,6 +278,8 @@ export interface ClientController {
   readGameFile?(path: string, signal?: AbortSignal): Promise<Uint8Array>;
   /** merge.dat's URL, which main's page modules look for in lazyfs's file list (htmlui/lazy-shim.ts). */
   readonly gameArchiveUrl?: string | undefined;
+  /** The card wire's table's URL (YO2 card id <-> passcode), which main's crafting modules read (htmlui/lazy-shim.ts). */
+  readonly passcodeTableUrl?: string | undefined;
   /** A card's big art by YO2 id for main's page modules (lazyfs.js cardArt: card.dat's 2x art, merge.dat's as fallback). */
   readCardArt?(id: number, signal?: AbortSignal): Promise<Uint8Array | null>;
   /** The original's own UI strings (data/common/yo2text_?) by text id; absent without the original data. */

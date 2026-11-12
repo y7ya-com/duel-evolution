@@ -38,6 +38,7 @@ import { pageModules } from './htmlui/page-modules';
 import { sceneVeilUp, VEIL_EVENT, SCENE_LOADING_ATTR } from './htmlui/scene-loading';
 import { npcClosable, npcItemGetUi, npcItemGetWindows } from './htmlui/npc-itemget';
 import { installLazyShim } from './htmlui/lazy-shim';
+import { loadPackTexts } from './htmlui/pack-info';
 import { FLAG_ATLAS, flagCell } from './nation-flag';
 import { NPC_STAR_BIG, NPC_STAR_SMALL } from '../avatars/npc';
 import { barReserve, onBarReserve } from '@htmlui/screens/lobby_icons.js';
@@ -271,15 +272,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       delete: index => send({ type: 'socialAction', action: { type: 'deleteMail', index } }) };
   };
   // the deck editor: main's deck screen (src/ui/htmlui/deck-scene.ts), its engine side on the layer (deck-stage.ts)
-  let deckDom: DeckDom | null = null, deckFile: HTMLInputElement | null = null;
+  let deckDom: DeckDom | null = null;
   const deckScene = new DeckScene({ state: () => state, send: command => send(command), rerender: () => showHtml(), leave: () => open('lobby'),
     notice: message => { local.message = message; requestRender(); },
-    pickFile: (accept, then) => {
-      deckFile ??= Object.assign(el('input'), { type: 'file' }); deckFile.accept = accept; deckFile.setAttribute('aria-label', 'Import YDC, YDK or JSON deck');
-      deckFile.hidden = true; if (!deckFile.isConnected) host.append(deckFile);
-      deckFile.onchange = () => { const file = deckFile?.files?.[0]; if (deckFile) deckFile.value = ''; if (file) then(file); };
-      deckFile.click();
-    } });
+    ...(controller.readGameFile ? { packTexts: () => loadPackTexts(path => controller.readGameFile!(path), state.settings?.language ?? 'E') } : {}) });
   // the shop is main's card shop (htmlui/card-shop.ts: shop/index.js mountCardShop, which calls the server's /api/de/shop
   // itself; its packs' reveal and its Cosmetic Boxes tab are its own); free mode has no shop (the scene is unavailable).
   // Back on the card shop leaves at once; while the app is still busy (opening the shop refreshes the catalogue, the wallet
@@ -300,7 +296,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const pictureArt = new PictureArt({ ...(controller.loadArchiveImage ? { loadArchiveImage: controller.loadArchiveImage.bind(controller) } : {}), ...(controller.loadCardImage ? { loadCardImage: controller.loadCardImage.bind(controller) } : {}) });
   setPictureResolver(pictureArt.resolve);
   // main's Wardrobe previews and card shop faces read the game's files through lazyfs's Module.yo2Lazy on live
-  if (controller.readGameFile) installLazyShim(controller.readGameFile.bind(controller), controller.readCardArt?.bind(controller), controller.gameArchiveUrl);
+  if (controller.readGameFile) installLazyShim(controller.readGameFile.bind(controller), controller.readCardArt?.bind(controller), controller.gameArchiveUrl, controller.passcodeTableUrl);
   // the nation flag before a name over the head (nation-flag.ts: CNationFlag's small atlas cell), the atlas from the archive
   let flagAtlas: Promise<string | null> | null = null;
   const nationFlag = (cell: readonly [number, number]): HTMLElement => {
@@ -550,7 +546,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const onTagDuel = () => { if (!state.tagLobby || state.scene !== 'lobby' || !state.lobby?.connected || state.busy) return; lobbyUi.open = null; send({ type: 'tagAction', action: { type: 'open' } }); showHtml(); };
   globalThis.addEventListener?.('yo2-tag-lobby-open', onTagDuel);
   const buildHtml = () => localized(htmlWindows({ state, ui: htmlUiState, ids: htmlIds, send, rerender: showHtml, changeAvatar: changeAvatar(), menu: menuView, social: socialLists(), mailBox: mailBox(), profileActions: profileActions(), cardActions: cardActions(), openPlayer: pid => send({ type: 'interact', playerId: pid }),
-    deckWindows: () => deckScene.windows(), scene: sceneWindows(), prompts: duelPrompts(), covered: !!state.socialDetail && tradeScene(state.socialDetail.trade),
+    deckWindows: () => deckScene.windows(), deckChat: deckScene.chat(), scene: sceneWindows(), prompts: duelPrompts(), covered: !!state.socialDetail && tradeScene(state.socialDetail.trade),
     text: id => gameTexts.get(id), lobby: { list: ctx => lobbyList(ctx, lobbyDeps(), pid => send({ type: 'interact', playerId: pid })), windows: ctx => lobbyWindows(ctx, lobbyDeps()) },
     ...(checkPassword ? { checkPassword: (password: string) => checkPassword(password, new AbortController().signal) } : {}) }));
   const localized = (specs: WindowSpec[]): WindowSpec[] => { localizeSpecs(specs, uiText); return specs; };
@@ -1318,9 +1314,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       // Select Player's bar is its strip alone too, also in the moment between picking a character (its profile in) and the lobby
       // main's message field starts past the Wardrobe / Missions slots (lobby.js fieldLeft): the message moves with it
       const reserve = barReserve(), fieldShift = reserve ? Math.max(0, Math.min(1016 - 64, reserve + 8) - 391) : 0;
-      // (Card Swap's bar is its strip alone, as live: EXIT leaves the trade)
+      // (Card Swap's bar is its strip alone, as live: EXIT leaves the trade; live's shop and its pack reveal stand over no
+      // bar: the shop page runs to the strip at its foot)
       const trading = !!state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene);
-      menuView = state.scene === 'title' || state.scene === 'duel' ? null : { entries, fieldShift, keys: !!state.player && !['deck', 'shop', 'characters'].includes(state.scene) && !trading,
+      menuView = state.scene === 'title' || state.scene === 'duel' || state.scene === 'shop' ? null : { entries, fieldShift, keys: !!state.player && !['deck', 'shop', 'characters'].includes(state.scene) && !trading,
         // live's bar message is blank but for a pending request's wait (no "Online in Duel Academy.")
         message: state.player ? (world && waitingMessage({ state, text: id => gameTexts.get(id) })) || '' : '',
         ...(world ? { duel: () => { duelKey(state, lobbyUi); showHtml(); }, move: () => { moveKey(lobbyUi); showHtml(); }, duelOpen: () => ['duel', 'find', 'wait'].includes(lobbyUi.open ?? ''), moveOpen: () => lobbyUi.open === 'move' } : {}) };

@@ -23,6 +23,7 @@ import result from '@htmlui/screens/result.js';
 import { chatBubblesFrame } from '@htmlui/chat-bubbles.js';
 import { pictures } from './pictures';
 import { npcBalloonScreen, npcInfoScreen } from './npc-talk';
+import { fileListScreen } from './deck-files';
 import { syncWindow, covers } from '@htmlui/controls/basic.js';
 import { duelWindow } from '@htmlui/controls/skin.js';
 import { applyPointer, areaAt } from './snapshot';
@@ -37,7 +38,8 @@ const MODULES: HtmlUiScreen[] = [select, lobby, chat, social, deck, trade, packs
 // Change Avatar is owned, its plates, page arrows and Confirm / Back each take input on their own element
 const RELAID = new Set(['CWindowModelDuel', 'CWindowModelDuelFind', 'CWindowModelDuelWait']);   // duelsetup.js LAYOUT
 // what the engine draws on main around main's screens (the trade's pictures), the NPC talk's balloon and plate
-const EXTRA: Record<string, HtmlUiScreen> = { CEnginePictures: pictures, CNpcTalkBalloon: npcBalloonScreen, CNpcTalkInfo: npcInfoScreen };
+// the deck screen's file lists: live's engine draws them itself (deck-files.ts), not main's deck module
+const EXTRA: Record<string, HtmlUiScreen> = { CEnginePictures: pictures, CNpcTalkBalloon: npcBalloonScreen, CNpcTalkInfo: npcInfoScreen, CWindowModelFileList: fileListScreen };
 // the windows whose module rebuilds its buttons on every change (screens/trade.js; duel.js redraws a control
 // whose snapshot changes, so its hover and pressed looks replace the button under the pointer: janken, Yes / No, the
 // lists): clicked on release
