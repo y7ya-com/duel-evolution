@@ -712,7 +712,8 @@ export function listWindow(ctx: BuildContext, lists: SocialLists): WindowSpec | 
   const cls = { friends: 'CWindowModelFriendlist', ignore: 'CWindowModelBlacklist', team: 'CWindowModelTeamlist' }[open.kind];
   // live's Ignore List is narrower: 162, 282, 700 x 204 (Remove from Ignore List 50, Close 301, Add to Ignore List 451)
   const W = open.kind === 'ignore' ? 700 : 900;
-  const b = new WindowBuilder(ctx.ids, `list:${open.kind}`, cls, { x: open.kind === 'ignore' ? 162 : 62, y: 282, w: W, h: 204 }, { z: 51453, modal: true });
+  // Write Mail's Friend List (the recipient's pick) opens over Write Mail, as the engine stacks a window opened later
+  const b = new WindowBuilder(ctx.ids, `list:${open.kind}`, cls, { x: open.kind === 'ignore' ? 162 : 62, y: 282, w: W, h: 204 }, { z: open.pick ? 51553 : 51453, modal: true });
   const close = () => { ctx.ui.lists = null; ctx.rerender(); };
   const rows = open.kind === 'friends' ? lists.friends : open.kind === 'ignore' ? lists.ignored : lists.team?.members ?? [];
   if (open.selected >= rows.length) open.selected = -1;
