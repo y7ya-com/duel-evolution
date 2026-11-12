@@ -1154,7 +1154,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const cmdAt = cmdCard ? { card: cmdCard, at: fieldCardPosition(cmdCard, handCounts[cmdCard.controller]) } : local.duelCmd === DECK_ZONE && deckZoneOn ? { card: null, at: ownDeckAt } : null;
     const cmdRows = cmdAt ? commands.get(cmdAt.card?.id ?? DECK_ZONE) ?? [] : [];
     const onDeck = !!cmdAt && (cmdAt.card ? cmdAt.card.id === ownDeckTop || !!duel.spectating && cmdAt.card.zone === 'deck' : true);
-    const rows: DuelCmdRow[] = cmdRows.map(a => ({ cmd: menuCommand(a.id), text: a.label.replace(/:.*$/, ''), key: `duel-cmd:${a.id}`, label: a.label, disabled: !!a.disabled || !!state.busy, pick: () => { closeCmd(); if (promptChoices.has(a.id)) choose(a.id); else sendAction(duel, a.id); } }));
+    // the deck's Surrender is one row (the server's own Surrender command, when its mask has one, is the same row)
+    const rows: DuelCmdRow[] = cmdRows.filter(a => !(onDeck && canSurrender && menuCommand(a.id) === SURRENDER_COMMAND)).map(a => ({ cmd: menuCommand(a.id), text: a.label.replace(/:.*$/, ''), key: `duel-cmd:${a.id}`, label: a.label, disabled: !!a.disabled || !!state.busy, pick: () => { closeCmd(); if (promptChoices.has(a.id)) choose(a.id); else sendAction(duel, a.id); } }));
     if (onDeck && canSurrender) rows.push({ cmd: SURRENDER_COMMAND, key: 'duel-surrender', label: 'Surrender', disabled: !!state.busy || state.relay?.canAct === false, pick: surrenderNow });
     if (onDeck && duel.spectating) rows.push({ cmd: SURRENDER_COMMAND, key: 'duel-leave', label: 'Leave Duel', disabled: !!state.busy, pick: () => { closeCmd(); send({ type: 'leaveDuel' }); } });
     if (!cmdAt || !rows.length) { local.duelCmd = null; duelCmdView = null; }
