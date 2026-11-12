@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ActorMotion, drawnAvatars, MAX_DRAWN_AVATARS, MAX_STRIP_FRAMES, NAME_TAG_Y, REMOTE_SNAP_PX, stripFrame } from '../src/world/actors';
+import { ActorMotion, drawnAvatars, MAX_DRAWN_AVATARS, MAX_STRIP_FRAMES, REMOTE_SNAP_PX, stripFrame } from '../src/world/actors';
 import { bakeStrip } from '../src/ui/world-avatars';
 import type { AvatarResource } from '../src/avatars';
 
@@ -28,7 +28,6 @@ describe('world actors (pure rules of the PixiJS world)', () => {
     expect(drawn.size).toBe(MAX_DRAWN_AVATARS); expect(drawn.has(39)).toBe(true); expect(drawn.has(0)).toBe(false);
     expect(drawnAvatars([{ id: 1, x: 5000, y: 5000, parts: new Uint8Array(16) }], { x: 0, y: 0, width: 1024, height: 768 }).size).toBe(0);
   });
-  it('places the name 21 px under the 160-px box top (main\'s live lobby)', () => { expect(NAME_TAG_Y).toBeCloseTo(160 * 0.13 - 144); });
   it('bakes each movie frame into its own clipped 128 x 160 cell with the feet at (64, 144)', () => {
     const calls: string[] = [];
     const ctx = { save: () => calls.push('save'), restore: () => calls.push('restore'), beginPath: () => {}, clip: () => calls.push('clip'), rect: (x: number, y: number, w: number, h: number) => calls.push(`rect ${x},${y},${w},${h}`) };

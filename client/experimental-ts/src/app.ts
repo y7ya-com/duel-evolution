@@ -48,7 +48,8 @@ import { WorldNavigator } from './world';
 import { chooseInitialArrival } from './world/arrival';
 import { isWalkable } from './world/pathfinding';
 import { WorldRuntime } from './world/runtime';
-import { npcsOnMap, npcStance } from './world/npcs';
+import { MY_ROOM_SPAWN, npcsOnMap, npcStance } from './world/npcs';
+import { nameTagColor } from './world/name-tag';
 import { npcChibiSet, npcStars } from './avatars/npc';
 import { arrivalEntries, chooseArrival, SHOP_DOOR, SHOP_DOOR_REARM } from './world/exits';
 import type { ExitTrigger } from './world/exits';
@@ -502,7 +503,8 @@ export class ClientApp implements ClientController {
       // A fresh server presence uses (0,0) until the client sends its initial move. My Room (map 8, Map_r01) is the
       // area map scene too: its player stands at GetInitPos(8, 8) = (680,400) plus rand()%60-30 each way (0x00a01575..)
       if (this.arrivalFrom?.to===state.area || this.arrivalArea===state.area || this.arrivalArea===-1 && state.location!=='my-room' || selfAt.x === 0 && selfAt.y === 0 && (!worldMap.grid || !isWalkable(worldMap.grid,selfAt)) && worldMap.entries.some(e=>e.from===8)) {
-        spawn = this.arrivalFrom?.to===state.area && arrivalEntries(worldMap,this.arrivalFrom.from,{crossings:true}).length ? chooseArrival(worldMap,this.arrivalFrom.from,{crossings:true,random:this.options.random}) : chooseInitialArrival(worldMap,this.options.random);
+        // My Room's scene stands the player by the red door, always there (CMyRoomScene: 0x00825823, (790, 430))
+        spawn = state.location==='my-room' ? { ...MY_ROOM_SPAWN } : this.arrivalFrom?.to===state.area && arrivalEntries(worldMap,this.arrivalFrom.from,{crossings:true}).length ? chooseArrival(worldMap,this.arrivalFrom.from,{crossings:true,random:this.options.random}) : chooseInitialArrival(worldMap,this.options.random);
         this.arrivalFrom=null;this.arrivalArea=null;this.shopDoor=null;
         const game = this.game, epoch = this.epoch, position = spawn;
         queueMicrotask(()=> {
@@ -542,7 +544,7 @@ export class ClientApp implements ClientController {
         invitation: this.project('invitation', state.challenge, challenge => challenge ? { name: challenge.name, pid: challenge.pid } : undefined),
         outgoing: this.project('outgoing', state.outgoingChallengeRoom, room => room ? { name: this.nextOpponent ?? state.players.find(p => state.rooms.some(r => r.id === room && r.owner === p.pid))?.name ?? 'your opponent' } : undefined),
         // All areas of a world share one server block; only players in this area (its area block) are on this map.
-        avatars: state.players.filter(p => p.pid === profile.pid || p.areaBlock === state.areaBlock).map(p => ({ id:p.pid,name:p.name,level:p.level,country:p.country,x:p.pid === profile.pid && spawn ? spawn.x : p.x ?? 0,y:p.pid === profile.pid && spawn ? spawn.y : p.y ?? 0,self:p.pid === profile.pid,parts:p.parts,direction:p.direction,world:([4,5,6,7].includes(state.area)?1:0) as 0|1,duelling:p.state !== undefined && p.state >= 0x67 && p.state <= 0x6a,motion:p.pid === profile.pid && this.world.walking ? 'walk' as const : 'stand' as const }) as LobbyAvatar).concat(this.mapNpcAvatars(state,worldMap)),
+        avatars: state.players.filter(p => p.pid === profile.pid || p.areaBlock === state.areaBlock).map(p => ({ id:p.pid,name:p.name,level:p.level,country:p.country,x:p.pid === profile.pid && spawn ? spawn.x : p.x ?? 0,y:p.pid === profile.pid && spawn ? spawn.y : p.y ?? 0,self:p.pid === profile.pid,parts:p.parts,direction:p.direction,world:this.lobbyWorld(state),duelling:p.state !== undefined && p.state >= 0x67 && p.state <= 0x6a,nameColor:nameTagColor(p.state),motion:p.pid === profile.pid && this.world.walking ? 'walk' as const : 'stand' as const }) as LobbyAvatar).concat(this.mapNpcAvatars(state,worldMap)),
         chat: this.project('chat', state.chat, chat => chat.map((m, i) => ({ id: String(i), sender: m.name, text: m.text, channel: channelName(m.channel) }))),
         channels: ['global', 'trade', 'whisper', 'team'],
       } : null,
@@ -620,6 +622,9 @@ export class ClientApp implements ClientController {
     } catch { return false; }
     this.syncDuel(); return true;
   }
+  /** The world the lobby's avatars are drawn in (CGameMng +0x448, g_lobbyWorld): the area's, and in My Room the one the
+   * player came from (the look the session registered last), as live. */
+  private lobbyWorld(state:SessionState): 0|1 { return (state.location==='my-room' ? state.appearanceWorld : [4,5,6,7].includes(state.area) ? 1 : 0) as 0|1; }
   private npcAvatarCache:{key:readonly unknown[];avatars:LobbyAvatar[]}|null = null;
   /** The NPCs standing on this map (the area map's NPC builder, src/world/npcs.ts) as avatars: id -npc (the NPC
    * card's own entry), standing idle where their spot puts them; built once per map visit and NPC list, so a spot
@@ -630,11 +635,12 @@ export class ClientApp implements ClientController {
     const key = [worldMap,state.npcs,state.npcbin,state.pbin,this.worldSpawnContext];
     if (this.npcAvatarCache && this.npcAvatarCache.key.every((v,i)=>v===key[i])) return this.npcAvatarCache.avatars;
     const npcbin = state.npcbin, rank = (id:number) => npcbin && id*4+3 < npcbin.length ? npcbin[id*4+3]! : 0;
-    const world = ([4,5,6,7].includes(worldMap.id)?1:0) as 0|1, old = new Map((this.npcAvatarCache?.avatars ?? []).map(a=>[a.id,a]));
+    const world = this.lobbyWorld(state), old = new Map((this.npcAvatarCache?.avatars ?? []).map(a=>[a.id,a]));
     const avatars = npcsOnMap(worldMap,state.npcs,rank).map(({npc,spot}):LobbyAvatar => {
       const kept = old.get(-npc.id), at = kept && kept.x===spot.x && kept.y===spot.y ? { x:kept.x,y:kept.y,direction:kept.direction ?? 0 } : npcStance(spot,this.options.random);
       const set = npcChibiSet(npc.id), stars = npcbin ? npcStars(npc,state.npcs,npcbin,state.pbin) : undefined;
-      return { id:-npc.id,name:npc.name,x:at.x,y:at.y,direction:at.direction,npc:true,parts:npc.parts,...(set ? { npcArt:set } : {}),...(stars ? { stars } : {}),world,motion:'stand' };
+      // every NPC's tag carries the world's NPC flag (CNpcChibiAvatar::setNpc 0x009d7c2f: NPCL in Domino, NPCG in the Academy)
+      return { id:-npc.id,name:npc.name,x:at.x,y:at.y,direction:at.direction,npc:true,country:world ? 'NPCG' : 'NPCL',parts:npc.parts,...(set ? { npcArt:set } : {}),...(stars ? { stars } : {}),world,motion:'stand' };
     });
     this.npcAvatarCache = { key,avatars }; return avatars;
   }

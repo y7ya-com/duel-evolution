@@ -599,6 +599,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
           for (const r of [big!, small!]) if (r.status === 'fulfilled') r.value.release();
           throw (big!.status === 'rejected' ? big!.reason : (small as PromiseRejectedResult).reason) as Error;
         },
+        // the name tags' glyphs: main's table of the engine's DejaVu Sans 16 (ui/, beside live's game files)
+        loadGlyphs: async (px, signal) => { const r = await fetch(new URL(`/ui/glyphs-dejavu${px}.json`, location.href).href, { signal }); if (!r.ok) throw new Error(`glyphs ${r.status}`); return await r.json() as import('../world/name-tag').GlyphAtlas; },
         reducedMotion: () => !!controller.getState().settings.reducedMotion });
       worldRenderer = renderer;
       (globalThis as { __deWorld?: () => unknown }).__deWorld = () => renderer.inspect();
