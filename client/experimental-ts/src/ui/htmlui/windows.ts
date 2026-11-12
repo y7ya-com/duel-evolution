@@ -399,7 +399,9 @@ export function placeBanner(ctx: BuildContext): WindowSpec | null {
   text('lobby', 20, 9, worldName, 0);
   if (lobbyCount !== undefined) text('lobbyCount', at, 9, `(${lobbyCount}/1000)`, 2);
   text('map', 20, 26, mapName, 0);
-  text('mapCount', at, 26, myRoom ? `(${lobby.avatars.length})` : `(${lobby.avatars.length}/32)`, 2);
+  // the area's players (live counts people, not the map's NPCs)
+  const here = lobby.avatars.filter(a => !a.npc).length;
+  text('mapCount', at, 26, myRoom ? `(${here})` : `(${here}/32)`, 2);
   return b.spec();
 }
 

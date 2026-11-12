@@ -39,6 +39,7 @@ import { cardShopHost } from './htmlui/card-shop';
 import { pageModules } from './htmlui/page-modules';
 import { sceneVeilUp, VEIL_EVENT } from './htmlui/scene-loading';
 import { npcItemGetUi, npcItemGetWindows } from './htmlui/npc-itemget';
+import { CHALLENGE_UNLOCKS, challengeUnlockUi, challengeUnlockWindows } from './htmlui/challenge-unlock';
 import { installLazyShim } from './htmlui/lazy-shim';
 import { FLAG_ATLAS, flagCell } from './nation-flag';
 import { NPC_STAR_BIG, NPC_STAR_SMALL } from '../avatars/npc';
@@ -395,6 +396,14 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       itemName: bit => giftItemName(bit, { recipeName: b => state.npcGiftRecipes?.[b], cosmetics: state.online?.cosmetics ?? null }),
       close: () => { const npc = controller.getState().npc; if (npc?.stage === 'done') send({ type: 'npcClose' }); } });
   };
+  // the challenge rights the world's ITEMGET(1) just gave (live's item window with the NPC's picture), once the world
+  // is up; one at a time, each OK goes on
+  const unlockUi = challengeUnlockUi();
+  const unlockSpecs = (): WindowSpec[] => {
+    const e = state.npc?.eligibility;
+    if (state.scene !== 'lobby' || state.location !== 'world' || sceneVeilUp() || !e || e.status !== 'confirmed') return [];
+    return challengeUnlockWindows(e, e.bits, { ids: htmlIds, ui: unlockUi, text: id => gameTexts.get(id), rerender: () => showHtml() });
+  };
   // the NPC's windows wait for the scene-loading veil (the lobby reloading after the duel): they come as it lifts
   const onVeil = (): void => { if (!disposed && state.npc?.npc) showHtml(); };
   globalThis.addEventListener?.(VEIL_EVENT, onVeil);
@@ -433,7 +442,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     return out;
   };
   let languageErrorSeen = '';
-  const sceneWindows = (): WindowSpec[] => { duelSpeedButton.show(state.scene === 'duel' && (!!state.duel || !!state.preparation)); return [...loginSpecs(), ...tradeSpecs(), ...npcTalkSpecs(), ...npcPackSpecs(), ...npcItemSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs(), ...prepSpecs()]; };
+  const sceneWindows = (): WindowSpec[] => { duelSpeedButton.show(state.scene === 'duel' && (!!state.duel || !!state.preparation)); return [...loginSpecs(), ...tradeSpecs(), ...npcTalkSpecs(), ...npcPackSpecs(), ...npcItemSpecs(), ...unlockSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs(), ...prepSpecs()]; };
   // The duel's question dialogs (main's screens/duel.js: htmlui/duel-dialogs.ts) and the duel speed button (main's
   // duelspeed.js) while the layer is up; card lists, free number entry and declarations stay the duel screen's panel.
   // live's duel speed button (main's duelspeed.js) is the page's, in its top right corner beside the game, not a window
@@ -477,7 +486,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const askGameTexts = () => {
     const language = state.settings.language ?? 'E'; if (gameTextsFor === language || !controller.gameText) return;
     gameTextsFor = language;
-    void controller.gameText([...Object.values(DELETE_TEXT), ...Object.values(LOBBY_TEXT), ...Object.values(AREA_TEXT), ...Object.values(WORLD_TEXT), ...DUEL_OPTIONS_TEXTS], new AbortController().signal)
+    void controller.gameText([...Object.values(DELETE_TEXT), ...Object.values(LOBBY_TEXT), ...Object.values(AREA_TEXT), ...Object.values(WORLD_TEXT), ...DUEL_OPTIONS_TEXTS, ...Object.values(CHALLENGE_UNLOCKS).map(u => u.text)], new AbortController().signal)
       .then(m => { if (gameTextsFor !== language) return; gameTexts.clear(); for (const [k, v] of m) gameTexts.set(k, v); showHtml(); }, () => { if (gameTextsFor === language) gameTextsFor = null; });
     // every label main's screens show, in the chosen language: the English table names each label's id (features/ui-text.ts)
     if (language === 'E') { uiText.install([], null, 'E'); return; }

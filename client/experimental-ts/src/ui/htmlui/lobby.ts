@@ -160,7 +160,8 @@ function moveWindow(ctx: BuildContext, deps: LobbyDeps): WindowSpec | null {
   const lobby = ctx.state.lobby, areas = lobby?.areas ?? []; if (!lobby) return null;
   const t = moveMock.windows[0]!, b = new WindowBuilder(ctx.ids, 'move', t.cls, { x: t.x, y: t.y, w: t.w, h: t.h }, { z: 51403, modal: false });
   const ui = deps.ui, topRow = Math.max(0, Math.min(ui.moveTop, areas.length - MOVE_ROWS));
-  const label = (a: typeof areas[number]) => `${ctx.text?.(AREA_TEXT[a.area] ?? -1) ?? a.name}[${(a.kind ?? 0) + 1}]  ${a.population ?? 0}/32`;
+  // live's rows: "Name[kind]  people/32", Duel Academy's (area 4) alone with a space before its bracket
+  const label = (a: typeof areas[number]) => `${ctx.text?.(AREA_TEXT[a.area] ?? -1) ?? a.name}${a.area === 4 ? ' ' : ''}[${(a.kind ?? 0) + 1}]  ${a.population ?? 0}/32`;
   const widths = areas.map(a => Math.max(258, Math.ceil(label(a).length * 8.5)));
   const right = 11 + Math.max(258, ...widths);
   b.add('CWindowTaskFrameMove', 'frame', { x: 0, y: 0, w: 0, h: 0 }, { alpha: 0.9 });

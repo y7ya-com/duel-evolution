@@ -38,6 +38,7 @@ export class PictureArt {
     const [kind, arg = ''] = source.canvas.split(':');
     if (kind === 'portrait' && this.composer) return this.picture(await this.composer.compose(Uint8Array.from(arg.split('.').map(Number)), 1, signal));
     if (kind === 'clerk') return this.picture(await this.clerk(arg, signal));
+    if (kind === 'itemline') return this.picture(itemLineCanvas(decodeURIComponent(arg)));
     throw new Error('Unknown picture.');
   };
   private async clerk(id: string, signal: AbortSignal): Promise<HTMLCanvasElement> {
@@ -58,4 +59,18 @@ export class PictureArt {
   /** A composition made off screen as the picture the window shows (an <img>). */
   private async picture(canvas: HTMLCanvasElement): Promise<string> { const url = await canvasUrl(canvas); this.urls.push(url); return url; }
   dispose(): void { for (const l of this.leases) l.release(); this.leases = []; for (const u of this.urls) URL.revokeObjectURL(u); this.urls = []; }
+}
+/** An item window's name line (challenge-unlock.ts): the engine's "@1" ShadowText, red bold 18-pixel DejaVu Sans (lfHeight
+ * 18: 15.46 px em) over its black shadow 1 px down-right, centred in 448 x 24. (Drawn with the browser's font: main's
+ * glyph tables have no bold face.) */
+export function itemLineCanvas(text: string): HTMLCanvasElement {
+  const canvas = document.createElement('canvas'); canvas.width = 448; canvas.height = 24;
+  const ctx = canvas.getContext('2d'); if (!ctx) return canvas;
+  ctx.font = 'bold 15.46px "DejaVu Sans", Verdana, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  // the engine's cells: each glyph's rounded advance + 1 (live's line is 356 px where the browser sets it ~335)
+  (ctx as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = '0.5px';
+  const t = text.trim();
+  ctx.fillStyle = '#000'; ctx.fillText(t, 225, 18);
+  ctx.fillStyle = '#e00000'; ctx.fillText(t, 224, 17);
+  return canvas;
 }

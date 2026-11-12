@@ -318,7 +318,8 @@ export class ClientApp implements ClientController {
   private emit(): void { if (!this.disposed) { this.view = { ...this.view, ...this.place() }; this.syncAudioScene(); this.options.preloader?.observe(this.view.scene, this.game?.state.area ?? null, this.game?.state.phase ?? null); for (const listener of this.listeners) listener(this.view);this.scheduleNpcEligibility(); } }
   private scheduleNpcEligibility():void {
     const game=this.game,state=this.npc?.state;
-    if(!this.eligibilityDue || this.eligibilityQueued || this.view.busy || this.freeMode || !game || game.state.phase!=='lobby' || !game.state.pbin || !game.state.npcbin || !state ||
+    // live's area map asks (CAreaMapScene::onInit); My Room does not: its check waits for the world
+    if(!this.eligibilityDue || this.eligibilityQueued || this.view.busy || this.freeMode || !game || game.state.phase!=='lobby' || game.state.location==='my-room' || !game.state.pbin || !game.state.npcbin || !state ||
       !['idle','done'].includes(state.stage) || state.eligibility.refreshing || [state.eligibility.status,state.firstContactStatus,state.giftStatus].some(s=>s==='pending'||s==='uncertain') || state.packStatus==='pending' || state.packs.length>0&&state.packStatus==='idle')return;
     const epoch=this.epoch;this.eligibilityQueued=true;
     queueMicrotask(()=>{this.eligibilityQueued=false;if(this.disposed || epoch!==this.epoch || this.game!==game || this.view.busy || !this.eligibilityDue)return;
@@ -385,7 +386,7 @@ export class ClientApp implements ClientController {
     // the menu bar and windows use data/common/window and data/common/icon (the duel bar's ring: an icon movie); card-get uses data/y/result and data/card_get;
     // the shop data/shop and its clerk's picture data/avatar/npc (tiles listed in its .csv); the trade's lamps data/deck; the lobby data/menu;
     // My Room's shelf (data/Map/Map_r01, Map_switch) and its TV's pictures (data/tv).
-    if (!/^data\/(?:(?:cardpack|y\/duel|y\/duel_end|y\/janken|y\/result|result|card_get|card|avatar\/wu|avatar\/npc|avatar\/flag|shop|deck|common\/window|common\/icon|menu|tv|map\/map_r01|map\/map_switch)\/(?:[\w#.-]+\/)*[\w#.-]+\.png|(?:y2?\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.txt|menu\/menu_mark_a01\.txt|common\/window\/icon\/menuicon_03_a0\d\.txt|title\/title_flash_01\.txt|title\/(?:title_\w+|option_\w+)\.png|y2\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.png|y2\/duel_(?:window|gauge|font)_0\d_c0\d\.png|avatar\/wu\/w[mw]_data\.csv|avatar\/npc\/[ad]\d\d\.csv))$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
+    if (!/^data\/(?:(?:cardpack|y\/duel|y\/duel_end|y\/janken|y\/result|result|card_get|card|avatar\/wu|avatar\/npc|avatar\/flag|shop|deck|common\/window|common\/icon|menu|tv|itemget|scene\/avatarchange|map\/map_r01|map\/map_switch)\/(?:[\w#.-]+\/)*[\w#.-]+\.png|(?:y2?\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.txt|menu\/menu_mark_a01\.txt|common\/window\/icon\/menuicon_03_a0\d\.txt|title\/title_flash_01\.txt|title\/(?:title_\w+|option_\w+)\.png|y2\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.png|y2\/duel_(?:window|gauge|font)_0\d_c0\d\.png|avatar\/wu\/w[mw]_data\.csv|avatar\/npc\/[ad]\d\d\.csv))$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
     const lease = await this.options.assets.readScene(path, signal);
     return { url: lease.value.url, release: () => lease.release() };
   }
