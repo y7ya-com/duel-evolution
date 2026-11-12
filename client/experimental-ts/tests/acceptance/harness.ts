@@ -180,8 +180,17 @@ export async function click(page:Page,text:string,timeout = 30000) {
   // the Shop is no Main Menu entry (as live: the store's door on the map, which the rewrite's world does not have yet;
   // free mode's own Shop button stays): tests open the shop scene through the dev app
   if (text === 'Shop' && !await page.ev(`Boolean(${byText('Shop')})`)) {
-    // a refused catalogue (the server's error) is the shop's to show, not the test's: the dispatch's rejection is dropped
-    await page.ev(`Promise.resolve(window.__deApp.dispatch({ type:'openScene', scene:'shop' })).catch(()=>{})`); return;
+    // a refused catalogue (the server's error) is the shop's to show, not the test's: the dispatch's rejection is dropped.
+    // Just after the lobby shows, the character select is still finishing (the app busy: its controls wait, and a door
+    // walked into answers "Wait for the current action to finish."): as a player, wait for it, and walk in again if refused
+    for (let i = 0; i < 10; i++) {
+      await until(page,`!window.__deApp.getState().busy`,timeout);
+      // (not awaited past its first moments: a test may hold the catalogue's reply)
+      const refused = await page.ev(`Promise.race([Promise.resolve(window.__deApp.dispatch({ type:'openScene', scene:'shop' })).then(()=>'',e=>String(e?.message??e)),new Promise(r=>setTimeout(()=>r(''),300))])`) as string;
+      if (!/Wait for the current action/.test(refused)) return;
+      await sleep(500);
+    }
+    return;
   }
   // Find Player is no Main Menu entry (as live): the Friend List's Find a Player opens it
   if (text === 'Find Player') { await click(page,'Friend List',timeout); await until(page,byKey('list-find'),timeout); await press(page,byKey('list-find')); return; }
