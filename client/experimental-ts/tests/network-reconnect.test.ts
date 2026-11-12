@@ -108,7 +108,8 @@ describe('reconnect parity with live (duelreattach.c, lobbyretry.c)', () => {
       // an NPC duel's server keeps nothing to come back to: 0x6007 0 = refused = the box
       await vi.advanceTimersByTimeAsync(3000);
       expect(session.state.net?.reconnecting).toBe(false);
-      expect(session.state.error).toMatch(/no longer has/);
+      // before the duel began (janken): called off, live's box, its OK back to the lobby (no stale error)
+      expect(session.state.duelCalledOff?.reason).toMatch(/no longer has/);
       expect(session.duel).toBeNull();
     } finally { session.dispose(); setDuelCore(null); }
   }, 30000);

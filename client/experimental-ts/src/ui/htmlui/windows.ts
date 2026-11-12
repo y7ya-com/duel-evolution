@@ -18,6 +18,9 @@ import dialogYesNo from './templates/dialog-yesno.json';
 import dialogOk from './templates/dialog-ok.json';
 import dialogError from './templates/dialog-error.json';
 import lobbyCard from './templates/lobby-card.json';
+import duelRequestOk from './templates/duel-request-ok.json';
+import duelRequestYesNo from './templates/duel-request-yesno.json';
+import duelCalledOff from './templates/duel-calledoff.json';
 import playerListMock from './templates/duelsetup-plist.json';
 
 /** A dialog the rewrite has open over a screen (the engine's CNetAccountTask prompts, NetAccountTask.cpp). */
@@ -183,14 +186,49 @@ export interface StockButton { from: string; label?: string; key: string; aria?:
  * orange, topmost dialog-error.json); a button may take another caption (the original's Duel Request: an Ok with Cancel). */
 export function stockDialog(ctx: Pick<BuildContext, 'ids'>, key: string, kind: 'yesno' | 'ok' | 'error', text: string, buttons: StockButton[]): WindowSpec {
   const template = kind === 'yesno' ? dialogYesNo : kind === 'error' ? dialogError as unknown as typeof dialogYesNo : dialogOk;
-  const spec = messageDialog(ctx, key, template, text, Object.fromEntries(buttons.map(b => [b.from, [b.key, b.click]])));
+  const spec = templateDialog(ctx, key, template, text, buttons);
   if (kind === 'error') Object.assign(spec.win, { topmost: true, z: 51403 });
+  return spec;
+}
+/** A dialog from a captured template (its window, place and frame), this text, its buttons relabelled where asked. */
+function templateDialog(ctx: Pick<BuildContext, 'ids'>, key: string, template: typeof dialogYesNo, text: string, buttons: StockButton[]): WindowSpec {
+  const spec = messageDialog(ctx, key, template, text, Object.fromEntries(buttons.map(b => [b.from, [b.key, b.click]])));
   for (const b of buttons) {
     const c = spec.win.controls.find(k => k.cls === 'CWindowTaskTextSwitch' && k.label === b.from); if (!c) continue;
     if (b.label && b.label !== b.from) { c.label = b.label; for (const t of spec.win.controls) if (t.parent === c.id && t.text === b.from) t.text = b.label; }
     const h = spec.handlers.get(c.id); if (h && (b.aria ?? b.label)) h.label = b.aria ?? b.label;
   }
   return spec;
+}
+// The duel request's boxes as live shows them (CNetDuelRequestTask and the lobby's offer prompt; captured on
+// original.ygoevolution.com 2026-11-12, templates/duel-request-*.json): translucent blue lobby dialogs (frame style 1)
+// at 420, 280, 336 x 144, the other duelist's waist-up portrait at the right meanwhile (BUST_AT). The challenger waits in
+// "Requesting Duel" / Cancel (an Ok whose one button is Cancel); a refusal turns it into "Duel Request was refused." /
+// OK; the one asked reads "\nLv1 Name\n[Title]\n\nYou have aDuel Request!\n Will you accept?" (centred) with Yes / No. A
+// duel the server calls off before it starts (the other duelist gone): "<name> has disconnected." / OK, 236, 312, 552
+// wide. "There is no response from your opponent." and the other refusals stay the error box (orange), as on live.
+/** The words (yo2text_?) and live's English where the original data is not loaded. */
+export const DUEL_REQUEST_TEXT = { requesting: 0x1481, received: 0x1482, refused: 0x1483, disconnected: 0x11a7 } as const;
+const DUEL_REQUEST_FALLBACK: Record<keyof typeof DUEL_REQUEST_TEXT, string> = { requesting: 'Requesting Duel',
+  received: 'You have aDuel Request!\n Will you accept?', refused: 'Duel Request was refused.', disconnected: '%s has disconnected.' };
+export const duelRequestText = (text: BuildContext['text'], k: keyof typeof DUEL_REQUEST_TEXT): string => text?.(DUEL_REQUEST_TEXT[k]) ?? DUEL_REQUEST_FALLBACK[k];
+export type DuelRequestBox =
+  | { kind: 'requesting'; cancel(): void }
+  | { kind: 'received'; name: string; level?: number; title?: string; yes(): void; no(): void }
+  | { kind: 'refused'; ok(): void }
+  | { kind: 'calledOff'; text: string; ok(): void };
+export function duelRequestDialog(ctx: Pick<BuildContext, 'ids' | 'text'>, box: DuelRequestBox): WindowSpec {
+  const ok = duelRequestOk as unknown as typeof dialogYesNo;
+  if (box.kind === 'requesting') return templateDialog(ctx, 'duel-request', ok, duelRequestText(ctx.text, 'requesting'),
+    [{ from: 'Cancel', key: 'duel-request-cancel', aria: 'Cancel the duel request', click: box.cancel }]);
+  if (box.kind === 'refused') return templateDialog(ctx, 'duel-refused', ok, duelRequestText(ctx.text, 'refused'),
+    [{ from: 'Cancel', label: 'OK', key: 'duel-refused-ok', click: box.ok }]);
+  if (box.kind === 'calledOff') return templateDialog(ctx, 'duel-calledoff', duelCalledOff as unknown as typeof dialogYesNo, box.text,
+    [{ from: 'OK', key: 'duel-calledoff-ok', click: box.ok }]);
+  const who = `${box.level !== undefined ? `Lv${box.level} ` : ''}${box.name}`;
+  const text = `\n${who}\n${box.title ? `[${box.title}]` : ''}\n\n${duelRequestText(ctx.text, 'received')}`;
+  return templateDialog(ctx, 'duel-invitation', duelRequestYesNo as unknown as typeof dialogYesNo, text,
+    [{ from: 'Yes', key: 'duel-accept', aria: 'Accept Duel', click: box.yes }, { from: 'No', key: 'duel-decline', aria: 'Decline', click: box.no }]);
 }
 // Delete (CNetAccountTask DEL_PROMPT .. DEL_DONE_WAIT, NetAccountTask.cpp): the password (uiOpenInput at 332, 324, style 4,
 // TXT_DELETE_PROMPT 0xc26: main's live capture, 360 x 120, its text centred at 0, 8, the masked field 8, 56, 344 x 32, OK
