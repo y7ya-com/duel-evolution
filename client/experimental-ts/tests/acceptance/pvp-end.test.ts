@@ -104,7 +104,8 @@ describe.skipIf(!enabled)('PvP matchmaking, disconnect and time-out endings, and
       let menu:string[] = [];
       for (let i = 0; i < 20; i++) {
         await press(b,`(${avatar(names.a)})`).catch(async () => b.ev(`(${avatar(names.a)}).click()`));
-        await until(b,cardOpen,10000);
+        // (a press as the area's avatars settle can miss: pressed again, as a player would)
+        if (!(await until(b,cardOpen,10000).then(() => true,() => false))) { await sleep(1500); continue; }
         menu = await b.ev(`[...document.querySelectorAll('#htmlui-host [data-key^="card-"]')].filter(x=>!x.disabled).map(x=>x.textContent.trim())`) as string[];
         if (menu.includes('Watch Duel')) break;
         await closeCard(b); await sleep(1500);
