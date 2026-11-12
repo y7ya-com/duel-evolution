@@ -118,11 +118,13 @@ export class DuelPresentation {
     if (this.load) {
       const bg = board.querySelector('.de-duel-bg');
       if (bg) bg.after(...this.portraits); else board.prepend(...this.portraits);
-      board.append(this.statsLayer, this.fx.element, this.info);
+      board.append(this.statsLayer, this.fx.element);
     }
+    // the card information box (its text is the card's; its icons wait for the art)
+    board.append(this.info);
     board.addEventListener('pointerover', e => {
       const id = (e.target as Element | null)?.closest?.('[data-key^="field-card:"]')?.getAttribute('data-key')?.slice('field-card:'.length);
-      if (id && id !== this.hovered) { this.hovered = id; this.shown = id; this.renderInfo(); }
+      if (id && id !== this.hovered) { this.hovered = id; this.shown = id; this.pinned = null; this.renderInfo(); }
     });
     this.update(duel, reducedMotion);
   }
@@ -138,11 +140,12 @@ export class DuelPresentation {
     }
     this.duel = duel;
     if (reducedMotion !== this.reduced) { this.reduced = reducedMotion; for (const side of [0, 1] as const) this.blink(side); }
+    this.renderInfo();
     if (!this.load) return;
     this.fx.update(duel, reducedMotion);
     this.fx.thinking = thinkingSide(duel);
     for (const side of [0, 1] as const) this.portrait(side, duel.players[side].parts);
-    this.renderInfo(); this.drawStats();
+    this.drawStats();
   }
   private lastCue: number | null = null;
   dispose(): void {
@@ -226,9 +229,18 @@ export class DuelPresentation {
     next(0);
   }
 
+  /** Show a card in the box (live's card information box: a card the player asked about, a card a list or a question
+   * refers to); one not on the field stays until the pointer picks another card. */
+  showCard(card: CardView | null): void {
+    if (!card) return;
+    if (this.duel?.cards.some(c => c.id === card.id)) { this.shown = card.id; this.pinned = null; } else this.pinned = card;
+    this.renderInfo();
+  }
+  private pinned: CardView | null = null;
   private renderInfo(): void {
-    const card = this.shown ? this.duel?.cards.find(c => c.id === this.shown) : undefined;
-    const visible = card && (card.faceUp || card.controller === 0 && card.passcode !== undefined) && card.name && card.name !== 'Hidden card' ? card : undefined;
+    const onField = this.shown ? this.duel?.cards.find(c => c.id === this.shown) : undefined;
+    const card: CardView | undefined = this.pinned ?? (onField && (onField.faceUp || onField.controller === 0 && onField.passcode !== undefined) ? onField : undefined);
+    const visible = card && card.name && card.name !== 'Hidden card' ? card : undefined;
     const key = visible ? `${visible.id}:${visible.passcode}:${visible.attack}:${visible.defense}` : '';
     if (key === this.infoKey) return;
     this.infoKey = key;
@@ -248,7 +260,7 @@ export class DuelPresentation {
     this.load?.(`data/y/duel/card/${sheet}`, this.abort.signal).then(lease => { img.src = lease.url; img.onload = img.onerror = () => lease.release(); }, () => box.remove());
     return box;
   }
-  private stats(card: DuelCardView): HTMLElement {
+  private stats(card: CardView): HTMLElement {
     const row = document.createElement('div'); row.className = 'de-duel-info-stats';
     if (isMonster(card)) {
       const race = RACES.indexOf(String(card.race ?? '')), attribute = ATTRIBUTES.indexOf(String(card.attribute ?? '').toLowerCase());

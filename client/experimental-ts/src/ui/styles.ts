@@ -167,6 +167,8 @@ button.de-card { padding:2px; min-height:0; color:#fff; background:linear-gradie
 .de-trade-result { font-weight:bold; color:#16733a; }
 .de-client button.de-zone-target { position:absolute; transform:translate(-50%,-50%); pointer-events:auto; min-height:0; padding:0; background:#fff59a55; border:2px solid #ffe14a; border-radius:3px; box-shadow:0 0 12px #ffe14a, inset 0 0 10px #fff7b0; animation:de-zone-pulse 1s ease-in-out infinite alternate; z-index:3; }
 .de-client button.de-zone-target:hover { background:#fff59a99; }
+/* the player's deck zone once its last card is gone: it still takes the click (its command list: Surrender), nothing drawn */
+.de-client button.de-deck-zone { position:absolute; transform:translate(-50%,-50%); pointer-events:auto; min-height:0; padding:0; background:none; border:0; box-shadow:none; cursor:pointer; }
 button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zone-pulse 1s ease-in-out infinite alternate; z-index:3; }
 @keyframes de-zone-pulse { from { box-shadow:0 0 6px #ffe14a; } to { box-shadow:0 0 18px #fff38a; } }
 .de-duel-board { position:absolute; left:0; top:0; width:100%; aspect-ratio:4/3; overflow:hidden; }
@@ -197,10 +199,6 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 .de-field-card[data-effect=chain] { outline:3px solid #ffeb69; box-shadow:0 0 16px #ffe87b; }
 .de-field-card[data-effect=attack] { outline:3px solid #ff9d6b; box-shadow:0 0 14px #ff854b; }
 .de-field-card.defense { transform:translate(-50%,-50%) rotate(90deg); }
-.de-duel-inspector { position:absolute; left:10px; top:90px; bottom:60px; width:180px; overflow:auto; z-index:12; }
-.de-duel-inspector>.de-card { width:100%; aspect-ratio:.7; flex:none; }
-.de-duel-actions { display:flex; gap:4px; flex-wrap:nowrap; }
-.de-duel-actions button { padding:1px 8px; font-size:11px; }
 .de-duel-bar { position:absolute; left:0; right:0; bottom:0; height:4.1667%; display:flex; align-items:center; gap:6px; z-index:8; background:linear-gradient(#cdefff,#5fb6e8 55%,#2f86c4); border-top:1px solid #e8fbff; }
 .de-duel-wrench { width:7.8125%; height:100%; padding:0; display:grid; place-items:center; background:linear-gradient(#ffe48a,#f6a313); border:1px solid #b06a00; border-radius:0 6px 0 0; cursor:pointer; }
 .de-duel-wrench.has-art { position:absolute; left:${4 / 1024 * 100}%; top:0; width:${80 / 1024 * 100}%; height:100%; background:none; border:0; border-radius:0; overflow:hidden; display:block; }
@@ -209,22 +207,10 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 .de-duel-wrench svg { width:20px; height:20px; fill:#1d5fa8; stroke:#fff; stroke-width:.8; }
 .de-duel-help { position:absolute; left:${388 / 1024 * 100}%; right:${8 / 1024 * 100}%; top:0; bottom:0; overflow:hidden; white-space:nowrap; font:15px Arial,sans-serif; letter-spacing:.04em; color:#0b1f3a; display:flex; align-items:center; }
 /* the ring keeps its own 64 px box: .de-stage canvas (every stage canvas at 100%) stretched it 1024 wide across the bar */
-/* the bar's own keys (a spectator's Leave Duel, Surrender with no deck left) between the ring and the help line, clear of
-   the wrench, which now stands at the bar's left edge as live's */
-.de-duel-bar>.de-duel-actions { position:absolute; left:${300 / 1024 * 100}%; top:0; bottom:0; align-items:center; z-index:1; }
 .de-duel-bar>.de-duel-ring { position:absolute; left:${232 / 1024 * 100}%; top:${-16 / 32 * 100}%; width:${64 / 1024 * 100}%; height:200%; pointer-events:none; }
 .de-duel-help-run { display:inline-block; padding-left:100%; animation:de-help-run 16s linear infinite; }
 @keyframes de-help-run { from { transform:translateX(0); } to { transform:translateX(-100%); } }
 @media (prefers-reduced-motion: reduce) { .de-duel-help-run { padding-left:8px; animation:none; } }
-.de-duel-cmd { position:absolute; width:15.625%; z-index:14; padding:6px; background:#f2d64a99; border:1px solid #c9a21acc; border-radius:2px; box-shadow:inset 1px 1px 0 #fff7c0cc,inset -1px -1px 0 #9a7a10aa,0 2px 6px #0005; display:flex; flex-direction:column; gap:0; }
-/* live's CWindowModelListDuelCmd (de-scratch/visual/live/x-duel-cmd.png): a translucent gold frame 6 px wide, each command a
-   19 px blue row (the cursor row lighter), the command's dark text in Arial after its small white mark */
-.de-client button.de-duel-cmd-row { display:block; min-height:0; box-shadow:none; filter:none; width:100%; height:19px; padding:0 6px 0 22px; text-align:left; font:15px/19px Arial,"Liberation Sans",sans-serif; letter-spacing:.06em; color:#0b1830; border:0; border-radius:0; cursor:pointer; position:relative; background:#1a7fe0e0; }
-.de-client button.de-duel-cmd-row:nth-of-type(even) { background:#2a8ae6e0; }
-.de-client button.de-duel-cmd-row::before { content:''; position:absolute; left:6px; top:4px; width:9px; height:10px; background:#fff; clip-path:polygon(0 0,100% 20%,100% 70%,25% 60%,25% 100%,0 100%); }
-.de-client button.de-duel-cmd-row:hover:not(:disabled),.de-client button.de-duel-cmd-row:focus-visible { background:#5ab0ff; color:#04122a; outline:none; }
-.de-client button.de-duel-cmd-row:disabled { color:#5d7a9e; cursor:default; opacity:1; }
-.de-duel-cmd-close { position:absolute; right:-9px; top:-9px; width:18px; height:18px; padding:0; border-radius:50%; font:bold 12px/16px Arial; color:#6b4a00; background:#ffe48a; border:1px solid #b06a00; cursor:pointer; }
 .de-phase-bar>button.de-phase { pointer-events:auto; cursor:pointer; padding:0; border:0; background:none; }
 .de-phase-bar>button.de-phase:hover img { filter:brightness(1.2); }
 .de-phase-bar>button.de-phase:disabled { cursor:default; }
@@ -277,8 +263,7 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 .de-connection.error,.de-connection.offline { background:#ffb3a2; }
 .de-busy { opacity:.7; }
 @media(max-width:700px) { .de-client { font-size:12px; width:100%; } .de-stage { min-height:480px; aspect-ratio:auto; height:75vh; max-height:850px; } .de-scene { padding:10px; } .de-deck-columns { grid-template-columns:1fr 1fr; } .de-sideboard-columns { grid-template-columns:2fr 1fr; } .de-sideboard-columns>section:last-child { grid-column:1/-1; max-height:100px; } .de-card-inspector { display:none; } .de-mobile-details { display:block; max-height:170px; overflow:auto; background:#effcff; padding:5px; } .de-mobile-details summary { cursor:pointer; font-weight:bold; } .de-duel-prompt { left:5%; right:5%; top:30%; } .de-target-prompt { top:60px; max-height:110px; } .de-duelist { min-width:0; padding:4px 7px; } .de-duelist strong { font-size:17px; } .de-duel-log { width:30%; max-height:100px; } .de-duel-inspector { position:absolute; left:10px; top:90px; bottom:60px; width:180px; overflow:auto; z-index:12; }
-.de-duel-inspector>.de-card { width:100%; aspect-ratio:.7; flex:none; }
-.de-duel-actions { max-width:65%; } .de-duelist { width:40%; font-size:11px; } .de-duel-board .de-card-name { display:none; } .de-context { left:12px; right:12px; width:auto; top:auto; bottom:215px; } .de-duel-board { width:160%; left:-30%; top:58px; } .de-duelist { border-radius:0; } .de-duel-log { left:8px; right:auto; width:calc(100% - 16px); bottom:52px; max-height:22%; } .de-lp-value { font-size:13px; min-width:40px; } .de-social-grid { grid-template-columns:1fr; } .de-top { padding:7px; } }
+.de-duelist { width:40%; font-size:11px; } .de-duel-board .de-card-name { display:none; } .de-context { left:12px; right:12px; width:auto; top:auto; bottom:215px; } .de-duel-board { width:160%; left:-30%; top:58px; } .de-duelist { border-radius:0; } .de-duel-log { left:8px; right:auto; width:calc(100% - 16px); bottom:52px; max-height:22%; } .de-lp-value { font-size:13px; min-width:40px; } .de-social-grid { grid-template-columns:1fr; } .de-top { padding:7px; } }
 @media(prefers-reduced-motion:reduce) { .de-client * { animation:none!important; transition:none!important; } }
 .de-client[data-motion=reduced] * { animation:none!important; transition:none!important; }
 .de-client:is(:fullscreen,html:fullscreen .de-client:not(.de-phone)) { --de-fullscreen-width:min(100%,calc((100vh - 120px)*1.333333)); width:100vw; max-width:none; height:100vh; margin:0; padding:8px; display:flex; flex-direction:column; align-items:center; justify-content:center; overflow:auto; background:#093d6a; }

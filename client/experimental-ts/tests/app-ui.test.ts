@@ -137,7 +137,9 @@ describe('actual ClientApp mounted through semantic UI', () => {
     f.session.players.find(p => p.pid === 88)!.state = 0x68; f.emit(); await flush();   // Bob is duelling (the server's 0x67..0x6a)
     // main's lobby: Bob's row in the player list opens his card (CPlayerListMenu), whose Watch button spectates his duel
     await f.openPlayer('Bob'); expect(f.mounted.htmlUi.press('card-watch')).toBe(true); await flush(); expect(f.game.watchDuel).toHaveBeenCalledWith(88); expect(f.app.getState().duel?.spectating).toBe(true);
-    findButton(f.root, 'Leave Duel').onclick?.({}); await flush(); expect(f.game.finishDuel).toHaveBeenCalledTimes(1); expect(f.game.sendDuel).not.toHaveBeenCalled(); expect(f.app.getState().scene).toBe('lobby');
+    // no Surrender for a spectator: a deck's command list (live's CUSummonDialogSp) leaves the duel
+    const deck = f.root.querySelectorAll('button').find(b => b.dataset.zone === 'deck' && b.dataset.side === 'your')!; deck.onclick?.({}); await flush();
+    expect(f.mounted.htmlUi.press('duel-surrender')).toBe(false); expect(f.mounted.htmlUi.press('duel-leave')).toBe(true); await flush(); expect(f.game.finishDuel).toHaveBeenCalledTimes(1); expect(f.game.sendDuel).not.toHaveBeenCalled(); expect(f.app.getState().scene).toBe('lobby');
     await f.app.dispatch({ type: 'settings', settings: { reducedMotion: true } });
     expect(f.app.getState().duel).toBeNull(); f.dispose();
   });
@@ -152,7 +154,9 @@ describe('actual ClientApp mounted through semantic UI', () => {
   });
   it('sends surrender as a server request and never asserts local victory or defeat', async () => {
     const f = harness(); await f.enter(); await f.startNpc(); await f.app.dispatch({ type: 'beginDuel' }); await flush();
-    findButton(f.root, 'Surrender').onclick?.({}); await flush();
+    // live's Surrender: the player's deck's command list (CUSummonDialogSp)
+    const deck = f.root.querySelectorAll('button').find(b => b.dataset.zone === 'deck' && b.dataset.side === 'your')!; deck.onclick?.({}); await flush();
+    expect(f.mounted.htmlUi.press('duel-surrender')).toBe(true); await flush();
     // the confirmation is main's Yes / No dialog (dialog.js); nothing is sent until Yes
     expect(f.game.sendDuel).not.toHaveBeenCalled(); expect(f.mounted.htmlUi.press('surrender-yes')).toBe(true); await flush();
     const [id, bytes] = f.game.sendDuel.mock.calls[0] as unknown as [number, Uint8Array];

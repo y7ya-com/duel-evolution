@@ -30,9 +30,11 @@ describe('duel board mechanics', () => {
     expect(theirs.getAttribute('aria-label')).toBe('Face-down card, opponent spell');
     expect(theirs.dataset).toMatchObject({ side: 'opponent', zone: 'spell', index: '1' });
     theirs.onclick?.({}); await Promise.resolve();
-    expect(f.root.textContent).not.toContain('Card details');
+    // live's card information box (the duel screen's bottom-left box) names the player's own set card, never the opponent's
+    const info = () => f.root.querySelectorAll('aside').find(n => n.className === 'de-duel-info');
+    expect(info()?.hidden ?? true).toBe(true);
     mine.onclick?.({}); await Promise.resolve();
-    expect(f.root.textContent).toContain('Dark Magician'); expect(f.root.textContent).toContain('Set face-down');
+    expect(info()?.hidden).toBe(false); expect(info()?.textContent).toContain('Dark Magician');
     f.mounted.dispose();
   });
   it('binds server actions to the prompt they were rendered for', async () => {

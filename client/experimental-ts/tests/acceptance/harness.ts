@@ -371,13 +371,14 @@ export async function duelBot(page:Page,options:{ attack?:boolean; summon?:boole
       if(cancel)return {kind:'key',key:cancel.dataset.key};
     }
     const zone=[...document.querySelectorAll('.de-zone-target,.de-card-target')].find(ok);if(zone)return {kind:'key',key:zone.dataset.key};
-    // a card's command list (live's CWindowModelListDuelCmd: the rows' labels 'Summon: <card>'), or Close
-    const cmd=document.querySelector('.de-duel-cmd');
+    // a card's command menu (live's CUSummonDialogSp, main's duel.js: its rows' labels 'Summon: <card>'), or the
+    // pointer moved off it (live closes it then)
+    const cmd=document.querySelector('#htmlui-host .win[data-window-class="CUSummonDialogSp"]');
     if(cmd){
-      const rows=[...cmd.querySelectorAll('[data-key^="duel-cmd:"]')].filter(ok).filter(b=>b.dataset.key!=='duel-cmd:details');
+      const rows=[...cmd.querySelectorAll('[data-key^="duel-cmd:"]')].filter(b=>b.getClientRects().length&&b.getAttribute('aria-disabled')!=='true');
       const want=${JSON.stringify([...(options.set ? ['Set monster','Set spell/trap'] : []),...(options.activate ? ['Activate'] : []),...(options.summon === false ? [] : ['Summon','Set monster']),...(options.attack === false ? [] : ['Attack'])])};
       const pick=want.map(w=>rows.find(b=>(b.getAttribute('aria-label')??'').startsWith(w+':'))).find(Boolean);
-      return {kind:'key',key:pick?pick.dataset.key:'duel-cmd-close'};
+      return pick?{kind:'key',key:pick.dataset.key}:{kind:'away'};
     }
     const ins=document.querySelector('.de-duel-inspector');
     if(ins){
@@ -412,10 +413,18 @@ export async function duelBot(page:Page,options:{ attack?:boolean; summon?:boole
   if (!next) return 'idle';
   if (next.kind === 'finished') return 'finished';
   if (next.kind === 'wait') return 'acted';
-  const selector = next.kind === 'key' ? `[...document.querySelectorAll('button')].find(b=>b.dataset.key===${JSON.stringify(next.key)})`
+  if (next.kind === 'away') { await pointerAway(page); return 'acted'; }
+  const selector = next.kind === 'key' ? `[...document.querySelectorAll('button,[role=menuitem]')].find(b=>b.dataset.key===${JSON.stringify(next.key)})`
     : next.kind === 'press' ? `document.querySelector(${JSON.stringify(next.sel)})`
     : `[...document.querySelectorAll('${next.scope ?? ''} button')].find(b=>b.textContent===${JSON.stringify(next.text)}&&!b.disabled)`;
   try { await press(page,selector); return 'acted'; } catch { await page.ev(`(${selector})?.click()`).catch(() => {}); return 'acted'; }
+}
+/** The pointer off the duel's cards and windows (the field's middle line), as a player moves it away: live's command
+ * menu (CUSummonDialogSp) closes then. */
+export async function pointerAway(page:Page) {
+  const p = await page.ev(`(()=>{const r=document.querySelector('.de-stage').getBoundingClientRect(),k=r.width/1024;return {x:r.left+12*k,y:r.top+384*k};})()`) as { x:number; y:number };
+  await page.send('Input.dispatchMouseEvent',{ type:'mouseMoved',...p });
+  await page.ev('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
 }
 /** Play until the duel ends (or the time runs out); returns the result banner text. */
 export async function playDuel(page:Page,options:{ attack?:boolean; summon?:boolean; timeout?:number } = {}):Promise<string> {
@@ -491,16 +500,23 @@ export async function ownedCopies(page:Page,name:string):Promise<number> {
   await exitDeckEditor(page);
   return deck.collection.filter(c => !name || c.name === name).reduce((n,c) => n + c.owned,0);
 }
-/** live's Surrender: a row of the player's own deck's command list (a click on the deck opens it); the duel bar's
- * button when no deck is left. Opens the list and returns the row's selector (to read or press). */
+/** live's Surrender: a row of the player's own deck's command list (a click on the deck opens it; the empty deck zone's
+ * when no card is left). Opens the list and returns the row's selector (to read or press). */
 export async function surrenderRow(page:Page):Promise<string> {
-  const deck = `document.querySelector('.de-field-card[data-side="your"][data-zone="deck"]')`;
-  if (!(await page.ev(`Boolean(${deck})`))) return byText('Surrender');
+  // the deck's top card, or the empty deck zone once no card is left (it opens the same list)
+  const deck = `(document.querySelector('.de-field-card[data-side="your"][data-zone="deck"]')??document.querySelector('[data-key="field-deck:0"]'))`;
   if (!(await page.ev(`Boolean(${byKey('duel-surrender')})`))) await press(page,deck);
   await until(page,byKey('duel-surrender'),20000);
   return byKey('duel-surrender');
 }
-export async function pressSurrender(page:Page) { const row = await surrenderRow(page); await until(page,`(${row})&&!(${row}).disabled`,60000); await press(page,row); }
+/** A spectator leaves the duel: a deck's command list (live's CUSummonDialogSp), its Leave Duel row. */
+export async function leaveWatching(page:Page) {
+  const deck = `(document.querySelector('.de-field-card[data-zone="deck"]')??document.querySelector('[data-key="field-deck:0"]'))`;
+  if (!(await page.ev(`Boolean(${byKey('duel-leave')})`))) await press(page,deck);
+  await until(page,byKey('duel-leave'),20000);
+  await press(page,byKey('duel-leave'));
+}
+export async function pressSurrender(page:Page) { const row = await surrenderRow(page); await until(page,`(${row})&&(${row}).getAttribute('aria-disabled')!=='true'`,60000); await press(page,row); }
 /** Surrender the current duel (confirming the server's question) and wait for the result. */
 export async function surrender(page:Page) {
   // The server answers a surrender with its Yes/No question when this side may act: wait for our own turn.

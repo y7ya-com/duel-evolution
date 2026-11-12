@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, sleep, screenshot, record, duelBot, type Page } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, sleep, screenshot, record, duelBot, leaveWatching, type Page } from './harness';
 import { avatar, invitation, requesting, inLobby, onDuel, finished, playerMenu, menuActions, pageText, startBoth, read, settled, mirrored, playBoth, stepBoth, backToLobby, createDuelOffered } from './pvp-helpers';
 
 async function challenge(from:Page,to:Page,name:string) {
@@ -107,7 +107,7 @@ describe.skipIf(!enabled)('player-versus-player duels and spectators on the real
           expect(now.turn).toBeGreaterThan(start.turn);
           expect(new Set(now.lp)).toEqual(new Set(x.lp));
           live = `turn ${start.turn} → ${now.turn} followed live; LP ${now.lp.join('/')} matching the players`;
-          await click(c,'Leave Duel');
+          await leaveWatching(c);
           await until(c,inLobby,60000);
           await until(c,`!document.querySelector('.de-duel-board')`,10000);
           // After leaving, the lobby is usable and the duel no longer draws on C.

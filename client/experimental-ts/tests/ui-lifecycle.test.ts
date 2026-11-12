@@ -94,7 +94,7 @@ describe('UI ownership and semantic interaction', () => {
   it('exposes actions on a face-down card without revealing its identity', async () => {
     const f = fixture(); f.update({ scene: 'duel', duel: { players: [{ name: 'A', lp: 8000 }, { name: 'B', lp: 8000 }], turn: 1, turnPlayer: 0, phase: 'Main', log: [], prompt: null, cards: [{ id: 'set1', name: 'Secret Trap', controller: 0, zone: 'spell', index: 0, faceUp: false }], actions: [{ id: 'activate', cardId: 'set1', label: 'Activate trap' }] } }); await Promise.resolve();
     f.root.querySelectorAll('button').find(b => b.dataset.key === 'field-card:set1')!.onclick?.({}); await Promise.resolve();
-    expect(f.root.textContent).not.toContain('Secret Trap'); findButton(f.root, 'Activate trap').onclick?.({});
+    expect(f.root.textContent).not.toContain('Secret Trap'); expect(f.mounted.htmlUi.text()).not.toContain('Secret Trap'); expect(f.mounted.htmlUi.press('duel-cmd:activate')).toBe(true);
     expect(f.commands).toEqual([{ type: 'duelAction', actionId: 'activate' }]); f.mounted.dispose();
   });
   it('accepts a server-issued card prompt with a legal empty selection', async () => {
@@ -138,14 +138,17 @@ describe('UI ownership and semantic interaction', () => {
     const close = { type: 'profileAction', action: { type: 'close' } };
     expect(f.commands).toEqual([{ type: 'createDuelRoom', options: { style: 4, timeLimit: true, allowWatch: true, allowSurrender: true } }, close, { type: 'challengeRoom', roomId: 9 }, close, { type: 'spectate', pid: 3 }, { type: 'replyChallenge', accept: true }, { type: 'replyChallenge', accept: false }]);
     f.update({ scene: 'duel', duel: { players: [{ name: 'A', lp: 8000 }, { name: 'B', lp: 8000 }], cards: [], prompt: null, turn: 1, turnPlayer: 0, phase: 'Main', log: [], spectating: true } }); await Promise.resolve();
-    expect(f.root.querySelectorAll('button').some(b => b.textContent === 'Surrender')).toBe(false); findButton(f.root, 'Leave Duel').onclick?.({}); expect(f.commands.at(-1)).toEqual({ type: 'leaveDuel' }); f.mounted.dispose();
+    // a spectator has no Surrender: the deck's command list (live's CUSummonDialogSp) leaves the duel
+    f.root.querySelectorAll('button').find(n => n.dataset.key === 'field-deck:0')!.onclick?.({}); await Promise.resolve();
+    expect(control(f, 'duel-surrender')).toBeUndefined(); expect(f.mounted.htmlUi.press('duel-leave')).toBe(true); expect(f.commands.at(-1)).toEqual({ type: 'leaveDuel' }); f.mounted.dispose();
   });
   it('renders index zero as the deck top and preserves access to nonrendered pile actions', async () => {
     const f = fixture(); f.update({ scene: 'duel', duel: { players: [{ name: 'A', lp: 8000 }, { name: 'B', lp: 8000 }], cards: [{ id: 'top', name: 'Hidden', controller: 0, zone: 'deck', index: 0, faceUp: false }, { id: 'bottom', name: 'Hidden', controller: 0, zone: 'deck', index: 1, faceUp: false }], prompt: null, turn: 1, turnPlayer: 0, phase: 'Main', log: [], actions: [{ id: 'pile-action', cardId: 'bottom', label: 'Server pile action' }] } }); await Promise.resolve();
     const keys = f.root.querySelectorAll('button').map(n => n.dataset.key); expect(keys).toContain('field-card:top'); expect(keys).not.toContain('field-card:bottom');
     // live's command list: the pile's top card opens it, the hidden card's action a row of it
     f.root.querySelectorAll('button').find(n => n.dataset.key === 'field-card:top')!.onclick?.({}); await Promise.resolve();
-    f.root.querySelectorAll('button').find(n => n.dataset.key === 'duel-cmd:pile-action')!.onclick?.({}); expect(f.commands.at(-1)).toEqual({ type: 'duelAction', actionId: 'pile-action' }); f.mounted.dispose();
+    expect(control(f, 'duel-cmd:pile-action')).toBeDefined(); expect(control(f, 'duel-surrender')).toBeDefined();
+    expect(f.mounted.htmlUi.press('duel-cmd:pile-action')).toBe(true); expect(f.commands.at(-1)).toEqual({ type: 'duelAction', actionId: 'pile-action' }); f.mounted.dispose();
   });
   it('updates walking avatars in place and keyboard navigation reads the latest position', async () => {
     const f = fixture(), lobby: NonNullable<ClientView['lobby']> = { name: 'Academy', width: 1024, height: 768, avatars: [{ id: 1, name: 'A', x: 100, y: 100, self: true }], chat: [], channels: ['global'], connected: true };

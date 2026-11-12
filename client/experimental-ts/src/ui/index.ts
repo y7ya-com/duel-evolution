@@ -62,6 +62,7 @@ import { TitleScene, type TitleButton } from './htmlui/title-scene';
 import { BUST_AT } from './htmlui/windows';
 import { loginLocal, loginWindow } from './htmlui/login';
 import { duelDialog, duelDialogCovers, loadDuelSpeed } from './htmlui/duel-dialogs';
+import { duelCmdWindow, duelCmdRect, menuCommand, SURRENDER_COMMAND, type DuelCmdRow, type DuelCmdUi } from './htmlui/duel-cmd';
 import { DuelSpeedButton } from './htmlui/duel-speed';
 import { duelResultWindows, preparationDialog, type PrepChoice } from './htmlui/duel-result';
 export type * from './contracts';
@@ -452,6 +453,31 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (/ready|begin|confirm|invitation/.test(phase)) return { text: `Duel Preparation${seen}`, buttons: [{ id: 'start', label: 'Start Duel', act: () => send({ type: 'beginDuel' }) }] };
     return { text: `Waiting for the other duelist…${seen}`, buttons: [] };
   };
+  // A card's open command menu (live's CUSummonDialogSp, htmlui/duel-cmd.ts): what renderDuel gathered for it; the row
+  // under the pointer is the menu's own. As live (CUSummonDialogSp::onMain) it closes when the pointer leaves the card
+  // and the menu, goes below the field (y 600), or a click lands elsewhere; Escape closes it too.
+  let duelCmdView: { at: { x: number; top: number; hand: boolean }; rows: DuelCmdRow[]; name: string; owner: string } | null = null;
+  const duelCmdUi: DuelCmdUi = { hover: 0 };
+  const openCmd = (id: string | null) => { local.duelCmd = id; duelCmdUi.hover = 0; requestRender(); };
+  const closeCmd = () => { if (local.duelCmd === null) return; local.duelCmd = null; duelCmdView = null; requestRender(); };
+  const cmdKeepsOpen = (e: PointerEvent | MouseEvent): boolean => {
+    const view = duelCmdView, box = stage.getBoundingClientRect(); if (!view || !box.width) return false;
+    const k = box.width / 1024, x = (e.clientX - box.left) / k, y = (e.clientY - box.top) / k;
+    if (y > 600 && !view.at.hand) return false;
+    const menu = duelCmdRect(view.at, view.rows.length), card = fieldNodes.get(view.owner)?.getBoundingClientRect() ?? host.querySelector('[data-key="field-deck:0"]')?.getBoundingClientRect();
+    const c = card && card.width ? { x: (card.left - box.left) / k, y: (card.top - box.top) / k, w: card.width / k, h: card.height / k } : { x: menu.x, y: menu.y + menu.h, w: menu.w, h: 0 };
+    // the card and the menu with the gap between them (a hand card's menu ends above its top edge)
+    const left = Math.min(menu.x, c.x), right = Math.max(menu.x + menu.w, c.x + c.w), top = menu.y, bottom = Math.max(menu.y + menu.h, c.y + c.h);
+    return x >= left && x < right && y >= top && y < bottom;
+  };
+  const cmdPointer = (e: PointerEvent) => { if (local.duelCmd !== null && duelCmdView && e.pointerType !== 'touch' && !cmdKeepsOpen(e)) closeCmd(); };
+  const cmdPress = (e: PointerEvent) => {
+    if (local.duelCmd === null || !duelCmdView) return;
+    const t = e.target as Element | null;
+    if (t?.closest?.('.win[data-window-class="CUSummonDialogSp"]') || t?.closest?.(`[data-key="field-card:${duelCmdView.owner}"]`) || duelCmdView.owner === 'deck:0' && t?.closest?.('[data-key="field-deck:0"]')) return;
+    closeCmd();
+  };
+  globalThis.addEventListener?.('pointermove', cmdPointer, true); globalThis.addEventListener?.('pointerdown', cmdPress, true);
   const prepSpecs = (): WindowSpec[] => { const c = prepChoice(); return c ? [preparationDialog(htmlIds, !!state.busy, c)] : []; };
   const duelSpecs = (): WindowSpec[] => {
     const duel = state.duel; if (state.scene !== 'duel' || !duel) return [];
@@ -461,12 +487,13 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const npcRec = state.npc?.npc && state.npc.record && state.npc.result && !['idle', 'duel'].includes(state.npc.stage) ? { name: state.npc.npc.name, record: state.npc.record } : undefined;
     if (duel.ended && !state.sideboarding && !state.replay) out.push(...duelResultWindows({ ids: htmlIds, duel, match: state.match, npc: npcRec, ...(!state.match || state.match.complete ? { next: () => open('lobby') } : {}) }));
     if (state.replay) out.push(replayWindow(htmlIds, state.replay, action => send({ type: 'replayControl', action })));
+    if (duelCmdView && local.duelCmd === duelCmdView.owner) out.push(duelCmdWindow({ ids: htmlIds, ...duelCmdView, ui: duelCmdUi, rerender: showHtml }));
     const prompt = duel.prompt;
     if (prompt && htmlDuelPrompt(prompt)) {
       if (local.promptId !== prompt.id) { local.promptId = prompt.id; local.selected.clear(); local.promptInspection = null; duelHover = { selected: local.selected, hover: null }; }
       duelHover.selected = local.selected;
       const spec = duelDialog({ ids: htmlIds, busy: !!state.busy, local: duelHover, respond: response => respondToPrompt(prompt.id, response), rerender: showHtml,
-        inspect: id => { const card = prompt.candidates?.find(c => c.id === id)?.card; if (card) { inspect(card, 'duel'); requestRender(); } } }, prompt);
+        inspect: id => { const card = prompt.candidates?.find(c => c.id === id)?.card; if (card) inspect(card, 'duel'); } }, prompt);
       if (spec) out.push(spec);
     } else if (prompt && htmlUi && !state.preparation) {
       // the help strip (CWindowModelHelp) over the field while the duel screen's own panel asks (cards, places, declarations)
@@ -903,7 +930,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     else if (!message) errorSeen = '';
     return out;
   }
-  function inspect(card: CardView, from: DeckZone | 'collection' | 'duel' = 'collection'): void { local.inspected = card; local.inspectedFrom = from; requestRender(); }
+  // a duel card's details are live's card information box (the duel screen's bottom-left box, duel-scene.ts)
+  function inspect(card: CardView, from: DeckZone | 'collection' | 'duel' = 'collection'): void { if (from === 'duel') { duelScene.showCard(card); return; } local.inspected = card; local.inspectedFrom = from; requestRender(); }
   // The deck editor is main's deck screen (src/ui/htmlui/deck-scene.ts: its windows on the layer, the card pictures and
   // the mouse on the layer's engine side); the stage keeps only the scene's name, and a refusal shows in main's dialog
   function renderDeck(): void {
@@ -1027,14 +1055,17 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     for (const c of duel.cards) if (pileTop.get(`${c.controller}/${c.zone}`) === c.index && pileOf.has(c.id)) topOf.set(`${c.controller}/${c.zone}`, c.id);
     // The command list (CWindowModelListDuelCmd) of each card: its own actions, a pile's on its top card
     const commands = new Map<string, DuelOption[]>();
+    // (a selection of a card under a pile's top: on that pile's list too, as no card of its own is there to click; an
+    // action of no card and no zone: on the player's deck)
+    const ownDeckTop = topOf.get('0/deck'), canSurrender = !duel.spectating && !duel.ended, DECK_ZONE = 'deck:0';
     for (const a of duel.actions ?? []) {
-      if (!a.cardId || a.label.startsWith('Select:')) continue;
-      const pile = pileOf.get(a.cardId), at = pile ? topOf.get(pile) ?? a.cardId : a.cardId;
+      if (a.place || a.id === 'cancel' || a.id.startsWith('phase:')) continue;
+      const pile = a.cardId ? pileOf.get(a.cardId) : undefined;
+      if (a.cardId && a.label.startsWith('Select:') && (!pile || topOf.get(pile) === a.cardId)) continue;
+      const at = !a.cardId ? ownDeckTop ?? DECK_ZONE : pile ? topOf.get(pile) ?? a.cardId : a.cardId;
       commands.set(at, [...commands.get(at) ?? [], a]);
     }
-    const ownDeckTop = topOf.get('0/deck'), canSurrender = !duel.spectating && !duel.ended;
     const surrenderNow = () => { local.duelCmd = null; confirmAction('Surrender this duel?', () => send({ type: 'surrender' }), 'surrender'); };
-    const listed = new Set([...commands.values()].flat().map(a => a.id));
     for (const c of duel.cards) {
       if (['deck', 'graveyard', 'banished', 'extra'].includes(c.zone) && c.index !== pileTop.get(`${c.controller}/${c.zone}`)) continue;
       visibleCardIds.add(c.id);
@@ -1044,10 +1075,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       // A board selection (an attack target, a card to choose on either side) is made on the card itself, as in the original.
       const cardActions = (duel.actions ?? []).filter(a => a.cardId === c.id), selection = cardActions.length === 1 && !cardActions[0]!.disabled && cardActions[0]!.label.startsWith('Select:') ? cardActions[0]! : null;
       // live: a click (or a right click) on a card opens its command list; a card with none shows its details
-      const listOn = (commands.get(c.id)?.length ?? 0) > 0 || canSurrender && c.id === ownDeckTop;
+      const listOn = (commands.get(c.id)?.length ?? 0) > 0 || (canSurrender || !!duel.spectating) && c.id === ownDeckTop || !!duel.spectating && c.zone === 'deck';
       // the hand's faces carry no names (live): the name is the card's label, tooltip and details
-      const p = fieldCardPosition(c, handCount), tile = drawCard(c, c.zone !== 'hand' && state.settings.showCardNames, c.faceUp), b = button('', () => { const target = duel.prompt?.options.find(o => o.cardId === c.id && !o.disabled); if (target && duel.prompt) respondToPrompt(duel.prompt.id, { optionId: target.id }); else if (selection) { if (!state.busy) sendAction(duel, selection.id); } else if (listOn) { local.duelCmd = local.duelCmd === c.id ? null : c.id; requestRender(); } else if (c.faceUp || ownSet) { inspect(c, 'duel'); if (c.faceUp) send({ type: 'inspectCard', cardId: c.id }); } });
-      b.oncontextmenu = event => { event.preventDefault(); if (listOn && !selection) { local.duelCmd = c.id; requestRender(); } };
+      const p = fieldCardPosition(c, handCount), tile = drawCard(c, c.zone !== 'hand' && state.settings.showCardNames, c.faceUp), b = button('', () => { const target = duel.prompt?.options.find(o => o.cardId === c.id && !o.disabled); if (target && duel.prompt) respondToPrompt(duel.prompt.id, { optionId: target.id }); else if (selection) { if (!state.busy) sendAction(duel, selection.id); } else if (listOn) { openCmd(local.duelCmd === c.id ? null : c.id); } else if (c.faceUp || ownSet) { inspect(c, 'duel'); if (c.faceUp) send({ type: 'inspectCard', cardId: c.id }); } });
+      b.oncontextmenu = event => { event.preventDefault(); if (listOn && !selection) openCmd(c.id); };
       if (c.faceUp || ownSet) b.title = c.name;
       if (listOn) b.setAttribute('aria-haspopup', 'menu');
       b.dataset.key = `field-card:${c.id}`; b.dataset.side = c.controller ? 'opponent' : 'your'; b.dataset.zone = c.zone; b.dataset.index = String(c.index); if (c.zone === 'monster') b.dataset.position = c.position ?? 'attack';
@@ -1074,33 +1105,30 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       cards.append(zone);
     }
     board.append(cards); effectsLayer = el('div', 'de-duel-effects'); effectsLayer.setAttribute('aria-hidden', 'true'); board.append(effectsLayer); presentEffects(duel); duelScene.mount(board, duel, state.settings.reducedMotion);
-    // The open command list (CUSummonDialogSp on CWindowModelListDuelCmd, main's duel.js look): the card's commands, one
-    // striped row each, over the card; Surrender on the player's own deck (as live)
-    const cmdCard = local.duelCmd ? duel.cards.find(c => c.id === local.duelCmd && visibleCardIds.has(c.id)) : undefined;
-    const cmdRows = cmdCard ? commands.get(cmdCard.id) ?? [] : [], cmdSurrender = !!cmdCard && canSurrender && cmdCard.id === ownDeckTop;
-    if (!cmdCard || !cmdRows.length && !cmdSurrender) local.duelCmd = null;
-    else {
-      const at = fieldCardPosition(cmdCard, handCounts[cmdCard.controller]), readable = cmdCard.faceUp || isOwnSetCard(cmdCard);
-      const list = el('div', 'de-duel-cmd'); list.setAttribute('role', 'menu'); list.setAttribute('aria-label', `${readable ? cmdCard.name : 'Card'}: commands`);
-      list.style.left = `${Math.max(4, Math.min(1024 - 164, at.x - 80)) / 1024 * 100}%`;
-      list.style.bottom = `${Math.min(700, 768 - (at.y - at.height / 2) + 4) / 768 * 100}%`;
-      const row = (word: string, label: string, key: string, run: () => void, disabled = false) => {
-        const r = button(word, run, disabled); r.className = 'de-duel-cmd-row'; r.dataset.key = key; r.setAttribute('role', 'menuitem'); r.setAttribute('aria-label', label); list.append(r);
-      };
-      for (const a of cmdRows) row(a.label.replace(/:.*$/, ''), a.label, `duel-cmd:${a.id}`, () => { local.duelCmd = null; sendAction(duel, a.id); }, !!a.disabled || !!state.busy);
-      if (cmdSurrender) row('Surrender', 'Surrender', 'duel-surrender', surrenderNow, !!state.busy || state.relay?.canAct === false);
-      if (readable) row('Card Details', `Details: ${cmdCard.name}`, 'duel-cmd:details', () => { local.duelCmd = null; inspect(cmdCard, 'duel'); if (cmdCard.faceUp) send({ type: 'inspectCard', cardId: cmdCard.id }); });
-      const close = button('×', () => { local.duelCmd = null; requestRender(); }); close.className = 'de-duel-cmd-close'; close.dataset.key = 'duel-cmd-close'; close.setAttribute('aria-label', 'Close');
-      list.append(close); list.onkeydown = event => { if (event.key === 'Escape') { local.duelCmd = null; requestRender(); } };
-      board.append(list);
+    // Surrender (live: the player's deck's command) with no deck card left: the empty deck zone takes the click
+    const ownDeckAt = fieldCardPosition({ id: DECK_ZONE, name: '', controller: 0, zone: 'deck', index: 0, faceUp: false }, 0);
+    const deckZoneOn = !ownDeckTop && (canSurrender || !!duel.spectating || commands.has(DECK_ZONE));
+    if (deckZoneOn) {
+      const zone = button('', () => openCmd(local.duelCmd === DECK_ZONE ? null : DECK_ZONE)); zone.className = 'de-deck-zone'; zone.dataset.key = 'field-deck:0'; zone.dataset.side = 'your'; zone.dataset.zone = 'deck';
+      zone.setAttribute('aria-label', 'Your deck (empty)'); zone.setAttribute('aria-haspopup', 'menu'); zone.oncontextmenu = event => { event.preventDefault(); openCmd(DECK_ZONE); };
+      zone.style.left = `${ownDeckAt.x / 1024 * 100}%`; zone.style.top = `${ownDeckAt.y / 768 * 100}%`; zone.style.width = `${ownDeckAt.width / 1024 * 100}%`; zone.style.height = `${ownDeckAt.height / 768 * 100}%`;
+      cards.append(zone);
     }
-    // what live has no card for: a Cancel of a board selection (live: the right button), commands of a card not on the
-    // screen, Leave Duel for a spectator, Surrender with no deck left
-    const actions = el('div', 'de-duel-actions');
-    for (const a of (duel.actions ?? []).filter(a => !a.place && !a.id.startsWith('phase:') && !listed.has(a.id) && (!a.cardId || !visibleCardIds.has(a.cardId)))) actions.append(button(a.label, () => sendAction(duel, a.id), !!a.disabled || !!state.busy, true));
-    if (duel.spectating) actions.append(button('Leave Duel', () => send({ type: 'leaveDuel' }), !!state.busy));
-    else if (canSurrender && !ownDeckTop) actions.append(button('Surrender', surrenderNow, !!state.busy || state.relay?.canAct === false));
-    else if (duel.ended && (!state.match || state.match.complete) && !htmlUi) actions.append(button('Return to Lobby', () => open('lobby'), false, true));
+    // The open command list: main's duel.js CUSummonDialogSp (htmlui/duel-cmd.ts) over the card, built in duelSpecs from
+    // what is gathered here: the card's commands in menu order, Surrender on the player's own deck (as live). A spectator
+    // leaves the duel through a deck's list (its Surrender command), as nothing there is theirs to play
+    const cmdCard = local.duelCmd && local.duelCmd !== DECK_ZONE ? duel.cards.find(x => x.id === local.duelCmd && visibleCardIds.has(x.id)) : undefined;
+    const cmdAt = cmdCard ? { card: cmdCard, at: fieldCardPosition(cmdCard, handCounts[cmdCard.controller]) } : local.duelCmd === DECK_ZONE && deckZoneOn ? { card: null, at: ownDeckAt } : null;
+    const cmdRows = cmdAt ? commands.get(cmdAt.card?.id ?? DECK_ZONE) ?? [] : [];
+    const onDeck = !!cmdAt && (cmdAt.card ? cmdAt.card.id === ownDeckTop || !!duel.spectating && cmdAt.card.zone === 'deck' : true);
+    const rows: DuelCmdRow[] = cmdRows.map(a => ({ cmd: menuCommand(a.id), text: a.label.replace(/:.*$/, ''), key: `duel-cmd:${a.id}`, label: a.label, disabled: !!a.disabled || !!state.busy, pick: () => { closeCmd(); sendAction(duel, a.id); } }));
+    if (onDeck && canSurrender) rows.push({ cmd: SURRENDER_COMMAND, key: 'duel-surrender', label: 'Surrender', disabled: !!state.busy || state.relay?.canAct === false, pick: surrenderNow });
+    if (onDeck && duel.spectating) rows.push({ cmd: SURRENDER_COMMAND, key: 'duel-leave', label: 'Leave Duel', disabled: !!state.busy, pick: () => { closeCmd(); send({ type: 'leaveDuel' }); } });
+    if (!cmdAt || !rows.length) { local.duelCmd = null; duelCmdView = null; }
+    else {
+      const readable = !!cmdAt.card && (cmdAt.card.faceUp || isOwnSetCard(cmdAt.card));
+      duelCmdView = { at: { x: cmdAt.at.x, top: cmdAt.at.y - cmdAt.at.height / 2, hand: cmdAt.card?.zone === 'hand' }, rows, name: `${readable ? cmdAt.card!.name : cmdAt.card ? 'Card' : 'Deck'}: commands`, owner: cmdAt.card?.id ?? DECK_ZONE };
+    }
     if ((duel.actions ?? []).some(a => a.id === 'cancel')) board.oncontextmenu = event => { if ((event.target as HTMLElement).closest('.de-field-card')) return; event.preventDefault(); sendAction(duel, 'cancel'); };
     // live's bottom bar (the engine's duel menu strip): the wrench (Options) at its left and the help line, which runs
     // across its box from the right as live's does. Live shows no duel log on the duel screen (main's chat.js hides the
@@ -1115,7 +1143,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const run = el('span', 'de-duel-help-run', helpText), help = el('div', 'de-duel-help', run); help.setAttribute('aria-label', helpText);
     if (local.helpText !== helpText) { local.helpText = helpText; local.helpFrom = performance.now(); }
     run.style.animationDelay = `${-(performance.now() - local.helpFrom) / 1000}s`;
-    board.append(el('div', 'de-duel-bar', wrench, duelScene.fx.ringElement, help, actions));
+    board.append(el('div', 'de-duel-bar', wrench, duelScene.fx.ringElement, help));
     const log = el('div', 'de-duel-log de-sr'); log.setAttribute('role', 'log'); log.setAttribute('aria-label', 'Duel log');
     for (const line of duel.log.slice(-80)) log.append(el('div', '', line)); board.append(log);
     if (!duel.notice) local.noticeSeen = 0;
@@ -1126,14 +1154,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       stage.append(box); setTimeout(() => { if (local.noticeSeen < notice.id && !disposed) close(); }, 6000);
     }
     if (duel.prompt && !htmlDuelPrompt(duel.prompt)) renderPrompt(duel.prompt);
-    // A stale inspection (the card moved or its action is gone) is dropped and the result or waiting banner shown instead.
-    const inspected = local.inspected && local.inspectedFrom === 'duel' ? duel.cards.find(c => c.id === local.inspected?.id && (c.faceUp || isOwnSetCard(c) || (duel.actions ?? []).some(a => a.cardId === c.id))) : undefined;
-    if (local.inspected && local.inspectedFrom === 'duel' && !inspected) local.inspected = null;
-    if (inspected) {
-      const readable = inspected.faceUp || isOwnSetCard(inspected);
-      const panel = el('aside', 'de-panel de-duel-inspector de-stack', title(readable ? inspected.name : 'Face-down card'), drawCard(inspected, readable, readable), ...(readable ? [...(inspected.faceUp ? [] : [note('Set face-down. Your opponent sees a card back.')]), note(`ATK ${inspected.attack ?? '?'} / DEF ${inspected.defense ?? '?'}`), el('p', '', inspected.description ?? 'Card description unavailable.')] : []), button('Close', () => { local.inspected = null; requestRender(); }));
-      panel.setAttribute('aria-label', 'Card details'); stage.append(panel);
-    }
     // A spectator is neither side: the result names the winner instead of Victory/Defeat.
     const endedText = duel.ended && (duel.spectating && (duel.ended === 'Victory' || duel.ended === 'Defeat') ? `${duel.players[duel.ended === 'Victory' ? 0 : 1].name} wins` : duel.ended);
     if (endedText && htmlUi) {
@@ -1150,7 +1170,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       }
       stage.append(banner);
     }
-    else if (duel.waiting && !inspected) stage.append(el('div', 'de-panel de-duel-prompt', el('p', '', duel.waiting)));
+    else if (duel.waiting) stage.append(el('div', 'de-panel de-duel-prompt', el('p', '', duel.waiting)));
     if (duel.issue && (duel.prompt || duel.ended)) { const issue = el('div', 'de-error de-notice de-duel-issue', duel.issue); issue.setAttribute('role', 'alert'); stage.append(issue); }
   }
   /** Server actions are bound to the prompt they were rendered for (a press can land after a newer prompt arrived). */
@@ -1421,6 +1441,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (e.key !== 'Escape') return;
     if (browserDisplay.state.active) return;
     if (htmlUiState.menu) { e.preventDefault(); htmlUiState.menu = false; showHtml(); return; }
+    if (state.scene === 'duel' && local.duelCmd !== null) { e.preventDefault(); closeCmd(); return; }
     if (npcEscape(e)) return;
     // DUEL OPTIONS / Audio (a modal over the scene): its language error first, then the window
     if (optionsUi) { e.preventDefault(); const refused = state.languageStatus?.error; if (refused && refused !== languageErrorSeen) languageErrorSeen = refused; else optionsUi = null; showHtml(); return; }
@@ -1435,5 +1456,5 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     else if (e.target instanceof Node && htmlUi?.host?.contains(e.target)) npcEscape(e); };
   globalThis.document?.addEventListener?.('keydown', bodyKeys);
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; duelSpeedButton.dispose(); starterPicker.close(); discord.dispose(); cardShop.dispose(); pageMods.dispose(); offReserve(); deckDom?.dispose(); deckDom = null; deckScene.dispose(); htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; titleScene?.dispose(); titleScene = null; portraitScene?.dispose(); portraitScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); worldWalk?.dispose(); worldWalk = null; phone?.dispose(); duelScene.dispose(); observer?.disconnect(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; closeAudioPage(); packSheet?.close(); packSheet = null; gameCursor?.dispose(); gameCursor = null; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; globalThis.removeEventListener?.('pointermove', cmdPointer, true); globalThis.removeEventListener?.('pointerdown', cmdPress, true); duelSpeedButton.dispose(); starterPicker.close(); discord.dispose(); cardShop.dispose(); pageMods.dispose(); offReserve(); deckDom?.dispose(); deckDom = null; deckScene.dispose(); htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; titleScene?.dispose(); titleScene = null; portraitScene?.dispose(); portraitScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); worldWalk?.dispose(); worldWalk = null; phone?.dispose(); duelScene.dispose(); observer?.disconnect(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; closeAudioPage(); packSheet?.close(); packSheet = null; gameCursor?.dispose(); gameCursor = null; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }
