@@ -1,7 +1,7 @@
 // SCRATCH (not committed): the rewrite's lobby / select / avatar windows at 1024 x 768 game size for side-by-sides.
 import { describe, it } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, click, until, press, type, byKey, sleep, createCharacter, characterSlot, claimStarter } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, click, until, press, type, byKey, sleep, createCharacter, characterSlot, claimStarter, lobbyShown } from './harness';
 const OUT = process.env.SHOTS_OUT || `${process.env.HOME}/.cache/de-scratch/lobby/rw`;
 const ONLY = (process.env.SHOTS_ONLY || 'select,lobby,delete').split(',');
 type P = Awaited<ReturnType<typeof openPage>>;
@@ -34,7 +34,7 @@ describe.skipIf(!enabled)('scratch shots', () => {
       if (ONLY.includes('lobby')) {
         await press(page, characterSlot(me));
         if (process.env.AVATAR_EDITOR) { await until(page, byKey('avatar-confirm'), 60000); await sleep(3000); await shot(page, 'avatar'); }
-        await until(page, byKey('menubar-duel'), 60000); await claimStarter(page); await sleep(3000);
+        await until(page, lobbyShown, 60000); await claimStarter(page); await sleep(3000);
         await shot(page, 'lobby');
         await press(page, byKey('menubar-duel')); await until(page, byKey('duel-create'), 10000); await sleep(800); await shot(page, 'duel-menu');
         await press(page, byKey('duel-create')); await until(page, byKey('room-ok'), 10000); await sleep(800); await shot(page, 'duel-create');
