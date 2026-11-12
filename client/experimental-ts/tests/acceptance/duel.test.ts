@@ -332,7 +332,8 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
         if (turnOf(sa) >= 14 && !result) {
           // A long duel: B surrenders (the server confirms from turn 10).
           await checkpoint('before surrender');
-          await surrender(b); await until(a,`window.__duelEnd()`,60000); ended = `B surrendered on turn ${turnOf(sa)}`;
+          // (the winner's result board comes after live's end banner: read both once their boards are up)
+          await surrender(b); await until(a,`${resultShown}&&window.__duelEnd()`,60000); await until(b,`window.__duelEnd()`,60000); ended = `B surrendered on turn ${turnOf(sa)}`;
           result = `${await a.ev(`window.__duelEnd()`)}/${await b.ev(`window.__duelEnd()`)}`;
           break;
         }
