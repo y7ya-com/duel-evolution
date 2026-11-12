@@ -1088,6 +1088,9 @@ export class ClientApp implements ClientController {
           this.requireGame();
           if (!this.options.worldMaps || !this.world.position) throw new Error('Original collision data is unavailable. Generate the world maps before walking.');
           if (!this.frameRequest) throw new Error('Animated movement is unavailable.');
+          // a map whose collision scene could not be read (its art unreachable as it loaded) is read again: a walk after
+          // the connection came back would otherwise find no collision for good
+          if(this.worldRuntime && !this.runtimeLoad && !this.worldRuntime.definition){const map=this.options.worldMaps.maps.find(m=>m.id===this.game?.state.area);if(map&&this.runtimeMap===map.id)this.loadWorldRuntime(map,this.world.position);}
           if(this.worldRuntime){this.worldRuntime.retry();await this.runtimeLoad;this.assertEpoch(epoch);await this.worldRuntime.prepare(this.world.position,this.connectionScope.signal);this.assertEpoch(epoch);}
           if (!this.world.moveTo({ x: command.x, y: command.y })) throw new Error('That destination is blocked or unreachable.');
           this.scheduleWorld(); break;
