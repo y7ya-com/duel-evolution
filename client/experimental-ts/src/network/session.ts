@@ -458,7 +458,9 @@ export class GameSession {
     return this.firstLooks.get(character.slot) ?? characterAppearance(character, world);
   }
   private validateSlot(slot: number): void { if (!Number.isInteger(slot) || slot < 0 || slot > 3) throw new RangeError('Invalid character slot'); }
-  async selectCharacter(slot: number, roomPort?: number): Promise<void> {
+  /** Into a lobby with this character: `roomPort`'s room, 'my-room' (live's first stop: My Room, when the server
+   * advertises it), else the advertised world room. */
+  async selectCharacter(slot: number, roomPort?: number | 'my-room'): Promise<void> {
     this.assertLive(); this.validateSlot(slot);
     const character = this.state.characters.find((c) => c.slot === slot);
     if (!character || !this.account) throw new Error('Select an existing character');
@@ -471,7 +473,8 @@ export class GameSession {
       const advertised = this.state.servers.find((s) => s.kind === 3 && s.roomKind === 14 && s.language === 6)
         ?? this.state.servers.find((s) => s.kind === 3 && s.roomKind === 14)
         ?? this.state.servers.find((s) => s.kind === 3 && s.roomKind !== 12);
-      const port = roomPort ?? (advertised ? advertised.port - (this.options.portOffset ?? 0) : undefined);
+      const myRoom = roomPort === 'my-room' ? this.state.servers.find(s => s.kind === 3 && s.roomKind === 12) : undefined;
+      const port = typeof roomPort === 'number' ? roomPort : myRoom ? myRoom.port - (this.options.portOffset ?? 0) : advertised ? advertised.port - (this.options.portOffset ?? 0) : undefined;
       if (port === undefined) throw new Error('Server did not advertise a playable room');
       this.joiningRoomKind = this.state.servers.find(server=>server.port-(this.options.portOffset??0)===port)?.roomKind ?? 14;
       this.lobby = await this.gateway.open(port); await this.authenticate(this.lobby);
@@ -576,12 +579,19 @@ export class GameSession {
     if (this.state.location === 'my-room' && !this.lobbyMove) return !this.disposed && this.state.phase === 'lobby' && this.lobby && !this.lobby.closed ? Promise.resolve() : Promise.reject(new Error('Join an active character lobby first'));
     return this.switchLobby('my-room');
   }
-  /** The source My Room door returns to the cached world server/area, not hardcoded area zero. */
-  leaveMyRoom(): Promise<void> {
+  /** Out of My Room: with `roomKind` (a door: 13 the blue one, Domino City; 14 the red one, Duel Academy) into that
+   * world's room at the area the server puts a player in; without, back to the cached world server / area. */
+  leaveMyRoom(roomKind?: number): Promise<void> {
     if (this.lobbyMove?.target === 'world') return this.lobbyMove.promise;
     if (this.state.location === 'world' && !this.lobbyMove) return !this.disposed && this.state.phase === 'lobby' && this.lobby && !this.lobby.closed ? Promise.resolve() : Promise.reject(new Error('Join an active character lobby first'));
+    if (roomKind !== undefined) {
+      const room = this.state.servers.find(server=>server.kind===3&&server.roomKind===roomKind&&server.language===6) ?? this.state.servers.find(server=>server.kind===3&&server.roomKind===roomKind);
+      if (room) this.cachedWorld = null, this.doorRoom = room.port-(this.options.portOffset??0);
+    }
     return this.switchLobby('world');
   }
+  /** The door's room port (leaveMyRoom(kind)), taken by the next move into the world. */
+  private doorRoom: number | null = null;
   private switchLobby(target:'world'|'my-room'): Promise<void> {
     try {
       this.assertLive();
@@ -596,8 +606,9 @@ export class GameSession {
     const defaultWorld = this.state.servers.find(server=>server.kind===3&&server.roomKind===14&&server.language===6)
       ?? this.state.servers.find(server=>server.kind===3&&server.roomKind===14)
       ?? this.state.servers.find(server=>server.kind===3&&server.roomKind!==12);
+    const door = target === 'world' ? this.doorRoom : null; this.doorRoom = null;
     const destination:{port:number;area:number|null}|null = target === 'my-room' ? room ? {port:room.port-(this.options.portOffset??0),area:8} : null
-      : this.cachedWorld ?? (defaultWorld ? {port:defaultWorld.port-(this.options.portOffset??0),area:null} : null);
+      : door !== null ? {port:door,area:null} : this.cachedWorld ?? (defaultWorld ? {port:defaultWorld.port-(this.options.portOffset??0),area:null} : null);
     if (!destination) return Promise.reject(new Error(target === 'my-room' ? 'Server did not advertise My Room' : 'No previous world lobby is available'));
     const move = {target,promise:Promise.resolve()}; this.lobbyMove = move;
     this.state.lobbyTransition = target === 'my-room' ? 'entering-my-room' : 'leaving-my-room'; this.state.phase = 'changing-lobby';

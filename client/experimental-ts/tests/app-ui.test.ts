@@ -73,7 +73,7 @@ describe('actual ClientApp mounted through semantic UI', () => {
   });
   it('enters a real controller character lifecycle without synthetic engine input', async () => {
     const f = harness(); await f.enter();
-    expect(f.game.start).toHaveBeenCalledTimes(1); expect(f.game.selectCharacter).toHaveBeenCalledWith(0);
+    expect(f.game.start).toHaveBeenCalledTimes(1); expect(f.game.selectCharacter).toHaveBeenCalledWith(0, 'my-room');
     expect(f.app.getState().scene).toBe('lobby'); expect(f.root.textContent).toContain('Duel Academy');
     expect(f.api.starter).toHaveBeenCalledTimes(1); expect(f.api.decks).toHaveBeenCalledTimes(1); f.dispose();
   });

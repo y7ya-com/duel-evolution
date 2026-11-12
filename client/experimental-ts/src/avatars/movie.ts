@@ -6,7 +6,7 @@ export function multiply(a: Matrix, b: Matrix): Matrix {
 }
 // Raw serialization nodes remain internal; never execute ActionScript or constructor strings.
 interface Node { _t: string; [key: string]: any; }
-interface Placement { id: number; matrix: Matrix; alpha: number; born: number; name?: string; }
+interface Placement { id: number; matrix: Matrix; alpha: number; born: number; name?: string; color?: ColorTransform; }
 type Timeline = readonly (readonly Node[])[];
 type Definition = { kind: 'bitmap'; file: number; width: number; height: number } | { kind: 'shape'; bitmap: number; bounds: readonly [number, number, number, number]; matrix: Matrix } | { kind: 'sprite'; frames: Timeline };
 export interface AvatarLayer {
@@ -17,6 +17,14 @@ export interface AvatarLayer {
   readonly alpha: number;
   readonly depth: readonly number[];
   readonly name?: string;
+  /** Its colour transform (a movie read with `colors`): channel = channel * mult + add, both 0..1 scaled. */
+  readonly color?: ColorTransform;
+}
+export interface ColorTransform { readonly mult: readonly [number, number, number]; readonly add: readonly [number, number, number] }
+const NO_COLOR: ColorTransform = { mult: [1, 1, 1], add: [0, 0, 0] };
+/** `inner` seen through `outer` (a sprite's transform over its children's). */
+function compose(outer: ColorTransform, inner: ColorTransform): ColorTransform {
+  return { mult: [0, 1, 2].map(i => inner.mult[i]! * outer.mult[i]!) as unknown as [number, number, number], add: [0, 1, 2].map(i => inner.add[i]! * outer.mult[i]! + outer.add[i]!) as unknown as [number, number, number] };
 }
 function finite(n: unknown, fallback?: number): number {
   if (n === undefined && fallback !== undefined) return fallback;
@@ -40,7 +48,9 @@ export class AvatarMovie {
   readonly issues: readonly string[];
   private readonly definitions = new Map<number, Definition>();
   private readonly frames: Timeline;
-  constructor(text: string) {
+  /** `colors`: RGB colour transforms are evaluated (the layers carry them) instead of refused, for movies drawn with
+   * them (My Room's TV); avatar movies have none. */
+  constructor(text: string, options: { colors?: boolean } = {}) {
     const dump = parseAvatarDump(text), issues = new Set<string>();
     this.files = dump.files; this.fps = dump.fps;
     const timeline = (tags: Node[], nesting = 0): Timeline => {
@@ -67,7 +77,7 @@ export class AvatarMovie {
             if (t.ClipDepth !== undefined) issues.add('ClipDepth masks');
             if (t.ColorTransform) {
               const cx = t.ColorTransform;
-              if (['Red','Green','Blue'].some(c => finite(cx[`${c}MultTerm`],256) !== 256 || finite(cx[`${c}AddTerm`],0) !== 0)) issues.add('RGB colour transforms');
+              if (!options.colors && ['Red','Green','Blue'].some(c => finite(cx[`${c}MultTerm`],256) !== 256 || finite(cx[`${c}AddTerm`],0) !== 0)) issues.add('RGB colour transforms');
             }
             current.push(t); break;
           case 'RemoveObject2': uint(t.Depth); current.push(t); break;
@@ -92,7 +102,7 @@ export class AvatarMovie {
     if (!Number.isSafeInteger(frame) || frame < 0 || frame > 1e7) throw new Error('Invalid avatar frame');
     if (this.issues.length) throw new Error(`Unsupported avatar features: ${this.issues.join(', ')}`);
     const result: AvatarLayer[] = []; let visited = 0;
-    const walk = (frames: Timeline, age: number, parent: Matrix, alpha: number, depths: number[], name?: string, chain: number[] = []): void => {
+    const walk = (frames: Timeline, age: number, parent: Matrix, alpha: number, depths: number[], name?: string, chain: number[] = [], color: ColorTransform = NO_COLOR): void => {
       if (chain.length > 24) throw new Error('Avatar nesting budget exceeded');
       const target = loop ? age % frames.length : Math.min(age, frames.length - 1), display = new Map<number, Placement>();
       for (let i = 0; i <= target; i++) for (const t of frames[i]) {
@@ -103,6 +113,7 @@ export class AvatarMovie {
         const replacement = t.CharacterID !== undefined && t.CharacterID !== old?.id;
         display.set(t.Depth, { id: t.CharacterID ?? old!.id, matrix: t.Matrix ? matrix(t.Matrix) : old?.matrix ?? IDENTITY,
           alpha: t.ColorTransform ? finite(t.ColorTransform.AlphaMultTerm,256)/256 : old?.alpha ?? 1,
+          color: t.ColorTransform ? { mult: (['Red','Green','Blue'] as const).map(c => finite(t.ColorTransform[`${c}MultTerm`],256)/256) as unknown as [number,number,number], add: (['Red','Green','Blue'] as const).map(c => finite(t.ColorTransform[`${c}AddTerm`],0)/255) as unknown as [number,number,number] } : old?.color,
           born: !old || replacement ? i : old.born, name: t.Name ?? old?.name });
       }
       for (const [d, p] of [...display].sort((a,b) => a[0]-b[0])) {
@@ -110,12 +121,13 @@ export class AvatarMovie {
         if (!def) throw new Error(`Missing avatar character ${p.id}`);
         if (def.kind === 'sprite') {
           if (chain.includes(p.id)) throw new Error('Cyclic avatar sprite');
-          walk(def.frames, age - p.born, transform, alpha*p.alpha, path, p.name ?? name, [...chain,p.id]);
+          walk(def.frames, age - p.born, transform, alpha*p.alpha, path, p.name ?? name, [...chain,p.id], p.color ? compose(color, p.color) : color);
         } else if (def.kind === 'shape') {
           const bmp = this.definitions.get(def.bitmap);
           if (bmp?.kind !== 'bitmap') throw new Error('Missing avatar bitmap');
           if (result.length >= 256) throw new Error('Avatar layer budget exceeded');
-          result.push({ file: bmp.file, matrix: transform, bitmapMatrix: def.matrix, bounds: def.bounds, alpha: alpha*p.alpha, depth: path, name: p.name ?? name });
+          const c = p.color ? compose(color, p.color) : color;
+          result.push({ file: bmp.file, matrix: transform, bitmapMatrix: def.matrix, bounds: def.bounds, alpha: alpha*p.alpha, depth: path, name: p.name ?? name, ...(c !== NO_COLOR ? { color: c } : {}) });
         } else throw new Error('Direct bitmap placement unsupported');
       }
     };

@@ -579,7 +579,11 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const timeFraction = (timer: NonNullable<DuelView['timer']>) => { const left = Math.max(0, timer.paused || !timer.at ? timer.seconds : timer.seconds - (Date.now() - timer.at) / 1000); return left / Math.max(180, timer.seconds); };
   const lpNodes: Partial<Record<0 | 1, HTMLElement>> = {}, lpBars: Partial<Record<0 | 1, HTMLElement>> = {}, lpPlates: Partial<Record<0 | 1, LpPlate>> = {};
   const positionAvatars = (lobby: NonNullable<ClientView['lobby']>) => {
-    if (worldRenderer && lobby.mapId !== undefined) { worldRenderer.setAvatars(lobby.avatars); return; }
+    if (worldRenderer && lobby.mapId !== undefined) {
+      // the NPC whose card or talk is open stands still (its wandering held)
+      const talking = lobbyUi.npc ?? state.npc?.npc?.id ?? null;
+      worldRenderer.setBusyNpc(talking === null ? null : -talking); worldRenderer.setAvatars(lobby.avatars); return;
+    }
     for (const avatar of lobby.avatars) { const node = avatarNodes.get(avatar.id); if (!node) continue; node.style.left = `${avatar.x / (lobby.width ?? 1024) * 100}%`; node.style.top = `${avatar.y / (lobby.height ?? 768) * 100}%`; }
   };
   // the overworld on PixiJS (ui/world.ts): map, objects, avatars, names and flags on one canvas under the HTML UI. PixiJS
@@ -599,6 +603,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
           for (const r of [big!, small!]) if (r.status === 'fulfilled') r.value.release();
           throw (big!.status === 'rejected' ? big!.reason : (small as PromiseRejectedResult).reason) as Error;
         },
+        // My Room's shelf and TV (world-room.ts), from the game's own files
+        ...(controller.readGameFile ? { room: { loadArt: async (path: string, signal: AbortSignal) => m.pictureTexture(await pictureArt.resolve({ archive: path }, signal), signal),
+          readText: async (path: string, signal: AbortSignal) => new TextDecoder().decode(await controller.readGameFile!(path, signal)), language: controller.getState().settings.language ?? 'E' } } : {}),
         // the name tags' glyphs: main's table of the engine's DejaVu Sans 16 (ui/, beside live's game files)
         loadGlyphs: async (px, signal) => { const r = await fetch(new URL(`/ui/glyphs-dejavu${px}.json`, location.href).href, { signal }); if (!r.ok) throw new Error(`glyphs ${r.status}`); return await r.json() as import('../world/name-tag').GlyphAtlas; },
         reducedMotion: () => !!controller.getState().settings.reducedMotion });
@@ -1265,11 +1272,13 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
           // Create Comment edits the player's own profile lines: it opens over that profile (the controller's rule)
           { label: 'Create Comment', key: 'comment', disabled: blocked || sideboard, run: () => { if (state.scene !== 'lobby') open('lobby'); const p = state.profileDetail; if (p?.selectedPid !== state.player!.id) send({ type: 'profileAction', action: { type: 'open', pid: state.player!.id } }); htmlUiState.comment = [p?.selectedPid === state.player!.id ? p.comments[0] ?? '' : '', p?.selectedPid === state.player!.id ? p.comments[1] ?? '' : '']; showHtml(); } },
         ] : []),
-        ...(state.mode !== 'free' && state.location ? [
-          // Return to your Room (the private My Room lobby) and, inside it, the door back to the world
-          state.location === 'my-room'
-            ? { label: 'Return to the World', key: 'leave-room', disabled: blocked || sideboard || !!state.duel, run: () => { if (state.scene !== 'lobby') open('lobby'); send({ type: 'myRoom', enter: false }); } }
-            : { label: 'Return to your Room', key: 'my-room', disabled: blocked || sideboard || !!state.duel, run: () => { if (state.scene !== 'lobby') open('lobby'); send({ type: 'myRoom', enter: true }); } },
+        // Return to your Room (the private My Room lobby) in the world; in My Room live has no way out in the menu (its doors
+        // lead out) and offers Change Title instead (after My Profile)
+        ...(state.mode !== 'free' && state.location === 'world' ? [
+          { label: 'Return to your Room', key: 'my-room', disabled: blocked || sideboard || !!state.duel, run: () => { if (state.scene !== 'lobby') open('lobby'); send({ type: 'myRoom', enter: true }); } },
+        ] : []),
+        ...(state.mode !== 'free' && state.location === 'my-room' && state.titles ? [
+          { label: 'Change Title', key: 'change-title', disabled: blocked || sideboard, run: () => { titleUi = { selected: -1, top: 0 }; showHtml(); } },
         ] : []),
         { label: 'DUEL OPTIONS', key: 'settings', disabled: blocked, run: () => { optionsUi = { kind: 'options' }; showHtml(); } },
         ...(state.mode !== 'free' ? [
@@ -1292,7 +1301,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       // live's order (main's Main Menu over the 2008 engine, top to bottom): Edit Deck, My Profile, Create Comment, DUEL
       // OPTIONS, D-Mail, Audio, Duel Log, Ignore / Friend / Team List, Return to your Room, Return to Title; the
       // rewrite's own entries after the lists, before the ways out
-      const LIVE_ORDER = ['deck', 'profile', 'comment', 'settings', 'mail', 'audio', 'duellog', 'ignore', 'friends', 'teams', 'change-title', 'tournament', 'find', 'shop', 'my-room', 'leave-room', 'duel', 'lobby', 'title'];
+      // (My Room's: Edit Deck, My Profile, Change Title, Create Comment, ... Team List, Return to Title)
+      const LIVE_ORDER = ['deck', 'profile', 'change-title', 'comment', 'settings', 'mail', 'audio', 'duellog', 'ignore', 'friends', 'teams', 'tournament', 'find', 'shop', 'my-room', 'duel', 'lobby', 'title'];
       const rank = (e: MenuEntry) => { const i = LIVE_ORDER.indexOf(e.key); return i < 0 ? LIVE_ORDER.length - 4 : i; };
       entries.sort((a, b) => rank(a) - rank(b));
       const world = state.scene === 'lobby' && state.lobby;
@@ -1300,10 +1310,11 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       // Select Player's bar is its strip alone too, also in the moment between picking a character (its profile in) and the lobby
       // main's message field starts past the Wardrobe / Missions slots (lobby.js fieldLeft): the message moves with it
       const reserve = barReserve(), fieldShift = reserve ? Math.max(0, Math.min(1016 - 64, reserve + 8) - 391) : 0;
-      menuView = state.scene === 'title' || state.scene === 'duel' ? null : { entries, fieldShift, keys: !!state.player && !['deck', 'shop', 'characters'].includes(state.scene),
+      menuView = state.scene === 'title' || state.scene === 'duel' ? null : { entries, fieldShift, keys: !!state.player && !['deck', 'shop', 'characters'].includes(state.scene), room: !!world && state.location === 'my-room',
         // live's bar message is blank but for a pending request's wait (no "Online in Duel Academy.")
         message: state.player ? (world && waitingMessage({ state, text: id => gameTexts.get(id) })) || '' : '',
-        ...(world ? { duel: () => { duelKey(state, lobbyUi); showHtml(); }, move: () => { moveKey(lobbyUi); showHtml(); }, duelOpen: () => ['duel', 'find', 'wait'].includes(lobbyUi.open ?? ''), moveOpen: () => lobbyUi.open === 'move' } : {}) };
+        // My Room's bar has Main Menu, Wardrobe and Missions only (no Duel, no Move), as live
+        ...(world && state.location !== 'my-room' ? { duel: () => { duelKey(state, lobbyUi); showHtml(); }, move: () => { moveKey(lobbyUi); showHtml(); }, duelOpen: () => ['duel', 'find', 'wait'].includes(lobbyUi.open ?? ''), moveOpen: () => lobbyUi.open === 'move' } : {}) };
       nav.replaceChildren(status);
       // Extension panels also get stable keyboard focus when their data changes.
       for (const tag of ['button', 'input', 'textarea', 'select']) for (const [i, control] of Array.from(host.querySelectorAll<HTMLElement>(tag)).entries()) {
