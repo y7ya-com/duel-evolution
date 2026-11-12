@@ -1,9 +1,12 @@
-// The title's OPTIONS window (COptionDlg) as the engine draws it on live: main's Legacy UI never drew it (the engine
-// does, over the title), so the rewrite draws it from the original art like the engine: the window's picture
+// Windows the engine draws on live that main's Legacy UI never drew (the title's OPTIONS, COptionDlg; the Duel Log's
+// top, CWindowModelDuellogTop): the rewrite draws them from the original art like the engine: the window's picture
 // (option_dai_01_c01), each picture switch's sprite for its look (normal, hover, pressed, checked: CWindowTaskPictureSwitch),
 // the volume slider's rail and thumb (option_icon_01_c00), the white 16-pixel texts and the OK / Cancel captions (main's
-// textBox, as every other window's text). Its snapshot is options.ts titleOptionsWindow; registered in layer.ts EXTRA.
-import { textBox } from '@htmlui/controls/basic.js';
+// textBox, as every other window's text; a text's `shadow` the engine's ShadowText copy under it; a text with `scroll`
+// wraps in its box and scrolls there), the duel buttons in main's duel look (skin.js duelButton). Their snapshots are
+// options.ts titleOptionsWindow and duellog.ts duellogWindow; registered in layer.ts EXTRA.
+import { textBox, renderControl } from '@htmlui/controls/basic.js';
+import { duelButton, duelWindow } from '@htmlui/controls/skin.js';
 import { pictureUrl } from './pictures';
 import type { HtmlControl, HtmlWindow } from './snapshot';
 
@@ -30,7 +33,7 @@ const lookOf = (c: HtmlControl, hover: boolean, pressed: boolean): string =>
   !c.enabled || c.state === 'disabled' ? (c.checked ? 'checked' : 'normal') : pressed ? 'pressed' : c.checked ? 'checked' : hover ? 'hover' : 'normal';
 
 export const optionDlgScreen: HtmlUiScreen = {
-  classes: ['COptionDlg'],
+  classes: ['COptionDlg', 'CWindowModelDuellogTop', 'CWindowModelDuellogList', 'CWindowModelDuellogServerSelect'],
   mode: 'owned',
   mount(win, root) {
     css();
@@ -41,22 +44,80 @@ export const optionDlgScreen: HtmlUiScreen = {
   },
   update(win, _prev, root, api, st) {
     const w = win as HtmlWindow, s = st as State; s.win = w;
-    paint(s.back, String(w.back ?? ''), [0, 0]);
+    if (w.back) paint(s.back, String(w.back), [0, 0]);
+    // a duel-style window's frame (main's skin.js duelWindow) or a plain one (`plain`: its border and body colours)
+    const frame = w.controls.some(c => !c.parent && c.cls === 'CWindowTaskFrameDuel'), plain = w.plain as { border: string; body: string } | undefined;
+    if ((frame || plain) && s.back.dataset.frame !== `${w.w}x${w.h}`) {
+      s.back.dataset.frame = `${w.w}x${w.h}`; s.back.replaceChildren();
+      if (frame) duelWindow(s.back, { w: w.w, h: w.h });
+      else if (plain) Object.assign(s.back.style, { boxSizing: 'border-box', border: `4px solid ${plain.border}`, background: plain.body, borderRadius: '2px' });
+    }
     const seen = new Set<number>();
-    for (const c of w.controls) {
+    // a switch's help (the Duel Log's plates): shown in the window's help text while the pointer is on the switch
+    const help = w.controls.find(k => k.id === s.hover && typeof k.help === 'string')?.help as string | undefined;
+    for (const c0 of w.controls) {
+      const c = c0.helpSlot ? { ...c0, text: help ?? c0.text } : c0;
       if (c.parent || !c.shown) continue;
       seen.add(c.id);
-      if (c.cls === 'CWindowTaskText') {
-        const sig = `t:${c.text}`; let it = s.items.get(c.id);
+      if (c.cls === 'CWindowTaskText' || c.cls === 'CWindowTaskShadowText') {
+        const sh = c.shadow as { dx: number; dy: number; color: number[] } | undefined, scroll = !!c.scroll;
+        const sig = `t:${c.text}:${c.color}:${sh ? `${sh.dx},${sh.dy}` : ''}:${scroll}`; let it = s.items.get(c.id);
         if (it?.sig !== sig) { it?.el.remove(); const el = document.createElement('div'); el.className = 'opt-dlg-text'; el.dataset.name = c.name; Object.assign(el.style, { left: c.x + 'px', top: c.y + 'px', width: c.w + 'px', height: c.h + 'px' });
-          textBox(el, String(c.text ?? ''), { w: c.w, align: Number(c.align ?? 1), px: Number(c.fontSize ?? 16), color: c.color as number[], white: true }); root.append(el); it = { el, sig }; s.items.set(c.id, it); }
+          if (scroll) Object.assign(el.style, { overflowY: 'auto', overflowX: 'hidden', pointerEvents: 'auto', scrollbarWidth: 'thin' });
+          const t = textBox(el, String(c.text ?? ''), { w: scroll ? c.w - 4 : c.w, align: Number(c.align ?? 1), px: Number(c.fontSize ?? 16), color: c.color as number[], white: true, wrap: scroll });
+          if (scroll) t.style.position = 'relative';
+          if (sh) t.style.textShadow = `${sh.dx}px ${sh.dy}px 0 rgba(${sh.color.slice(0, 3).map(v => Math.round(v * 255)).join(',')},${sh.color[3] ?? 1})`;
+          root.append(el); it = { el, sig }; s.items.set(c.id, it); }
+      } else if (c.cls === 'CWindowTaskFrameDuel') {
+        continue;
+      } else if (c.cls === 'CWindowTaskBackPlane' && c.band) {
+        // a band of the well (the Duel Log list's dark header)
+        let it = s.items.get(c.id); const sig = `p:${c.x},${c.y},${c.w},${c.h}`;
+        if (it?.sig !== sig) { it?.el.remove(); const el = document.createElement('div'); Object.assign(el.style, { position: 'absolute', left: c.x + 'px', top: c.y + 'px', width: c.w + 'px', height: c.h + 'px', background: String(c.band), pointerEvents: 'none' });
+          root.insertBefore(el, s.back.nextSibling); it = { el, sig }; s.items.set(c.id, it); }
+      } else if (c.cls === 'CWindowTaskListbox') {
+        // a list's rows: 16-pixel striped rows (live's Duel Log list), the chosen one lit; a row pressed is the list's
+        // click at that row's game point
+        const items = (c.items as string[] | undefined) ?? [], rows = Number(c.rows ?? items.length), sig = `l:${JSON.stringify(items)}:${c.selected}:${rows}`;
+        let it = s.items.get(c.id);
+        if (it?.sig !== sig) {
+          it?.el.remove(); const el = document.createElement('div'), id = c.id, wx = w.x + c.x, wy = w.y + c.y;
+          Object.assign(el.style, { position: 'absolute', left: c.x + 'px', top: c.y + 'px', width: c.w + 'px', height: c.h + 'px', overflow: 'hidden' }); el.setAttribute('role', 'list');
+          for (let i = 0; i < rows; i++) {
+            const r = document.createElement(items[i] ? 'button' : 'div');
+            Object.assign(r.style, { position: 'absolute', left: '0', top: `${16 * i}px`, width: '100%', height: '16px', margin: '0', padding: '0', border: '0', textAlign: 'left',
+              background: i === c.selected ? '#3d6fd8' : i % 2 ? '#d3d6de' : '#e4e6ec', cursor: items[i] ? 'pointer' : 'default' });
+            if (items[i]) { textBox(r, items[i]!, { x: 4, w: c.w - 8, color: i === c.selected ? [1, 1, 1, 1] : [0, 0, 0, 1], white: i === c.selected }); (r as HTMLButtonElement).type = 'button'; r.addEventListener('click', () => { void api.click(id, [wx + 8, wy + 16 * i + 8]); }); }
+            el.append(r);
+          }
+          root.append(el); it = { el, sig }; s.items.set(c.id, it);
+        }
+      } else if (!['CWindowTaskPictureSwitch', 'CWindowTaskSlider', 'CWindowTaskButtonDuel'].includes(c.cls)) {
+        // the rest (a switch, an input, a close box): main's generic renderers, the window's own fallback
+        const sig = `g:${JSON.stringify([c.x, c.y, c.w, c.h, c.label, c.text, c.state, c.checked, c.value])}`; let it = s.items.get(c.id);
+        if (it?.sig !== sig) {
+          it?.el.remove(); const holder = document.createElement('div'); holder.style.position = 'absolute'; holder.style.inset = '0'; holder.style.pointerEvents = 'none';
+          const el = renderControl(c, holder, { ...api, owned: true });
+          if (!el && !/Switch|Button|Tab|Icon/.test(c.cls)) {
+            // a plane or a thin frame with no renderer (the operation menu's): its box
+            const d = document.createElement('div'); Object.assign(d.style, { position: 'absolute', left: c.x + 'px', top: c.y + 'px', width: c.w + 'px', height: c.h + 'px',
+              background: /Frame/.test(c.cls) ? '#6c88c9' : 'rgba(255,255,255,.9)', border: /Frame/.test(c.cls) ? '2px solid #2b3f75' : '0', boxSizing: 'border-box' }); holder.append(d);
+          } else if (!el) { const b = document.createElement('button'); b.type = 'button'; b.textContent = String(c.label ?? '×'); const id = c.id; b.addEventListener('click', () => { void api.click(id); });
+            Object.assign(b.style, { position: 'absolute', left: c.x + 'px', top: c.y + 'px', width: c.w + 'px', height: c.h + 'px', padding: '0', font: 'bold 12px Arial', lineHeight: `${c.h}px` }); holder.append(b); }
+          for (const k of holder.querySelectorAll<HTMLElement>('button, input')) k.style.pointerEvents = 'auto';
+          root.append(holder); it = { el: holder, sig }; s.items.set(c.id, it);
+        }
+      } else if (c.cls === 'CWindowTaskButtonDuel') {
+        const sig = `b:${c.label}:${c.w}:${c.state}`; let it = s.items.get(c.id);
+        if (it?.sig !== sig) { it?.el.remove(); const id = c.id, el = duelButton(root, { x: c.x, y: c.y, w: c.w, h: c.h, label: String(c.label ?? ''), state: c.state === 'disabled' ? 'disabled' : null });
+          el.addEventListener('click', () => { void api.click(id); }); it = { el, sig }; s.items.set(c.id, it); }
       } else if (c.cls === 'CWindowTaskPictureSwitch') {
         let it = s.items.get(c.id);
         if (!it) {
           const el = document.createElement('button'); el.type = 'button'; el.className = 'opt-dlg-pick';
           Object.assign(el.style, { left: c.x + 'px', top: c.y + 'px', width: c.w + 'px', height: c.h + 'px' });
           const sprite = document.createElement('i'); sprite.className = 'opt-dlg-sprite'; el.append(sprite);
-          if (c.label) textBox(el, String(c.label), { y: 4, w: c.w, align: 1, color: [1, 1, 1, 1], white: true });
+          if (c.label) textBox(el, String(c.label), { y: Number(c.labelY ?? 4), w: c.w, align: 1, color: [1, 1, 1, 1], white: true });
           const id = c.id, again = () => { if (s.win) optionDlgScreen.update!(s.win, null, root, api, s); };
           el.addEventListener('pointerenter', () => { s.hover = id; again(); });
           el.addEventListener('pointerleave', () => { if (s.hover === id) s.hover = 0; if (s.pressed === id) s.pressed = 0; again(); });

@@ -23,7 +23,7 @@ import { htmlUiLocal, htmlWindows, stockDialog, DELETE_TEXT } from './htmlui/win
 import { UiText, localizeSpecs } from '../features/ui-text';
 import { titleConfigWindow } from './htmlui/title-config';
 import { StarterPicker } from './htmlui/starter';
-import { duellogQuery, duellogUi, duellogWindow, fetchDuellogFull, replayWindow, type DuellogUi } from './htmlui/duellog';
+import { duellogQuery, duellogUi, duellogWindow, duellogServerPicker, fetchDuellogFull, replayWindow, type DuellogUi } from './htmlui/duellog';
 import type { TitleConfigUi } from './htmlui/title-config';
 import { bracketWindow, duelHelpStrip, eventKey, informationWindow, joinGunslingWindow, resultWindow, tournamentUi } from './htmlui/tournament';
 import { discordWire } from './htmlui/discord-wire';
@@ -354,8 +354,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   };
   const duellogSpecs = (): WindowSpec[] => {
     if (!duellog || !state.player || state.scene === 'duel' || state.scene === 'title' || state.connection !== 'online') { duellog = null; return []; }
-    return [duellogWindow(htmlIds, duellog, { load: loadDuellog, close: () => { duellog = null; showHtml(); }, rerender: () => showHtml(),
-      open: openUrl, play: key => { duellog = null; send({ type: 'replayPlay', key }); } })];
+    const deps = { load: loadDuellog, close: () => { duellog = null; showHtml(); }, rerender: () => showHtml(),
+      open: openUrl, play: (key: string) => { duellog = null; send({ type: 'replayPlay', key }); } };
+    const servers = duellogServerPicker(htmlIds, duellog, deps);
+    return [duellogWindow(htmlIds, duellog, deps), ...(servers ? [servers] : [])];
   };
   // the NPC reward pack pick in main's pack picker (htmlui/npc-pack.ts: CWindowPackSelect) over the lobby or the duel
   const npcPack = npcPackUi();
