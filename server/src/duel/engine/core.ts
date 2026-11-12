@@ -277,6 +277,26 @@ export interface NewOptions {
   place_order?: PlaceOrder;
   /** Record the duel as an EDOPro replay (takeReplay once it ended). */
   record?: boolean;
+  /** A position to start from (scenario tests): cards placed before the duel starts, per-player LP, opening hand size. */
+  setup?: DuelSetup;
+}
+
+/** A card placed before the duel starts. `player` is the protocol player; `pos` for monsters ("atk" face-up attack,
+ *  "def" face-up defence, "set" face-down defence) and spells/traps ("up" face-up, "set" face-down). */
+export interface SetupCard {
+  player: 0 | 1;
+  code: number;
+  location: "hand" | "mzone" | "szone" | "grave" | "removed";
+  sequence?: number;
+  pos?: "atk" | "def" | "set" | "up";
+}
+
+export interface DuelSetup {
+  cards?: SetupCard[];
+  /** LP per protocol player (default: `lp` for both). */
+  lp?: [number, number];
+  /** Opening hand size (default 5): 0 to start from `cards` alone. */
+  draw?: number;
 }
 
 export interface Deck {
@@ -395,6 +415,7 @@ export class DuelCore {
     if (o.brain !== undefined && o.brain !== null) c.brain = o.brain;
     if (o.place_order !== undefined) c.place_order = o.place_order;
     if (o.record) c.record = true;
+    if (o.setup) c.setup = o.setup;
     return this.command(c);
   }
 
@@ -488,17 +509,19 @@ export class DuelCore {
     return o;
   }
 
-  private createDuel(decks: { main: number[]; extra: number[] }[], swap: boolean, seed: bigint, lp: number, shuffle: boolean, rnd: () => number, flags: bigint): Duel {
+  private createDuel(decks: { main: number[]; extra: number[] }[], swap: boolean, seed: bigint, lp: number, shuffle: boolean, rnd: () => number, flags: bigint, setup: DuelSetup | null = null): Duel {
     const core = this.core;
     const db = this.db;
     const scripts = this.scripts;
-    const team = { startingLP: lp, startingDrawCount: 5, drawCountPerTurn: 1 };
+    // core player 0 always goes first: protocol player p is core player (swap ? 1 - p : p)
+    const lps = setup?.lp ? (swap ? [setup.lp[1], setup.lp[0]] : [setup.lp[0], setup.lp[1]]) : [lp, lp];
+    const draw = setup?.draw ?? 5;
     const errors: string[] = [];
     const handle = core.createDuel({
       flags,
       seed: seedWords(seed),
-      team1: team,
-      team2: team,
+      team1: { startingLP: lps[0]!, startingDrawCount: draw, drawCountPerTurn: 1 },
+      team2: { startingLP: lps[1]!, startingDrawCount: draw, drawCountPerTurn: 1 },
       cardReader: (code) => db.get(code),
       scriptReader: (name) => scripts.read2008(name),
       errorHandler: (type, text) => {
@@ -526,6 +549,16 @@ export class DuelCore {
         core.duelNewCard(handle, { team: t as 0 | 1, duelist: 0, code, controller: t as 0 | 1, location: OcgLocation.EXTRA, sequence: 0, position: OcgPosition.FACEDOWN_DEFENSE });
       }
     });
+    for (const card of setup?.cards ?? []) {
+      const t = (swap ? 1 - card.player : card.player) as 0 | 1;
+      const location = LOCS.find(([name]) => name === card.location)?.[1];
+      if (location === undefined) throw new Error(`setup: lugar no válido: ${card.location}`);
+      const field = location === OcgLocation.MZONE || location === OcgLocation.SZONE;
+      const position = !field ? (location === OcgLocation.HAND ? OcgPosition.FACEDOWN_DEFENSE : OcgPosition.FACEUP_ATTACK)
+        : card.pos === "set" ? (location === OcgLocation.MZONE ? OcgPosition.FACEDOWN_DEFENSE : OcgPosition.FACEDOWN_ATTACK)
+        : card.pos === "def" ? OcgPosition.FACEUP_DEFENSE : OcgPosition.FACEUP_ATTACK;
+      core.duelNewCard(handle, { team: t, duelist: 0, code: card.code, controller: t, location: location as never, sequence: card.sequence ?? 0, position });
+    }
     core.startDuel(handle);
     return duel;
   }
@@ -698,13 +731,14 @@ export class DuelCore {
     const rule = String(c.rule ?? "MR5").toUpperCase();
     const flags = (OcgDuelMode as unknown as Record<string, bigint>)[`MODE_${rule}`];
     if (typeof flags !== "bigint") throw new Error(`rule no válida: ${rule} (MR1..MR5, GOAT, SPEED, RUSH)`);
-    const duel = this.createDuel(norm, swap, seed, lp, c.shuffle !== false, rnd, flags);
+    const setup = (c.setup ?? null) as DuelSetup | null;
+    const duel = this.createDuel(norm, swap, seed, lp, c.shuffle !== false, rnd, flags, setup);
     const placeOrder = placeOrderFrom(c.place_order);
     const bots: (Bot | null)[] = [0, 1].map((coreP) => {
       const protoP = swap ? 1 - coreP : coreP;
       return botFlags[protoP] ? new Bot((code) => this.db.get(code), placeOrder) : null;
     });
-    const s: Session = { id: c.id, duel, swap, bots, placeOrder, track: { lp: [lp, lp], turn: 0, turnPlayer: 0, phase: 0 }, rnd, waiting: null, brain, retries: [0, 0], humanRetries: 0, decisions: 0, autoChain: c.auto_chain !== false, autoPassed: 0,
+    const s: Session = { id: c.id, duel, swap, bots, placeOrder, track: { lp: setup?.lp ? (swap ? [setup.lp[1], setup.lp[0]] : [setup.lp[0], setup.lp[1]]) : [lp, lp], turn: 0, turnPlayer: 0, phase: 0 }, rnd, waiting: null, brain, retries: [0, 0], humanRetries: 0, decisions: 0, autoChain: c.auto_chain !== false, autoPassed: 0,
       rec: c.record ? this.recorder(duel, swap, seed, flags, lp) : null };
     this.sessions.set(key(c.id), s);
     out.emit({ ev: "created", id: c.id, first, seed: seed.toString(), lp, bot: [Boolean(botFlags[0]), Boolean(botFlags[1])], brain, auto_chain: s.autoChain, rule });

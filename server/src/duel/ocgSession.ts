@@ -168,6 +168,10 @@ const isEnd = (m: Msg) => is_end(m);
 // ================================================================================ NPC duel
 export type Finish = (c: Conn, winner: number | null, reason: unknown, turns: number) => void;
 
+/** The turn clock in NPC duels: off (owner, 2026-11-12: no clock against NPCs); `on` brings back the translator
+ *  config's turn_timer / tiempo_respuesta deadlines (a test of the mechanism turns it on). */
+export const NPC_CLOCK = { on: false };
+
 export class OcgSession {
   static nextId = Math.floor(Date.now() / 1000) % 1000000000;
   readonly id: number;
@@ -207,7 +211,7 @@ export class OcgSession {
   }
 
   private beginTimer(): void {
-    if (!DEFAULT_CFG.turn_limit || this.over) return;
+    if (!NPC_CLOCK.on || !DEFAULT_CFG.turn_limit || this.over) return;
     const limit = Number(this.timerTurn === 1 ? DEFAULT_CFG.tiempo_respuesta : DEFAULT_CFG.turn_timer);
     if (limit <= 0) return;
     this.stopTimer();
@@ -254,7 +258,7 @@ export class OcgSession {
   /** A batch to the client: the translator's messages, then (once they are out) its Duel Log lines on the lobby
    *  connection's chat as channel DUEL_LOG_CHANNEL, which a client without ovr/duellog.c drops. */
   private feed(evs: Json[], keep: (m: Msg) => boolean = () => true): void {
-    if (DEFAULT_CFG.turn_limit) for (const e of evs) if (e.ev === "msg" && e.type === "NEW_TURN") {
+    if (NPC_CLOCK.on && DEFAULT_CFG.turn_limit) for (const e of evs) if (e.ev === "msg" && e.type === "NEW_TURN") {
       this.stopTimer();
       this.timerTurn = Number(e.player);
       this.timerLeft = Number(this.timerTurn === 1 ? DEFAULT_CFG.tiempo_respuesta : DEFAULT_CFG.turn_timer);
@@ -302,7 +306,7 @@ export class OcgSession {
     const decks = [{ main: toCodes(this.player.main), extra: toCodes(this.player.extra) },
       { main: toCodes(this.npc!.main), extra: toCodes(this.npc!.extra) }];
     const place_order = this.g.cfg.placeOrder;
-    const d = (this.d = new YO2Duel(decks, { first, cardmap: cardmap(), cfg: { place_order, ...(DEFAULT_CFG.turn_limit ? { turn_timer: 0 } : {}) }, log: (s) => this.log(s), rng: this.g.rng }));
+    const d = (this.d = new YO2Duel(decks, { first, cardmap: cardmap(), cfg: { place_order, ...(!NPC_CLOCK.on || DEFAULT_CFG.turn_limit ? { turn_timer: 0 } : {}) }, log: (s) => this.log(s), rng: this.g.rng }));
     d.place_manual = !!this.placeManual;
     d.query = () => this.core().query(this.id);
     this.out.put(d.start());

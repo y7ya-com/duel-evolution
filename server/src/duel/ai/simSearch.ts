@@ -36,7 +36,9 @@ export interface SearchAccess {
   link: () => ForkLink | null;
   /** A rollout pilot for a seat (`own` = the deciding NPC: its own rules), reading the fork through `peek`. */
   makePolicy: (seat: number, own: boolean, peek: () => Json) => HeuristicBot;
-  /** CPU budget per decision (ms): stop exploring once spent, keep the best line found. */
+  /** A safety ceiling per decision (ms), never reached in normal play: the search is bounded by maxCandidates, not by
+   *  the clock, so the same position gets the same answer on any machine (production's slower CPU played different
+   *  lines from the lab's under a 150 ms clock budget). */
   budgetMs: number;
   /** Max candidate lines per decision. */
   maxCandidates: number;

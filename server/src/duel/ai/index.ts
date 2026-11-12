@@ -40,7 +40,7 @@ export interface TierConfig {
   /** One step less of thinking: no reply ply in the battle plan. */
   light: boolean;
   search: boolean;
-  /** CPU budget per searched decision (ms) and max candidate lines. */
+  /** Max candidate lines per searched decision, and a safety ceiling (ms) that normal play never reaches. */
   budgetMs: number;
   maxCandidates: number;
 }
@@ -48,7 +48,7 @@ export interface TierConfig {
 export const TIERS: Record<Tier, TierConfig> = {
   easy: { blunder: 0, strength: 40, light: true, search: false, budgetMs: 0, maxCandidates: 0 },
   hard: { blunder: 0, strength: 100, light: false, search: false, budgetMs: 0, maxCandidates: 0 },
-  elite: { blunder: 0, strength: 100, light: false, search: true, budgetMs: 150, maxCandidates: 6 },
+  elite: { blunder: 0, strength: 100, light: false, search: true, budgetMs: 3000, maxCandidates: 6 },
 };
 
 /** The NPC's tier: elite for every NPC, whatever its level (npc_profiles.json's level only picks the deck). */

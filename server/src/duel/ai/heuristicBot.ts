@@ -698,12 +698,10 @@ export class HeuristicBot {
       const limit = Math.max(2, search.maxCandidates);
       // Keep the phase-exit lines (the last two) in the pool: a busy hand can offer many summons/effects.
       const pool = cands.length <= limit ? cands : [...cands.slice(0, limit - 2), ...cands.slice(-2)];
-      let last = 0; // the last fork's cost: don't start one that would overrun the budget
       for (const c of pool) {
-        const t1 = performance.now();
-        if (scored.length > 0 && t1 - t0 + last > search.budgetMs) break;
+        // every candidate in the pool is played out: only a runaway decision stops early (the safety ceiling)
+        if (scored.length > 0 && performance.now() - t0 > search.budgetMs) break;
         const s = rolloutScore(search, this.seat, sel, ev, c.resp, this);
-        last = performance.now() - t1;
         if (s === null) return this.respond(ev); // replay drift: the whole decision falls back to the heuristic
         scored.push({ c, s });
         if (s >= 1e9) break; // a winning line
@@ -745,7 +743,7 @@ export class HeuristicBot {
     const out: Candidate[] = [];
     const act = () => { this.#idleActions++; };
     const ctx = this.#ctx();
-    // Order matters when the budget only fits a few forks: draw/removal setup, the strongest summons, then the rest.
+    // Order matters when there are more lines than maxCandidates: draw/removal setup, the strongest summons, then the rest.
     const activatable = ev.activatable.map((a, i) => ({ a, i, p: this.#idlePriority(a.code, ctx, a, { prompt: ev, resp: respIdle("SELECT_ACTIVATE", i) }) }))
       .filter(({ a, p }) => p > -Infinity && !this.#activatedThisTurn.has(`${a.location}:${a.sequence}:${a.description}`))
       .sort((a, b) => b.p - a.p);
