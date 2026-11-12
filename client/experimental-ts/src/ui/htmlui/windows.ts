@@ -256,18 +256,17 @@ export const CHAT_TABS: readonly { key: string; label: string; x: number; w: num
   // main b70a104: the Duels tab lists the open duels (discord.ts), not chat lines; a row Joins
   { key: 'duels', label: 'Duels', x: 209, w: 72, channel: 'global', shows: () => false },
 ];
-/** The duel scene's chat tab (live: the engine's duel chat window adds 『デュエル中』, its string 'Duel (n.)', between
- * TRADE and Team; main's chat.js keeps it, plain-cases nothing in it, and moves Team and Duels along by its width less
- * the 8 px overlap). It is the CHAT_TABS index after the last, so the lobby's tab indexes never move. The server has no
- * duel channel (chat.ts channelFor drops the 2008 client's kind 4), so the tab shows the two duelists' own lines and
- * what is typed there goes out on the public channel, where the opponent reads it. */
-export const DUEL_CHAT_TAB = { key: 'duel', label: 'Duel (n.)', x: 145, w: 88, channel: 'global' } as const;
-/** The chat's tabs in a scene: the duel's adds DUEL_CHAT_TAB at live's place, `names` the two duelists. */
-export function chatTabsFor(duelists: readonly string[] | null): readonly { key: string; label: string; x: number; w: number; channel: string; shows: (channel: string, sender: string) => boolean }[] {
-  if (!duelists) return CHAT_TABS;
-  const shift = DUEL_CHAT_TAB.w - 8, names = new Set(duelists.map(n => n.trim()).filter(Boolean));
+/** The trade's chat tab (live: the chat window in a trade adds "Trade Partner" between Trade and Team, moving Team and
+ * Duels along by its width less the 8 px overlap): the partner's whispers; what is typed there is whispered to the
+ * partner. It is the CHAT_TABS index after the last, so the lobby's tab indexes never move. */
+export const TRADE_PARTNER_TAB = { key: 'partner', label: 'Trade Partner', x: 145, w: 126, channel: 'whisper' } as const;
+type ChatTab = { key: string; label: string; x: number; w: number; channel: string; shows: (channel: string, sender?: string) => boolean; target?: string };
+/** The chat's tabs: the lobby's, and in a trade the partner's tab at live's place. */
+export function chatTabsFor(partner: string | null): readonly ChatTab[] {
+  if (!partner) return CHAT_TABS;
+  const shift = TRADE_PARTNER_TAB.w - 8, name = partner.trim();
   return [...CHAT_TABS.map(t => t.x > 81 ? { ...t, x: t.x + shift } : t),
-    { ...DUEL_CHAT_TAB, shows: (c: string, sender: string) => (c === 'global' || c === 'whisper') && names.has(sender.trim()) }];
+    { ...TRADE_PARTNER_TAB, target: name, shows: (c: string, sender?: string) => c === 'whisper' && sender?.trim() === name }];
 }
 /** '/w name text' (or /whisper, /t) whispers from any tab; the rest goes to the tab's channel. A name may have spaces:
  * the longest name of a player the client knows wins, or the name in quotes ('/w "Ann Lee" hi'). */
@@ -305,8 +304,11 @@ export function stackChatTabs(controls: HtmlControl[]): void {
 export function chatWindow(ctx: BuildContext): WindowSpec | null {
   const lobby = ctx.state.lobby; if (!lobby) return null;
   const b = new WindowBuilder(ctx.ids, 'chat', 'CChatWindow', { x: 248, y: 608, w: 776, h: 128 }, { z: 51303, mode: 1, online: true, world: true, pairs: [] as unknown[] });
-  const duel = ctx.state.scene === 'duel' ? ctx.state.duel : null, tabs = chatTabsFor(duel ? duel.players.map(p => p.name) : null);
-  const tab = ctx.ui.chatTab >= 0 && ctx.ui.chatTab < tabs.length ? ctx.ui.chatTab : 0;   // the duel's tab after the duel: All Chat
+  // live's duel chat has the lobby's tabs (All Chat / Trade / Team / Duels), no duel tab of its own; a trade adds its
+  // partner's tab
+  const trade = ctx.state.socialDetail?.trade, partner = trade && ['open', 'closing', 'finished'].includes(trade.phase) ? trade.partner?.name ?? null : null;
+  const tabs = chatTabsFor(partner);
+  const tab = ctx.ui.chatTab >= 0 && ctx.ui.chatTab < tabs.length ? ctx.ui.chatTab : 0;
   b.add('CWindowTaskIconbar', 'bar', { x: 0, y: 0, w: 776, h: 24 }, { active: true });
   b.add('CWindowTaskThinChop', 'frame', { x: 0, y: 24, w: 776, h: 104 });
   b.add('CWindowTaskBackPlane', 'plane', { x: 8, y: 24, w: 760, h: 96 });
@@ -327,7 +329,7 @@ export function chatWindow(ctx: BuildContext): WindowSpec | null {
   stackChatTabs(b.win.controls);
   b.add('CWindowTaskIconExpand', 'expand', { x: 757, y: 0, w: 16, h: 24 }, { pressed: false, enabled: false });
   // nothing while the app is busy (the old Send was disabled then): the line stays to be sent with the next Enter
-  const send = () => { const command = chatCommand(tab, ctx.ui.chatDraft, lobby.avatars.map(a => a.name)); if (!command || !lobby.connected || ctx.state.busy) return; ctx.ui.chatDraft = ''; ctx.send(command); ctx.rerender(); };
+  const send = () => { const partnerTab = tabs[tab]?.target, typed = ctx.ui.chatDraft.trim(), command = partnerTab && typed && !/^\//.test(typed) ? { type: 'chat' as const, channel: 'whisper' as const, target: partnerTab, text: typed } : chatCommand(tab, ctx.ui.chatDraft, lobby.avatars.map(a => a.name)); if (!command || !lobby.connected || ctx.state.busy) return; ctx.ui.chatDraft = ''; ctx.send(command); ctx.rerender(); };
   // an account the admin barred from chat (0x3004's SANCTION_CHAT): the line greyed out with the notice, nothing to type
   if (ctx.state.sanctions?.chat) {
     b.add('CWindowTaskText', 'input', { x: 8, y: 104, w: 760, h: 16 }, { text: CHAT_SANCTION_NOTICE, align: 0, fontSize: 12, color: [0.5, 0.5, 0.5, 1] });
