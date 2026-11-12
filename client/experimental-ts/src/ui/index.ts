@@ -213,7 +213,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const p = state.profileDetail, lobby = state.lobby; if (!p || p.selectedPid === null || p.selectedPid === p.selfPid) return {};
     const pid = p.selectedPid, avatar = lobby?.avatars.find(a => a.id === pid), name = p.summary?.name ?? p.details?.name ?? avatar?.name ?? '';
     const close = () => send({ type: 'profileAction', action: { type: 'close' } });
-    const social = (type: 'inviteFriend' | 'inviteTrade' | 'inviteTeam' | 'ignore') => () => { send({ type: 'socialAction', action: { type, pid } }); close(); };
+    const social = (type: 'inviteFriend' | 'inviteTrade' | 'ignore') => () => { send({ type: 'socialAction', action: { type, pid } }); close(); };
     const watchable = !!avatar?.duelling && !lobby?.rooms?.some(r => (r.owner === pid || r.opponent === pid) && r.watch === false);
     return {
       ...(!avatar?.duelling ? { duel: () => {
@@ -225,9 +225,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         else send({ type: 'duelChallenge', playerId: pid });
       } } : {}),
       ...(watchable ? { watch: () => { close(); send({ type: 'spectate', pid }); } } : {}),
-      ...(state.socialDetail ? { friend: social('inviteFriend'), trade: social('inviteTrade'), team: social('inviteTeam'), ignore: social('ignore'),
-        mail: () => { close(); htmlUiState.compose = { toPid: pid, toName: name, subject: '', body: '' }; showHtml(); } } : {}),
+      ...(state.socialDetail ? { friend: social('inviteFriend'), trade: social('inviteTrade'), ignore: social('ignore') } : {}),
       ...(name ? { whisper: () => { htmlUiState.chatDraft = `/w ${name} `; close(); } } : {}),
+      // Go to the same Area (CPlayerListMenu::pressJump): to the player's side, where the server says they stand
+      jump: () => { const at = p.location ?? (avatar ? { x: avatar.x, y: avatar.y } : null); close(); if (at && state.scene === 'lobby') send({ type: 'move', x: Math.round(at.x) + 32, y: Math.round(at.y) }); },
     };
   };
   // the list windows' content: the rewrite's social state (an ignored player's name from the players the client sees)
@@ -521,7 +522,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   function syncPortrait(): void {
     const d = htmlUiState.dialog, dc = htmlUiState.discordCard;
     const avatar = d?.kind === 'avatar' && state.scene !== 'characters' ? d : null;
-    const look = avatar ? avatar.look : dc && state.scene === 'lobby' ? dc.parts : null;
+    // a player's card: live shows that player's bust where the Discord card's stands (BUST_AT)
+    const card = state.scene === 'lobby' && state.profileDetail && state.profileDetail.selectedPid !== null && state.profileDetail.selectedPid !== state.profileDetail.selfPid
+      ? state.lobby?.avatars.find(a => a.id === state.profileDetail!.selectedPid)?.parts : null;
+    const look = avatar ? avatar.look : dc && state.scene === 'lobby' ? dc.parts : card ? Array.from(card) : null;
     if (!look || look.length !== 16 || !controller.loadArchiveImage) { portraitScene?.show({ logo: false, portrait: null, reducedMotion: true }); portraitScene?.element.remove(); return; }
     portraitScene ??= new StartScene(controller.loadArchiveImage.bind(controller));
     portraitScene.show({ logo: false, portrait: Uint8Array.from(look), reducedMotion: state.settings.reducedMotion, at: avatar ? PORTRAIT_AT : BUST_AT });

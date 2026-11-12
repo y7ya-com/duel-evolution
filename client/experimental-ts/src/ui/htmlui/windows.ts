@@ -7,6 +7,7 @@ import { REWRITE_TEXT } from '../../features/ui-text';
 import { Ids, WindowBuilder, levelText } from './snapshot';
 import { AREA_FALLBACK, AREA_TEXT, WORLD_TEXT } from './lobby';
 import { titleName } from '../../features/titles';
+import { FLAG_ATLAS, flagCell } from '../nation-flag';
 import type { HtmlControl, WindowSpec } from './snapshot';
 import { avatarSwitch, freeChoices, starterLook, FIRST_CATEGORY, type AvatarDeps } from './avatar';
 import playerSelectLive from './templates/playerselect-live.json';
@@ -490,22 +491,24 @@ export function saveNextComment(ctx: BuildContext): void {
 }
 
 /** What another player's card offers (the rewrite's social and duel commands). */
-export interface CardActions { friend?(): void; trade?(): void; whisper?(): void; ignore?(): void; mail?(): void; team?(): void; duel?(): void; watch?(): void }
+export interface CardActions { friend?(): void; trade?(): void; whisper?(): void; ignore?(): void; jump?(): void; duel?(): void; watch?(): void }
 // A player's card (CPlayerListMenu, main's lobby.js: its frame, planes and Help texts from the controls' parts and
 // children, the generic buttons): main's captured card (mock/lobby-card.json, 248, 279, 336 wide) with this player's
 // level and name (red), title, wins / losses and comment, and a button per action the rewrite has, 36 px apart from
 // 148 as the game stacks them (the window and the plane under the buttons grow with them; a card of another height
 // draws main's CSS thin frame, the captured frame pieces fit the 328-high card only).
+// live's order (CPlayerListMenu::layout, yo2PlayerListMenu.cpp: Friend, Trade, Chat Message, Ignore, Watch, Go to the
+// same Area; live's card puts Send Duel Request last); no Send D-mail or Invite to Team (live's card has neither)
 const CARD_BUTTONS: [string, keyof CardActions, string][] = [
-  ['デュエル申し込みボタン', 'duel', 'card-duel'], ['観戦ボタン', 'watch', 'card-watch'], ['フレンド申し込みボタン', 'friend', 'card-friend'],
-  ['トレード申し込みボタン', 'trade', 'card-trade'], ['チャットメッセージボタン', 'whisper', 'card-whisper'], ['メール送信ボタン', 'mail', 'card-mail'],
-  ['チームに誘うボタン', 'team', 'card-team'], ['ブラックリストボタン', 'ignore', 'card-ignore'],
+  ['フレンド申し込みボタン', 'friend', 'card-friend'], ['トレード申し込みボタン', 'trade', 'card-trade'], ['チャットメッセージボタン', 'whisper', 'card-whisper'],
+  ['ブラックリストボタン', 'ignore', 'card-ignore'], ['観戦ボタン', 'watch', 'card-watch'], ['近くに飛ぶボタン', 'jump', 'card-jump'], ['デュエル申し込みボタン', 'duel', 'card-duel'],
 ];
 export function playerCard(ctx: BuildContext, actions: CardActions): WindowSpec | null {
   const p = ctx.state.profileDetail; if (!p || p.selectedPid === null || p.selectedPid === p.selfPid) return null;
   const t = lobbyCard.windows[0]!, shown = CARD_BUTTONS.filter(([, k]) => actions[k]), n = shown.length, h = 148 + 36 * Math.max(1, n);
-  // where main's capture has it (x 248), standing on the player list and chat row (608) when it grows past the capture's
-  const y = Math.min(t.y, 600 - h);
+  // where live has it (main's capture: 248, 279), over the player list and chat row when it grows past the capture's (live:
+  // six buttons reach 643); only a card taller than that stands on the menu bar
+  const y = Math.min(t.y, 736 - h);
   const b = new WindowBuilder(ctx.ids, `card:${p.selectedPid}`, t.cls, { x: t.x, y, w: t.w, h }, { modal: false, z: 51603, pid: p.selectedPid });   // pid: main's lobby.js cardRank (read/lobby.js pid_), the rank under the header
   const cs = b.fromTemplate(t, true);
   const s = p.summary, d = p.details, wins = s?.wins ?? 0, losses = s?.losses ?? 0, name = s?.name ?? d?.name ?? '';
@@ -524,6 +527,14 @@ export function playerCard(ctx: BuildContext, actions: CardActions): WindowSpec 
     b.on(c, barred ? { key, label: TRADE_SANCTION_NOTICE } : { key, click: () => actions[k]?.() });
   });
   return b.spec();
+}
+/** The nation flag the engine draws at 8, 8 of the card (CPlayerListMenu: lobbyNationFlagSet(flag_, country_),
+ * flag_->pos_ = {8, 8, 10}), from the small atlas over the name's plane. */
+function cardFlag(ctx: BuildContext, card: WindowSpec): WindowSpec | null {
+  const cell = flagCell(ctx.state.profileDetail?.summary?.country); if (!cell) return null;
+  const w = card.win;
+  return new WindowBuilder(ctx.ids, `card-flag:${w.id}`, 'CEnginePictures', { x: 0, y: 0, w: 1024, h: 768 }, { z: 51604,
+    pics: [{ key: 'flag', source: { archive: FLAG_ATLAS }, x: w.x + 8, y: w.y + 8, w: 22, h: 15, z: 0, crop: [cell[0], cell[1], 22, 15], shown: true }] }).spec();
 }
 // A Discord duelist's card (live: main 4fe1425 / 2020bff, screens/playerlist.js discordCard): the game's player card
 // (main's captured CPlayerListMenu, as playerCard) where it opens (336 wide, its bottom on the player list's top, from
@@ -817,7 +828,7 @@ export function htmlWindows(ctx: BuildContext): WindowSpec[] {
     const chat = chatWindow(ctx); if (chat) out.push(chat);
     const list = !ctx.covered && (ctx.lobby ? ctx.lobby.list(ctx) : ctx.openPlayer && playerList(ctx, ctx.openPlayer)); if (list) out.push(list);
     const profile = profileWindow(ctx); if (profile) out.push(profile);
-    const card = playerCard(ctx, ctx.cardActions ?? {}); if (card) out.push(card);
+    const card = playerCard(ctx, ctx.cardActions ?? {}); if (card) { out.push(card); const flag = cardFlag(ctx, card); if (flag) out.push(flag); }
     if (card) ui.discordCard = null;   // one card at a time
     else if (ui.discordCard) out.push(discordCard(ctx, ui.discordCard));
     if (ctx.lobby) out.push(...ctx.lobby.windows(ctx));
