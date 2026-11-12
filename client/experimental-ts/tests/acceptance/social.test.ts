@@ -109,6 +109,8 @@ describe.skipIf(!enabled)('lobby, avatars and social features between real playe
       await type(a,byKey('compose-body'),'Duel me later.');
       await until(a,`!${byKey('compose-send')}?.disabled`,10000); await press(a,byKey('compose-send'));
       await until(a,`!${byKey('compose-send')}`,10000);
+      // Write Mail closes back onto A's D-Mail, closed as a player does before going on
+      if (await a.ev(`Boolean(${byKey('mail-close')})`)) { await press(a,byKey('mail-close')); await until(a,`!${byKey('mail-close')}`,10000); }
       const mailRow = `[...document.querySelectorAll('[data-key^="mail-row:"]')].some(r=>r.textContent.includes('Note ${RUN}'))`;
       for (let i = 0; i < 6; i++) {
         await click(b,'D-Mail');
