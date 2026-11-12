@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { parseWorldMaps } from '../../src/world/maps';
-import { isWalkable } from '../../src/world/pathfinding';
+import { astarCells, cellOf, isWalkable, segmentWalkable } from '../../src/world/pathfinding';
 import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, until, press, byKey, sleep, say, record, type Page } from './harness';
 
 const MAPS = parseWorldMaps(JSON.parse(readFileSync(new URL('../../public/world-maps.json',import.meta.url),'utf8')));
@@ -42,23 +42,34 @@ async function walkInto(page:Page,name:string,index:number,done:string) {
   let box:Box | undefined;
   for (let i = 0; i < 10 && !box; i++) { box = (await page.ev(`window.__deExits?.()`) as Box[] | null)?.find(b => b.index === index); if (!box) await sleep(500); }
   if (!box) throw new Error(`no exit ${index} on map ${(await page.ev(world) as World).mapId}`);
-  // the walkable spot nearest the exit (its 20-px walk grid), walked to by the app's own move (the click's route), then
-  // straight on into the exit as a player holding the button would
+  // the walkable spot nearest the exit (its 20-px walk grid), then straight on into the exit as a player holding the
+  // button would. The player's walk is straight at the cursor (live's CPlChibiAvatar: no route, the wall solver slides
+  // it along a wall but a corner stops it), so the way there goes round the walls as a player steers: the walk grid's
+  // route (the exe's A*), each move aimed at the farthest of its next points in a straight line from the avatar
   const mapId = (await page.ev(world) as World).mapId, grid = MAPS.maps.find(m => m.id === mapId)?.grid;
   const cx = (box.x0 + box.x1) / 2, cy = (box.y0 + box.y1) / 2, trail:string[] = [];
   let near = { x:cx,y:cy };
   if (grid) { let best = Infinity; for (let y = 10; y < grid.height * 20; y += 20) for (let x = 10; x < grid.width * 20; x += 20) {
     if (!isWalkable(grid,{ x,y })) continue; const dx = Math.max(box.x0 - x,0,x - box.x1), dy = Math.max(box.y0 - y,0,y - box.y1), d = Math.hypot(dx,dy) * 1000 + Math.hypot(x - cx,y - cy);
     if (d < best) { best = d; near = { x,y }; } } }
-  for (let i = 0; i < 30; i++) {
+  let route:{ x:number; y:number }[] | null = null, step = 0, last = '', still = 0;
+  for (let i = 0; i < 120; i++) {
     if (await page.ev(`Boolean(${done})`)) return box;
     const w = await page.ev(world) as World | null, me = w?.avatars.find(a => a.name === name);
-    if (me) trail.push(`${Math.round(me.x)},${Math.round(me.y)}`);
+    if (me) { const at = `${Math.round(me.x)},${Math.round(me.y)}`; if (at !== trail[trail.length - 1]) trail.push(at); still = at === last ? still + 1 : 0; last = at; }
     if (me && w?.ready) {
-      const there = Math.hypot(me.x - near.x,me.y - near.y) < 24, t = there ? { x:cx,y:cy } : near;
+      const there = Math.hypot(me.x - near.x,me.y - near.y) < 24;
+      let t = there ? { x:cx,y:cy } : near;
+      if (!there && grid) {
+        // a new route from where the avatar is when it has none or stands still off it
+        if (!route || still >= 3) { route = astarCells(grid,cellOf(me),cellOf(near)) ?? [near]; route.push(near); step = 0; still = 0; }
+        while (step < route.length - 1 && Math.hypot(route[step]!.x - me.x,route[step]!.y - me.y) < 30) step++;
+        let j = step; while (j + 1 < route.length && j < step + 8 && segmentWalkable(grid,me,route[j + 1]!)) j++;
+        t = route[j]!;
+      }
       await page.ev(`window.__deApp.dispatch({type:'move',x:${Math.round(t.x)},y:${Math.round(t.y)}}).catch(()=>{})`);
     }
-    await sleep(1000);
+    await sleep(350);
   }
   if (!await page.ev(`Boolean(${done})`)) throw new Error(`exit ${index} not reached (box ${JSON.stringify(box)}; walked ${trail.join(' ')}; ${await page.ev(`document.querySelector('.de-world-status')?.textContent+'|'+(window.__deApp?.getState?.().error??'')`)})`);
   return box;
