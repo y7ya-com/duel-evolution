@@ -461,8 +461,8 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       await page.ev(`window.__net.http.delay=/\\/api\\/de\\/friends/`);
       await menuClick(page,'Friend List');
       await until(page,`window.__net.http.release`,10000);
-      // Return to Title asks first (the Main Menu's 'Disconnect from the game?'): a player answers Yes
-      await menuClick(page,'Return to Title'); await until(page,byKey('disconnect-yes'),30000); await page.ev(`${byKey('disconnect-yes')}.click()`);
+      // Return to Title goes straight back to the title, as live
+      await menuClick(page,'Return to Title');
       await until(page,goOnlineButton,30000);
       const pending = await page.ev(`window.__net.http.log.filter(l=>l.startsWith('delay')).length`) as number;
       await page.ev(`window.__net.http.delay=null`);

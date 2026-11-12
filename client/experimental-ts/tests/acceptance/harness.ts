@@ -196,8 +196,6 @@ export async function click(page:Page,text:string,timeout = 30000) {
     await until(page,byText(text),timeout);
   }
   await press(page,byText(text));
-  // Return to Title asks first (the Main Menu's 'Disconnect from the game?' Yes / No): a player answers Yes
-  if (text === 'Return to Title') { await until(page,byKey('disconnect-yes'),timeout); await press(page,byKey('disconnect-yes')); }
 }
 export async function type(page:Page,selector:string,value:string) {
   await until(page,selector);

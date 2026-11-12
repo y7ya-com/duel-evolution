@@ -1289,8 +1289,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         ...((state.duel || sideboard) && state.scene !== 'duel' ? [{ label: 'Return to Duel', key: 'duel', disabled: blocked, run: go('duel') }] : []),
         // the way back from the rewrite's own scenes; in the lobby itself there is nothing to return to (live has no entry)
         ...(state.scene !== 'lobby' ? [{ label: 'Return to Lobby', key: 'lobby', disabled: blocked || sideboard, run: go('lobby') }] : []),
-        // Return to Title stays available while busy: it is how a player abandons a request that never answers
-        ...(state.connection === 'online' ? [{ label: 'Return to Title', key: 'title', run: () => confirmAction('Disconnect from the game?', () => send({ type: 'disconnect' }), 'disconnect') }] : []),
+        // Return to Title stays available while busy: it is how a player abandons a request that never answers. Live
+        // goes straight back to the title (no question first)
+        ...(state.connection === 'online' ? [{ label: 'Return to Title', key: 'title', run: () => send({ type: 'disconnect' }) }] : []),
       ];
       // live's order (main's Main Menu over the 2008 engine, top to bottom): Edit Deck, My Profile, Create Comment, DUEL
       // OPTIONS, D-Mail, Audio, Duel Log, Ignore / Friend / Team List, Return to your Room, Return to Title; the
