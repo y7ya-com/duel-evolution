@@ -184,9 +184,15 @@ function moveWindow(ctx: BuildContext, deps: LobbyDeps): WindowSpec | null {
 
 /** Who a search lists: the other players here, NPCs too for Show all (the search's last row). */
 export interface ListRow { kind: 'player' | 'npc'; id: number; name: string; level?: number }
+// the players in the order they came (live's list: newest last, kept as players move and their records change; the
+// lobby's avatars come in whatever order the session's updates leave them)
+const arrival = new Map<number, number>(); let arrivals = 0;
 export function listRows(state: ClientView, search: Search | null, friends: readonly number[]): ListRow[] {
   const lobby = state.lobby; if (!lobby) return [];
-  const players = lobby.avatars.filter(a => !a.self && !a.npc), self = lobby.avatars.find(a => a.self);
+  const here = lobby.avatars.filter(a => !a.self && !a.npc), self = lobby.avatars.find(a => a.self);
+  for (const a of here) if (!arrival.has(a.id)) arrival.set(a.id, ++arrivals);
+  if (arrival.size > here.length) { const ids = new Set(here.map(a => a.id)); for (const id of arrival.keys()) if (!ids.has(id)) arrival.delete(id); }
+  const players = here.sort((a, b) => arrival.get(a.id)! - arrival.get(b.id)!);
   const rooms = lobby.rooms ?? [], room = (pid: number) => rooms.find(r => r.owner === pid && !r.opponent);
   const row = (a: { id: number; name: string; level?: number }): ListRow => ({ kind: 'player', id: a.id, name: a.name, ...(a.level ? { level: a.level } : {}) });
   switch (search) {

@@ -848,8 +848,7 @@ export function htmlWindows(ctx: BuildContext): WindowSpec[] {
     if (ui.comment) out.push(commentDialog(ctx, ui.comment));
   } else { ui.comment = null; ui.discordCard = null; }
   if (ctx.scene) out.push(...ctx.scene);
-  // the shop keeps the chat (main's shop capture: the lobby's chat under the windows); not over the card-get reveal
-  if (state.scene === 'shop' && state.connection === 'online' && ctx.scene?.length) { const chat = chatWindow(ctx); if (chat) out.push(chat); }
+  // (live's card shop and its pack reveal show no chat and no bar under them)
   // the duel keeps the chat (live: the engine's chat under the hand, 248, 608), the Duels tab and whispers with it
   // (not over the side deck screen between a match's games: its panel fills the stage down to Submit Sideboard)
   if (state.scene === 'duel' && state.connection === 'online' && !state.sideboarding) { const chat = chatWindow(ctx); if (chat) out.push(chat); }
