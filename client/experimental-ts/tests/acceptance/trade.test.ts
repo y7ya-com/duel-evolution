@@ -126,11 +126,14 @@ describe.skipIf(!enabled)('card trades between two real players',() => {
       const offerAgain = (await offerable(a))[0]!.name;
       await offer(a,offerAgain);
       await until(b,offered(),30000);
-      // Cancel, then Yes in its confirmation, until this side is closing (or closed)
+      // B leaves by Card Swap's EXIT (live: no question), until this side is closing (or closed)
       for (let attempt = 0; attempt < 3 && !(await b.ev(`(${closed})||${dialogText('trade-close')}.length>0||document.querySelector('[data-window-class="CWindowModelDialogOk"]')?.innerText.includes('Closing')`)); attempt++) {
-        await press(b,byKey('trade-cancel')).catch(() => {}); await until(b,`Boolean(document.querySelector('[data-key="trade-cancel-yes"]'))`,5000).catch(() => {});
-        await sleep(300); await shot(b,'cancel'); await press(b,byKey('trade-cancel-yes')).catch(() => {}); await sleep(1000);
+        await sleep(300); await shot(b,'exit'); await press(b,byKey('trade-exit')).catch(() => {}); await sleep(1000);
       }
+      // A keeps the scene with live's line on the strip ("Your trade partner left the trade. Nothing was traded.") until its EXIT
+      await until(a,`(${closed})||document.querySelector('[data-window-class="CTradeStrip"]')?.innerText.includes('partner left')||${dialogText('trade-close')}.length>0`,30000);
+      await shot(a,'partner-left');
+      if (await a.ev(`Boolean(document.querySelector('[data-key="trade-exit"]'))`)) await press(a,byKey('trade-exit')).catch(() => {});
       for (const p of [a,b]) await until(p,`(${closed})||${dialogText('trade-close')}.length>0`,30000);
       for (const p of [a,b]) if (await p.ev(`Boolean(document.querySelector('[data-key="trade-close"]'))`)) await press(p,byKey('trade-close')).catch(() => {});
       const afterCancel = { a:await ownedCopies(a,take), b:await ownedCopies(b,give) };

@@ -42,7 +42,8 @@ import { FLAG_ATLAS, flagCell } from './nation-flag';
 import { NPC_STAR_BIG, NPC_STAR_SMALL } from '../avatars/npc';
 import { barReserve, onBarReserve } from '@htmlui/screens/lobby_icons.js';
 import { titleName } from '../features/titles';
-import { tradeLocal, tradeWindows, tradeScene, trunkOpen } from './htmlui/trade';
+import { tradeLocal, tradeWindows, tradeScene, trunkOpen, partnerLeft } from './htmlui/trade';
+import { cardSwapMenu } from './htmlui/card-swap-menu';
 import { TradeTrunk, isTradeTrunk } from './htmlui/trade-trunk';
 import { deckBackdrop } from '@htmlui/screens/deck.js';
 import { PictureArt } from './htmlui/art';
@@ -318,9 +319,12 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const reason = tradeReason();
     const out = tradeWindows({ trade: sd.trade, ui: tradeUi, ids: htmlIds, dispatch: action => send({ type: 'socialAction', action }), rerender: showHtml,
       name: passcode => socialOptions().card?.(passcode).name ?? `Card ${passcode}`, status: sd.status, ...(reason ? { reason } : {}) });
-    const trunk = tradeTrunk.window(htmlIds, sd.trade, tradeScene(sd.trade) && trunkOpen(sd.trade));
-    // over the trade's scene windows, under its dialogs (the request, the confirmation, the result)
-    if (trunk) out.splice(out.findIndex(w => w.win.cls === 'CWindowTaskCardArea') + 1 || out.length, 0, trunk);
+    // Card Swap's columns: the menu (CARD SWAP, EXIT) and the card detail at the left, the trunk at the right (open while
+    // this side may offer, and after the partner left, as live), over the trade's scene windows, under its dialogs
+    const scene = tradeScene(sd.trade), left = partnerLeft({ trade: sd.trade, status: sd.status, ...(reason ? { reason } : {}) });
+    const trunk = tradeTrunk.window(htmlIds, sd.trade, scene && (trunkOpen(sd.trade) || left));
+    const columns = scene ? [cardSwapMenu(htmlIds, { exit: () => send({ type: 'socialAction', action: { type: 'cancelTrade' } }), disabled: !!state.busy }), tradeTrunk.detail(htmlIds), ...trunk ? [trunk] : []] : [];
+    out.splice(out.findIndex(w => w.win.cls === 'CWindowTaskCardArea') + 1 || out.length, 0, ...columns);
     return out;
   };
   // the title's sign-in, signed out: live's CWindowLogin (rt/session.cpp's panel, htmlui/login.ts)
@@ -553,11 +557,11 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (!deckDom && state.scene === 'deck' && typeof globalThis.document !== 'undefined') deckDom = new DeckDom(host, deckScene, { art: '/ui/', ...cardArt(), owns: w => !isTradeTrunk(w) });
     const trading = !!state.socialDetail && tradeScene(state.socialDetail.trade);
     if (!tradeDom && trading && typeof globalThis.document !== 'undefined') tradeDom = new DeckDom(htmlUi?.host ?? host, tradeTrunk, { art: htmlUi ? new URL('/ui/', location.href).href : '/ui/', ...cardArt(), owns: isTradeTrunk });
-    if (!htmlUi) { const specs = deckDom || tradeDom ? buildHtml() : []; if (deckDom) { const d = deckScene.stageView(); deckDom.show(specs, d.detail, d.drag); } tradeDom?.show(specs, null, null); syncPortrait(); return; }
+    if (!htmlUi) { const specs = deckDom || tradeDom ? buildHtml() : []; if (deckDom) { const d = deckScene.stageView(); deckDom.show(specs, d.detail, d.drag); } tradeDom?.show(specs, tradeTrunk.detailView(), null); syncPortrait(); return; }
     const specs = buildHtml(), deck = deckScene.stageView();
     htmlUi.show(specs, ['title', 'characters'].includes(state.scene), engineScene());
     deckDom?.show(specs, deck.detail, deck.drag);
-    tradeDom?.show(specs, null, null);
+    tradeDom?.show(specs, tradeTrunk.detailView(), null);
     syncPortrait();
   };
   /** The waist-up portraits the game draws under its windows outside Select Player (src/ui/htmlui/start-scene.ts's
@@ -1319,7 +1323,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       // Select Player's bar is its strip alone too, also in the moment between picking a character (its profile in) and the lobby
       // main's message field starts past the Wardrobe / Missions slots (lobby.js fieldLeft): the message moves with it
       const reserve = barReserve(), fieldShift = reserve ? Math.max(0, Math.min(1016 - 64, reserve + 8) - 391) : 0;
-      menuView = state.scene === 'title' || state.scene === 'duel' ? null : { entries, fieldShift, keys: !!state.player && !['deck', 'shop', 'characters'].includes(state.scene),
+      // (Card Swap's bar is its strip alone, as live: EXIT leaves the trade)
+      const trading = !!state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene);
+      menuView = state.scene === 'title' || state.scene === 'duel' ? null : { entries, fieldShift, keys: !!state.player && !['deck', 'shop', 'characters'].includes(state.scene) && !trading,
         // live's bar message is blank but for a pending request's wait (no "Online in Duel Academy.")
         message: state.player ? (world && waitingMessage({ state, text: id => gameTexts.get(id) })) || '' : '',
         ...(world ? { duel: () => { duelKey(state, lobbyUi); showHtml(); }, move: () => { moveKey(lobbyUi); showHtml(); }, duelOpen: () => ['duel', 'find', 'wait'].includes(lobbyUi.open ?? ''), moveOpen: () => lobbyUi.open === 'move' } : {}) };

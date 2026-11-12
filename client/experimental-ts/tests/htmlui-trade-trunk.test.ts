@@ -23,6 +23,9 @@ describe("the trade's trunk (the deck screen's CWindowModelKaban)", () => {
     // the count box: the cards offered
     expect(spec.win.controls.find(c => c.cls === 'CWindowTaskKabanNumber')?.count).toBe(1);
     expect(t.card(22)?.rarity).toBeUndefined();   // no crafting rarity badge on a trade's rows
+    // nine rows above the chat window (live), the frame to 608
+    expect(spec.win.controls.filter(c => c.cls === 'CWindowTaskKabanListBtn' && c.shown).length).toBe(9);
+    expect(spec.win.controls.find(c => c.cls === 'CWindowTaskFrameThin')?.h).toBe(528);
     t.pick('trunk', 1, 22); expect(dispatch).toHaveBeenCalledWith({ type: 'addTradeCard', passcode: 22 });
     t.quick(); expect(dispatch).toHaveBeenCalledTimes(1);
   });
@@ -35,6 +38,6 @@ describe("the trade's trunk (the deck screen's CWindowModelKaban)", () => {
     const many = Array.from({ length: 20 }, (_, i) => ({ passcode: 100 + i, count: 1 })), rerender = vi.fn();
     const t = new TradeTrunk({ card, dispatch: vi.fn(), rerender, editable: () => true });
     t.window(new Ids(), trade({}, { trunk: many, limit: [] }), true);
-    t.wheel(1); expect(t.ui.top).toBe(1); t.wheel(50); expect(t.ui.top).toBe(9); t.wheel(-50); expect(t.ui.top).toBe(0); expect(rerender).toHaveBeenCalledTimes(3);
+    t.wheel(1); expect(t.ui.top).toBe(1); t.wheel(50); expect(t.ui.top).toBe(11); t.wheel(-50); expect(t.ui.top).toBe(0); expect(rerender).toHaveBeenCalledTimes(3);
   });
 });

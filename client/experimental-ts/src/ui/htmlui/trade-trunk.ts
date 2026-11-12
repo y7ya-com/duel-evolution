@@ -10,7 +10,10 @@
 import type { SocialAction, SocialTrade } from '../../features/social';
 import { tradeableCopies } from '../../features/social';
 import type { CardView, DeckView } from '../contracts';
-import { deckUi, emptyKabanFilter, kabanWindow, TRUNK_ROWS, type DeckFrom } from './deck';
+import { attrOf, deckUi, detailWindow, emptyKabanFilter, isMonster, kabanWindow, raceOf, ROW_H, type DeckFrom } from './deck';
+/** The rows Card Swap's trunk shows (live: nine above the chat window). */
+export const TRADE_ROWS = 9;
+import type { PowerIcons } from './deck-dom';
 import type { DeckDomScene } from './deck-dom';
 import type { HtmlWindow, Ids, WindowSpec } from './snapshot';
 
@@ -42,23 +45,55 @@ export class TradeTrunk implements DeckDomScene {
     this.ui.filter = emptyKabanFilter();
     const spec = kabanWindow({ ids, ui: this.ui, deck, card: pc => this.byPc.get(pc), trunk: this.cards, busy: !this.o.editable() });
     spec.win.tradeTrunk = true;
+    // in Card Swap the trunk stops at the chat window (live: 608 high, nine rows; the editor's runs to 712, eleven)
+    for (const c of spec.win.controls) {
+      const wy = Number(c.wy ?? c.y);
+      if (wy >= 88 + ROW_H * TRADE_ROWS && wy < 712) c.shown = false;
+      if (c.cls === 'CWindowTaskFrameThin') {
+        // its pieces (deck.ts frameThin): the bottom row up to 600, the sides stretched to the new height
+        c.h = 528;
+        for (const p of (c.parts as { sprites: { name: string; wy: number; sy: number }[] }).sprites) {
+          if (p.wy === 80 + 632 - 8) p.wy = 80 + 528 - 8;
+          else if (/左中央|右中央/.test(p.name)) p.sy = (528 - 16) / 8;
+        }
+      }
+    }
     // the wheel over the list a row a notch, as the editor's
     const list = spec.win.controls.find(c => c.cls === 'CWindowTaskKabanList');
     if (list) spec.handlers.set(list.id, { hover: false, wheel: d => this.wheel(d > 0 ? 1 : -1) });
     return spec;
   }
+  /** The card detail beside the menu (CCardDetailViewDlg at 0, 175: live shows it in Card Swap too): the card last
+   * pressed in the trunk, the card back before. */
+  detail(ids: Ids): WindowSpec {
+    const spec = detailWindow({ ids, ui: this.ui, deck: null, card: pc => this.byPc.get(pc) ?? (pc === this.ui.shown ? this.shownCard ?? undefined : undefined), trunk: [], busy: false });
+    spec.win.tradeTrunk = true;
+    return spec;
+  }
+  /** What the card layer draws in the detail: the big picture and a monster's power icons. */
+  detailView(): { passcode: number; power: PowerIcons | null } | null {
+    if (this.ui.detail !== 0) return null;
+    const c = this.ui.shown ? this.byPc.get(this.ui.shown) ?? this.shownCard ?? undefined : undefined;
+    return { passcode: c?.passcode ?? 0, power: c && isMonster(c) ? { race: raceOf(c), attr: attrOf(c), level: c.level ?? 0 } : null };
+  }
+  private shownCard: CardView | null = null;
   card(passcode: number): CardView | undefined { return this.byPc.get(passcode); }
   /** Every row of the list (not only the shown ones), with its copies left: for tests and assistive tools. */
   list(): { name: string; passcode: number; left: number; row: number }[] { return this.cards.map((c, i) => ({ name: c.name, passcode: c.passcode!, left: (c.owned ?? 0) - (this.offered.get(c.passcode!) ?? 0), row: i })); }
   /** Scroll the list so a row shows (the wheel's way). */
-  reveal(row: number): void { const top = Math.max(0, Math.min(row, Math.max(0, this.cards.length - TRUNK_ROWS))); if (row < this.ui.top || row >= this.ui.top + TRUNK_ROWS) { this.ui.top = top; this.o.rerender(); } }
+  reveal(row: number): void { const top = Math.max(0, Math.min(row, Math.max(0, this.cards.length - TRADE_ROWS))); if (row < this.ui.top || row >= this.ui.top + TRADE_ROWS) { this.ui.top = top; this.o.rerender(); } }
   private offered = new Map<number, number>();
   private offer(passcode: number): void { if (this.o.editable() && this.byPc.has(passcode)) this.o.dispatch({ type: 'addTradeCard', passcode }); }
-  pick(zone: DeckFrom, _index: number, passcode: number): void { if (zone === 'trunk') this.offer(passcode); }
+  pick(zone: DeckFrom, _index: number, passcode: number): void {
+    if (zone !== 'trunk') return;
+    this.shownCard = this.byPc.get(passcode) ?? null; this.ui.shown = passcode;
+    this.offer(passcode); this.o.rerender();
+  }
+  toggleDetail(): void { this.ui.detail = this.ui.detail === 0 ? 2 : 0; this.o.rerender(); }
   // (a double-click's presses already offered: no second offer from its dblclick)
   quick(): void {}
   wheel(rows: number): void {
-    const top = Math.max(0, Math.min(this.ui.top + rows, Math.max(0, this.cards.length - TRUNK_ROWS)));
+    const top = Math.max(0, Math.min(this.ui.top + rows, Math.max(0, this.cards.length - TRADE_ROWS)));
     if (top !== this.ui.top) { this.ui.top = top; this.o.rerender(); }
   }
   dragTo(): void {}
@@ -66,6 +101,5 @@ export class TradeTrunk implements DeckDomScene {
   hover(): void {}
   sideButton(): void {}
   tab(): void {}
-  toggleDetail(): void {}
   fileRow(): void {}
 }
