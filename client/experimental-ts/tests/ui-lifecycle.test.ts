@@ -105,7 +105,10 @@ describe('UI ownership and semantic interaction', () => {
     const f = fixture(); f.update({ scene: 'deck', deckEditor: null, busy: true }); await Promise.resolve();
     const root = f.root.querySelectorAll('section').find(n => n.className === 'de-scene')!;
     expect(root.getAttribute('data-scene-loading')).toBe('true');
-    expect(f.root.querySelectorAll('button').some(b => ['Refresh', 'Back'].includes(b.textContent ?? ''))).toBe(false); f.mounted.dispose();
+    expect(f.root.querySelectorAll('button').some(b => ['Refresh', 'Back'].includes(b.textContent ?? ''))).toBe(false);
+    // rock-paper-scissors before the field: its dialogs, never under the veil
+    f.update({ scene: 'duel', deckEditor: null, busy: false, duel: null, preparation: { phase: 'rock-paper-scissors', role: 'captain' } }); await Promise.resolve();
+    expect(f.root.querySelectorAll('section').some(n => n.getAttribute('data-scene-loading') === 'true')).toBe(false); f.mounted.dispose();
   });
   it('exposes actions on a face-down card without revealing its identity', async () => {
     const f = fixture(); f.update({ scene: 'duel', duel: { players: [{ name: 'A', lp: 8000 }, { name: 'B', lp: 8000 }], turn: 1, turnPlayer: 0, phase: 'Main', log: [], prompt: null, cards: [{ id: 'set1', name: 'Secret Trap', controller: 0, zone: 'spell', index: 0, faceUp: false }], actions: [{ id: 'activate', cardId: 'set1', label: 'Activate trap' }] } }); await Promise.resolve();

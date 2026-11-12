@@ -1023,7 +1023,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (shop.opening) { const opening = renderCardGet(shop.opening, { drawCard, art: controller.loadArchiveImage ? (path, className = '') => { const image = el('img', className); image.alt = ''; image.draggable = false; loadArchiveArt(path, image); return image; } : null, reducedMotion: state.settings.reducedMotion, rerender: requestRender }); if (opening) n.append(opening); }
   }
   function renderDuel(): void {
-    const duel = state.duel; if (!duel) return loadingScene('duel', 'Duel');
+    // (before the field: rock-paper-scissors and who goes first are their own dialogs, prepSpecs; no veil over them)
+    const duel = state.duel; if (!duel) { if (state.preparation) sceneRoot('Duel'); else loadingScene('duel', 'Duel'); return; }
     // The field keeps the original 4:3 geometry on every screen; on a tall phone the log, actions and prompts sit below it.
     const board = el('div', 'de-duel-board'); stage.append(board);
     // under the original field art (while it loads, or without it): the zone outlines of the original sheet
