@@ -150,8 +150,17 @@ export function nameDialog(ctx: BuildContext, dialog: Extract<HtmlDialog, { kind
   if (input) { Object.assign(input, { value: dialog.name, focused: true, maxLen: 16, caretOn: false }); b.on(input, { key: 'character-name', label: 'Player name', text: v => { dialog.name = v; ctx.rerender(); }, enter: ok }); }
   if (okButton) { okButton.state = dialog.name.trim() ? 'normal' : 'disabled'; b.on(okButton, { key: 'character-create-ok', click: ok }); }
   if (cancel) b.on(cancel, { key: 'character-create-cancel', click: close });
-  return b.spec();
+  // live opens it with the caret in the name field (CWindowTaskInput focused): the real input takes the focus once,
+  // after the layer has drawn it, unless the player is already in another of its controls
+  const spec = b.spec();
+  spec.after = root => {
+    const field = root.querySelector('input'); if (!field || FOCUSED.has(field)) return;
+    FOCUSED.add(field);
+    setTimeout(() => { const at = document.activeElement; if (field.isConnected && (!at || !root.contains(at) || at === field)) field.focus({ preventScroll: true }); }, 0);
+  };
+  return spec;
 }
+const FOCUSED = new WeakSet<HTMLInputElement>();
 /** One of main's stock dialogs (dialog.js: mock/dialog-yesno.json, dialog-ok.json) with this text, its buttons by label. */
 export function messageDialog(ctx: Pick<BuildContext, 'ids'>, key: string, template: typeof dialogYesNo, text: string, buttons: Record<string, [string, () => void]>, z = 51203): WindowSpec {
   const t = template.windows[0]!, b = new WindowBuilder(ctx.ids, key, t.cls, { x: t.x, y: t.y, w: t.w, h: t.h }, { modal: true, z });
