@@ -7,7 +7,6 @@ import { AnnouncePanel, ANNOUNCE_CSS } from './duel-announce';
 import { cardBadges, BADGE_CSS } from './duel-counters';
 import { lpPlate, LP_PLATE_CSS, type LpPlate } from './duel-plate';
 import type { WorldRenderer } from './world';
-import { AvatarView } from './avatar';
 import { renderNpcFeature } from './npc';
 import { giftItemName } from '../npcs/gift-names';
 import { BrowserDisplaySettings, browserFullscreenAdapter } from './settings-browser';
@@ -19,9 +18,6 @@ import { closeAudioPage, openAudioPage } from './htmlui/audio-page';
 import type { AudioAction } from '../features/audio';
 import { renderTradeTrunk } from './extra/social';
 import { renderTagLobby, TAG_CSS } from './extra/tag';
-import { renderCardGet, cardGetClosed, CARD_GET_CSS } from './extra/card-get';
-import { accessoryName } from './extra/wallet';
-import { renderCosmeticsShop, COSMETICS_CSS } from './extra/cosmetics';
 import { changeAvatarAction, freeChoices } from './htmlui/avatar';
 import { Ids } from './htmlui/snapshot';
 import type { ControlHandlers, WindowSpec } from './htmlui/snapshot';
@@ -41,7 +37,6 @@ import { fetchPackCompletion, npcPackOpen, npcPackSelect, npcPackUi } from './ht
 import { npcTalkWindows, npcTalkStage, npcTalkDismissable } from './htmlui/npc-talk';
 import { DeckScene } from './htmlui/deck-scene';
 import { DeckDom } from './htmlui/deck-dom';
-import { shopLocal, shopWindows } from './htmlui/shop';
 import { cardShopHost } from './htmlui/card-shop';
 import { pageModules } from './htmlui/page-modules';
 import { sceneVeilUp } from './htmlui/scene-loading';
@@ -134,8 +129,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const host = el('section', 'de-client'); host.setAttribute('aria-label', 'Duel Evolution');
   const css = el('style'); css.textContent = CLIENT_CSS + TAG_CSS + SKIN_CSS + ANNOUNCE_CSS + BADGE_CSS + LP_PLATE_CSS;
   const header = el('header', 'de-top'), stage = el('main', 'de-stage'), nav = el('nav', 'de-nav'); nav.setAttribute('aria-label', 'Game menu');
-  const extraCss = el('style'); extraCss.textContent = CARD_GET_CSS + COSMETICS_CSS;
-  host.append(css, extraCss, header, stage, nav); root.append(host);
+  host.append(css, header, stage, nav); root.append(host);
   // phones and tablets: live's stage.js (the frame fitted to the visible viewport, the rotate prompt, first-tap fullscreen)
   // a mouse button (or a finger) held on the world walks toward it, steered by moving, as live
   // on the stage, which outlives the lobby's redraws, so a long walk survives them
@@ -255,11 +249,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       deckFile.onchange = () => { const file = deckFile?.files?.[0]; if (deckFile) deckFile.value = ''; if (file) then(file); };
       deckFile.click();
     } });
-  // the shop (src/ui/htmlui/shop.ts): main's CShop* windows over the rewrite's pictures (htmlui/art.ts); the card-get
-  // reveal and the rewrite's own cosmetic departments are the rewrite's panels over the scene, the windows set aside
-  const shopUi = shopLocal(); let shopCosmetics: 'boxes' | 'wardrobe' | null = null, shopScene = false;
-  // online, the shop is main's new card shop (htmlui/card-shop.ts: shop/index.js mountCardShop, which calls the server's
-  // /api/de/shop itself); offline (the local catalogue) keeps main's older CShop* windows below
+  // the shop is main's card shop (htmlui/card-shop.ts: shop/index.js mountCardShop, which calls the server's /api/de/shop
+  // itself; its packs' reveal and its Cosmetic Boxes tab are its own); free mode has no shop (the scene is unavailable).
   // Back on the card shop leaves at once; while the app is still busy (opening the shop refreshes the catalogue, the wallet
   // and the cosmetics behind the shop, which draws itself from /api/de/shop first) it leaves as soon as that finishes,
   // rather than refusing the player with "Wait for the current action to finish."
@@ -274,7 +265,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // main's card shop talks HTTP itself (bridge.js mounts it on onYo2ShopOpen): it opens before the cosmetics state has
   // loaded or the app's own catalogue fetch answered (a failed one is its own "Couldn't open the shop" / Try again), and
   // a tunnel resume underneath (reconnecting) keeps it, its tab and an open pack reveal in place.
-  const useCardShop = () => state.scene === 'shop' && state.mode !== 'free' && (state.connection === 'online' || state.connection === 'reconnecting') && !(globalThis as { YO2_LEGACY_SHOP?: boolean }).YO2_LEGACY_SHOP;
+  const useCardShop = () => state.scene === 'shop' && state.mode !== 'free';
   const pictureArt = new PictureArt({ ...(controller.loadArchiveImage ? { loadArchiveImage: controller.loadArchiveImage.bind(controller) } : {}), ...(controller.loadCardImage ? { loadCardImage: controller.loadCardImage.bind(controller) } : {}) });
   setPictureResolver(pictureArt.resolve);
   // main's Wardrobe previews and card shop faces read the game's files through lazyfs's Module.yo2Lazy on live
@@ -403,7 +394,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     return out;
   };
   let languageErrorSeen = '';
-  const sceneWindows = (): WindowSpec[] => { duelSpeedButton.show(state.scene === 'duel' && (!!state.duel || !!state.preparation)); return [...loginSpecs(), ...shopSpecs(), ...tradeSpecs(), ...npcTalkSpecs(), ...npcPackSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs(), ...prepSpecs()]; };
+  const sceneWindows = (): WindowSpec[] => { duelSpeedButton.show(state.scene === 'duel' && (!!state.duel || !!state.preparation)); return [...loginSpecs(), ...tradeSpecs(), ...npcTalkSpecs(), ...npcPackSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs(), ...prepSpecs()]; };
   // The duel's question dialogs (main's screens/duel.js: htmlui/duel-dialogs.ts) and the duel speed button (main's
   // duelspeed.js) while the layer is up; card lists, free number entry and declarations stay the duel screen's panel.
   // live's duel speed button (main's duelspeed.js) is the page's, in its top right corner beside the game, not a window
@@ -441,15 +432,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const help = duelHelpStrip(htmlIds, prompt.text); if (help) out.push(help);
     }
     return out;
-  };
-  const shopSpecs = (): WindowSpec[] => {
-    const shop = state.shop;
-    if (state.scene !== 'shop' || !shop || useCardShop() || shopCosmetics || shop.opening && !cardGetClosed(shop.opening)) return [];
-    const self = state.lobby?.avatars.find(a => a.self), error = local.message || (state.error && !state.busy ? state.error : '');
-    return shopWindows({ shop, ui: shopUi, ids: htmlIds, busy: !!state.busy, world: self?.world ?? 1, portrait: self?.parts?.length === 16 ? `portrait:${Array.from(self.parts).join('.')}` : null,
-      name: item => accessoryName(item, state.online?.cosmetics ?? null), rerender: showHtml, error,
-      buy: (itemId, count) => send({ type: 'buy', itemId, count }), exit: () => open('lobby'),
-      ...(state.online ? { cosmetics: () => { shopCosmetics = 'boxes'; send({ type: 'onlineAction', action: { type: 'refresh' } }); requestRender(); } } : {}) });
   };
   // the original's UI strings main's dialogs say (yo2text_?: Delete's prompts), read once the original data is there
   const gameTexts = new Map<number, string>(); let gameTextsFor: string | null = null;
@@ -623,13 +605,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     else if (observer) { imageEntries.set(image, entry); observer.observe(image); }
     else startArt(entry);
   };
-  // The wardrobe and Appearance previews: the player's own avatar wearing a draft look.
-  const previewAvatars = new Map<string, AvatarView>();
-  const avatarPreview = controller.loadAvatar ? (parts: number[], world: 0 | 1, key: string): HTMLElement | null => {
-    let view = previewAvatars.get(key); if (!view) { view = new AvatarView({ sourceOrigin: true, loadAvatar: (p, o) => controller.loadAvatar!(p, o), reducedMotion: () => controller.getState().settings.reducedMotion }); previewAvatars.set(key, view); }
-    try { view.show(Uint8Array.from(parts), world, 'stand', 0); } catch { return null; } return view.element;
-  } : null;
-  const cosmeticsDeps = () => ({ dispatch: (action: import('../features/online').OnlineAction) => send({ type: 'onlineAction', action }), avatar: avatarPreview, rerender: requestRender });
   const drawCard = (card: CardView, showName = true, faceUp = true) => cardTile(card, showName, faceUp, controller.loadCardImage ? loadArt : undefined, controller.loadArchiveImage ? image => loadArchiveArt(CARD_BACK, image) : undefined);
   const placeFieldCard = (node: HTMLElement, card: DuelCardView, handCount: number) => {
     const p = fieldCardPosition(card, handCount), motion = card.motion;
@@ -910,20 +885,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     panel.append(button(side.ready ? 'Deck Submitted · Waiting for Opponent' : 'Submit Sideboard', () => send({ type: 'submitSideboard' }), !exact || side.ready || !!state.busy, true)); n.append(panel);
   }
   function renderShop(): void {
-    if (useCardShop()) { sceneRoot('Card Shop').append(cardShop.node()); return; }
-    cardShop.dispose();
-    const shop = state.shop; if (!shop) return emptyPanel('shop', 'Card Shop', state.error && !state.busy ? 'The shop catalogue could not be loaded. Refresh to try again.' : 'Loading the shop catalogue.');
-    // entering the shop: Item Selection, an empty cart (the windows themselves are main's: htmlui/shop.ts)
-    if (!shopScene) { Object.assign(shopUi, shopLocal()); shopCosmetics = null; shopScene = true; }
-    const n = sceneRoot('Card Shop');
-    if (shopCosmetics && state.online) {
-      // the rewrite's own cosmetic departments (extra/cosmetics.ts), kept as they are while cosmetics are redesigned
-      const panel = el('section', 'de-panel de-stack de-fill de-shop-cosmetics-panel', title('Cosmetics')), tabs = el('div', 'de-row');
-      for (const [tab, label] of [['boxes', 'Cosmetic Boxes']] as const) { const b = button(label, () => { shopCosmetics = tab; requestRender(); }, shopCosmetics === tab); b.dataset.key = `shop-cosmetics:${tab}`; tabs.append(b); }
-      tabs.append(button('Back to the Shop', () => { shopCosmetics = null; requestRender(); }));
-      panel.append(tabs, renderCosmeticsShop(state.online, shopCosmetics, cosmeticsDeps())); n.append(panel);
-    }
-    if (shop.opening) { const opening = renderCardGet(shop.opening, { drawCard, art: controller.loadArchiveImage ? (path, className = '') => { const image = el('img', className); image.alt = ''; image.draggable = false; loadArchiveArt(path, image); return image; } : null, reducedMotion: state.settings.reducedMotion, rerender: requestRender }); if (opening) n.append(opening); }
+    if (useCardShop()) sceneRoot('Card Shop').append(cardShop.node());
   }
   /** Fallback field without original art: the same zone geometry as the original sheet. */
   function drawField(canvas: HTMLCanvasElement): void {
@@ -1253,7 +1215,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const status = el('div', 'de-status', el('span', `de-connection ${state.connection}`), state.player ? `${state.player.name}${state.player.level ? ` · Lv ${state.player.level}` : ''} · ` : '', state.mode === 'free' ? 'Free Duel · ' : '', state.status);
       status.setAttribute('role', 'status');
       stage.replaceChildren(); stage.setAttribute('aria-busy', String(!!state.busy)); host.dataset.scene = state.scene; host.dataset.motion = state.settings.reducedMotion ? 'reduced' : 'full';
-      if (state.scene !== 'shop') { shopScene = false; leaveShop = false; cardShop.dispose(); }
+      if (state.scene !== 'shop') { leaveShop = false; cardShop.dispose(); }
       else if (leaveShop && !state.busy) { leaveShop = false; queueMicrotask(() => open('lobby')); }
       if (state.scene !== 'title') titleScene?.hide();
       if (state.auth?.signedIn || state.scene !== 'title') loginUi.open = false;
@@ -1381,5 +1343,5 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     else if (e.target instanceof Node && htmlUi?.host?.contains(e.target)) npcEscape(e); };
   globalThis.document?.addEventListener?.('keydown', bodyKeys);
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; duelSpeedButton.dispose(); starterPicker.close(); discord.dispose(); cardShop.dispose(); pageMods.dispose(); offReserve(); deckDom?.dispose(); deckDom = null; deckScene.dispose(); htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; titleScene?.dispose(); titleScene = null; portraitScene?.dispose(); portraitScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); worldWalk?.dispose(); worldWalk = null; phone?.dispose(); duelScene.dispose(); observer?.disconnect(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; closeAudioPage(); packSheet?.close(); packSheet = null; gameCursor?.dispose(); gameCursor = null; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; duelSpeedButton.dispose(); starterPicker.close(); discord.dispose(); cardShop.dispose(); pageMods.dispose(); offReserve(); deckDom?.dispose(); deckDom = null; deckScene.dispose(); htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; titleScene?.dispose(); titleScene = null; portraitScene?.dispose(); portraitScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); worldWalk?.dispose(); worldWalk = null; phone?.dispose(); duelScene.dispose(); observer?.disconnect(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; closeAudioPage(); packSheet?.close(); packSheet = null; gameCursor?.dispose(); gameCursor = null; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }

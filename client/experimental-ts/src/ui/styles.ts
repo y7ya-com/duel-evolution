@@ -60,12 +60,10 @@ export const CLIENT_CSS = `
 .de-avatar.self .de-avatar-placeholder { border-color:#ffe56d; }
 .de-avatar-name { display:block; color:white; background:#073e91bb; padding:1px 5px; border-radius:2px; font-size:11px; white-space:nowrap; }
 .de-avatar.has-original { width:12.5%; height:auto; aspect-ratio:4/5; min-width:0; transform:translate(-50%,-90%); }
-.de-avatar-canvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
 /* the name over the head as the game draws it (main's live lobby: its left edge on the avatar's centre line, where the
  * flag ends; its middle about 21 px over the head's top, 13% of the 160-px box) */
 .de-avatar.has-original .de-avatar-name { position:absolute; top:13%; left:50%; transform:translateY(-50%); }
 .de-avatar.has-original .de-avatar-placeholder { position:absolute; bottom:10%; left:50%; transform:translateX(-50%); }
-.de-avatar-canvas[data-avatar-painted="true"]~.de-avatar-placeholder { visibility:hidden; }
 .de-lobby-places { z-index:6; position:absolute; right:12px; top:65px; width:205px; max-height:40%; overflow:auto; }
 .de-room-row { border-top:1px solid #75a8c5; padding-top:5px; margin-top:5px; }
 .de-room-row>strong { display:block; }
@@ -235,8 +233,6 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 .de-prompt-candidates button[aria-pressed=true] { background:linear-gradient(#fffbd0,#f2cd51); outline:2px solid #a36a18; }
 .de-prompt-candidates .de-card { height:95px; width:67px; margin:auto; }
 .de-social-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; min-height:0; flex:1; }
-.de-shop-cosmetics { flex:none; max-height:40%; overflow:auto; background:#effcff; border:1px solid #75a8c5; padding:7px; }
-.de-shop-cosmetics>summary { font-weight:bold; cursor:pointer; }
 .de-receipt-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(80px,1fr)); gap:5px; }
 .de-profile-panel { position:absolute; z-index:9; left:50%; top:70px; transform:translateX(-50%); width:min(92%,440px); max-height:calc(100% - 90px); overflow:auto; padding:12px; }
 .profile-feature { display:flex; flex-direction:column; gap:9px; }

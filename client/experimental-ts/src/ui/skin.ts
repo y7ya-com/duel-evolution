@@ -70,7 +70,7 @@ export const SKIN_CSS = `
 .de-client details[open]>summary::before { transform:rotate(90deg); }
 .de-client details>summary:hover { filter:brightness(1.08); }
 .de-client details[open]>summary { margin-bottom:5px; }
-.de-client :is(.de-deck-tools,.de-deck-filters,.de-shop-cosmetics) { background:#effcffd9; border:1px solid #6299bd; border-radius:2px; box-shadow:inset 0 1px 3px #164c7738; }
+.de-client :is(.de-deck-tools,.de-deck-filters) { background:#effcffd9; border:1px solid #6299bd; border-radius:2px; box-shadow:inset 0 1px 3px #164c7738; }
 
 /* Inset wells and list rows. */
 .de-client :is(.de-social-card,.de-profile-comments,.de-npc-dialogue,.de-prompt-inspector) { background:#effcff; border:1px solid #6299bd; border-radius:2px; box-shadow:inset 0 1px 3px #164c7738,0 1px 0 #e3ffff; }
