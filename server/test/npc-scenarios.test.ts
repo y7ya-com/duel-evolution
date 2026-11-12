@@ -1,0 +1,200 @@
+// The NPC on the real engine from set positions (test/npcScenario.ts): each test is a misplay seen in a real duel
+// (duel_archive, AI rev 6), with the duel it came from and the play a strong player makes there.
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { beforeAll, describe, expect, it } from "vitest";
+import type { DuelCore } from "../src/duel/engine/core.ts";
+import { createNodeDuelCore, ENGINE_DATA_DIR } from "../src/duel/engine/node.ts";
+import { activating, attacker, code, leftField, msgs, npcActivated, npcChoices, play, summoning } from "./npcScenario.ts";
+
+const haveData = existsSync(join(ENGINE_DATA_DIR, "scripts.pack"));
+
+describe.skipIf(!haveData)("NPC scenarios (real engine)", () => {
+  let dc: DuelCore;
+  beforeAll(async () => { dc = await createNodeDuelCore(); }, 60_000);
+
+  // ---- battle
+  it("attacks the monster it beats even with a battle-indestructible Spirit Reaper beside it (duel 303)", () => {
+    const p = play(dc, {
+      npcId: 51, first: "player", turns: 2,
+      npc: { mzone: ["Summoned Skull", "Obnoxious Celtic Guard"] },
+      player: { mzone: [["Lyla, Lightsworn Sorceress", "def"], ["Spirit Reaper", "def"]] },
+    });
+    expect(leftField(p, "Lyla, Lightsworn Sorceress")).toBe(true);
+  });
+
+  it("Dark Ruler Ha Des attacks a defending Lumina with Spirit Reaper beside it (duel 301)", () => {
+    const p = play(dc, {
+      npcId: 81, first: "player", turns: 2,
+      npc: { mzone: ["Dark Ruler Ha Des"] },
+      player: { mzone: [["Lumina, Lightsworn Summoner", "def"], ["Spirit Reaper", "def"]] },
+    });
+    expect(leftField(p, "Lumina, Lightsworn Summoner")).toBe(true);
+  });
+
+  // ---- costs and responses on the opponent's turn
+  it("pays Raigeki Break with a dead Spirit Message to survive a lethal direct attack (duel 300)", () => {
+    const p = play(dc, {
+      npcId: 81, first: "player", turns: 3,
+      npc: { lp: 1100, hand: ['Spirit Message "N"'], szone: ["Raigeki Break"], deck: Array(20).fill('Spirit Message "A"') },
+      player: { mzone: ["Ehren, Lightsworn Monk"] },
+      player_policy: attacker,
+    });
+    expect(npcActivated(p, "Raigeki Break")).toBe(true);
+    expect(p.end?.winner).not.toBe(0);
+  });
+
+  // (Not a misplay: duel 296's set Call of the Haunted chained to the card destroying it revives a monster that is
+  // destroyed with it; a lasting card is not "used before it goes".)
+
+  it("Magic Cylinder stops Ehren's attack on its face-up defender (duel 306)", () => {
+    const p = play(dc, {
+      npcId: 52, first: "player", turns: 3,
+      npc: { mzone: [["Old Vindictive Magician", "def"]], szone: ["Magic Cylinder"] },
+      player: { mzone: ["Ehren, Lightsworn Monk"] },
+      player_policy: attacker,
+    });
+    expect(npcActivated(p, "Magic Cylinder")).toBe(true);
+  });
+
+  it("Spellbinding Circle waits for the attack instead of the Draw Phase (duel 302)", () => {
+    const p = play(dc, {
+      npcId: 51, first: "player", turns: 3,
+      npc: { mzone: [["Obnoxious Celtic Guard", "def"]], szone: ["Spellbinding Circle"] },
+      player: { mzone: ["Dark Elf"] },
+      player_policy: attacker,
+    });
+    const at = p.msgs.findIndex((m) => m.type === "CHAINING" && m.code === code("Spellbinding Circle"));
+    if (at >= 0) expect(p.msgs.slice(0, at).some((m) => m.type === "ATTACK")).toBe(true);
+  });
+
+  // ---- locks
+  it("never springs a trap into a face-up Royal Decree (duel 295)", () => {
+    const p = play(dc, {
+      npcId: 81, first: "player", turns: 3,
+      npc: { szone: ["Torrential Tribute"] },
+      player: { hand: ["Ehren, Lightsworn Monk", "Lyla, Lightsworn Sorceress"], szone: [["Royal Decree", "up"]] },
+      player_policy: summoning(),
+    });
+    expect(npcActivated(p, "Torrential Tribute")).toBe(false);
+  });
+
+  it("Mystical Space Typhoon goes on the Royal Decree that locks its traps, not on Light Spiral (duel 304)", () => {
+    const p = play(dc, {
+      npcId: 51, first: "player", turns: 2,
+      npc: { hand: ["Mystical Space Typhoon"], szone: ["Torrential Tribute"] },
+      player: { szone: [["Light Spiral", "up"], ["Royal Decree", "up"]] },
+    });
+    expect(leftField(p, "Light Spiral")).toBe(false);
+    expect(leftField(p, "Royal Decree")).toBe(true);
+  });
+
+  // ---- summons and positions
+  it("sets a flip monster face-down instead of summoning it face-up (duel 303: Morphing Jar)", () => {
+    const p = play(dc, {
+      npcId: 51, first: "player", turns: 2,
+      npc: { hand: ["Morphing Jar"] },
+      player: { mzone: ["Ehren, Lightsworn Monk"] },
+    });
+    expect(msgs(p, "SUMMONING", "Morphing Jar")).toHaveLength(0);
+  });
+
+  it("flips Old Vindictive Magician to destroy Wulf before tributing it (duel 306)", () => {
+    const p = play(dc, {
+      npcId: 52, first: "player", turns: 2,
+      npc: { hand: ["Dark Magician of Chaos"], mzone: [["King of the Swamp", "set"], ["Old Vindictive Magician", "set"]] },
+      player: { mzone: ["Wulf, Lightsworn Beast"] },
+    });
+    expect(leftField(p, "Wulf, Lightsworn Beast")).toBe(true);
+  });
+
+  it("does not tribute a face-up Skilled Dark Magician to set Dark Red Enchanter face-down (duel 307)", () => {
+    const p = play(dc, {
+      npcId: 52, first: "player", turns: 2,
+      npc: { hand: ["Dark Red Enchanter"], mzone: ["Skilled Dark Magician"] },
+      player: { mzone: [["Spirit Reaper", "def"]] },
+    });
+    const setEnchanter = p.msgs.some((m) => m.type === "SET" && m.code === code("Dark Red Enchanter"));
+    expect(setEnchanter).toBe(false);
+  });
+
+  it("does not switch Sangan to attack position under a 3000 ATK monster at 700 LP (duel 301)", () => {
+    const p = play(dc, {
+      npcId: 81, first: "player", turns: 2,
+      npc: { lp: 700, mzone: [["Sangan", "def"]] },
+      player: { mzone: ["Wulf, Lightsworn Beast"] },
+    });
+    expect(npcChoices(p, "SELECT_IDLECMD").some(([, r]) => r?.action === "SELECT_POS_CHANGE")).toBe(false);
+  });
+
+  it("flip-summons its set attacker onto an open field and attacks (duel 307)", () => {
+    const p = play(dc, {
+      npcId: 52, first: "player", turns: 2,
+      npc: { mzone: [["Dark Red Enchanter", "set"]] },
+      player: { lp: 8000 },
+    });
+    expect(msgs(p, "ATTACK").length).toBeGreaterThan(0);
+  });
+
+  // ---- from Master Duel's decisions (md-ai/port specs: A1 summon, A2 main phase, C battle, D costs, E chains)
+  it("switches a face-up attacker the battle plan leaves out to defence in Main 1 (A2 §13.1)", () => {
+    const p = play(dc, {
+      npcId: 81, first: "player", turns: 2,
+      npc: { mzone: ["Sangan"] },
+      player: { mzone: ["Blue-Eyes White Dragon"] },
+    });
+    expect(npcChoices(p, "SELECT_IDLECMD").some(([, r]) => r?.action === "SELECT_POS_CHANGE")).toBe(true);
+    expect(msgs(p, "ATTACK")).toHaveLength(0);
+  });
+
+  it("flips Night Assailant in Main 1 to destroy the attacker it faces, then attacks (A2 §13.3)", () => {
+    const p = play(dc, {
+      npcId: 81, first: "player", turns: 2,
+      npc: { mzone: [["Night Assailant", "set"]] },
+      player: { mzone: ["Vorse Raider"] },
+    });
+    const flipped = p.msgs.findIndex((m) => m.type === "FLIPSUMMONING" && m.code === code("Night Assailant"));
+    const battle = p.msgs.findIndex((m) => m.type === "NEW_PHASE" && Number(m.phase) === 0x08);
+    expect(flipped).toBeGreaterThanOrEqual(0);
+    expect(battle < 0 || flipped < battle).toBe(true);
+    expect(leftField(p, "Vorse Raider")).toBe(true);
+  });
+
+  it("keeps both Obnoxious Celtic Guards instead of tributing them for a Gaia that loses to a 3000 (A1 §12.5)", () => {
+    const p = play(dc, {
+      npcId: 51, first: "player", turns: 2,
+      npc: { hand: ["Gaia The Fierce Knight"], mzone: ["Obnoxious Celtic Guard", "Obnoxious Celtic Guard"] },
+      player: { mzone: ["Blue-Eyes White Dragon"] },
+    });
+    expect(leftField(p, "Obnoxious Celtic Guard")).toBe(false);
+  });
+
+  it("does not trade The Tricky for an equal Dark Elf (C: an equal trade gains nothing)", () => {
+    const p = play(dc, {
+      npcId: 52, first: "player", turns: 2,
+      npc: { mzone: ["The Tricky"], szone: [["Swords of Revealing Light", "up"]] },
+      player: { mzone: ["Dark Elf"] },
+    });
+    expect(leftField(p, "The Tricky")).toBe(false);
+  });
+
+  it("Heavy Storm on a lone Glorious Illusion takes the Lyla it keeps (E §8.8)", () => {
+    const p = play(dc, {
+      npcId: 52, first: "player", turns: 2,
+      npc: { hand: ["Heavy Storm"] },
+      player: { mzone: ["Lyla, Lightsworn Sorceress"], szone: [["Glorious Illusion", "up"]] },
+    });
+    expect(npcActivated(p, "Heavy Storm")).toBe(true);
+  });
+
+  it("pays Judgment of Anubis with a dead Spirit Message to stop the Typhoon on its Steelcage (D §10.2, duel 299)", () => {
+    const p = play(dc, {
+      npcId: 81, first: "player", turns: 1,
+      npc: { hand: ["Dark Necrofear", 'Spirit Message "L"', 'Spirit Message "I"'], szone: [["Nightmare's Steelcage", "up"], "Judgment of Anubis"] },
+      player: { hand: ["Mystical Space Typhoon"], mzone: ["Gragonith, Lightsworn Dragon"] },
+      player_policy: activating("Mystical Space Typhoon"),
+    });
+    expect(npcActivated(p, "Judgment of Anubis")).toBe(true);
+    expect(leftField(p, "Nightmare's Steelcage")).toBe(false);
+  });
+});

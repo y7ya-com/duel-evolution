@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { NpcAi, cardInfo, type LoggedCmd } from "../src/duel/ai/index.ts";
 import { brainDb } from "../src/duel/data.ts";
+import { DuelLog } from "../src/duel/duelText.ts";
 import { PY_DUEL_RULE, type DuelCore, type DuelSetup, type Json, type NewOptions, type SetupCard } from "../src/duel/engine/core.ts";
 import { ENGINE_DATA_DIR } from "../src/duel/engine/node.ts";
 
@@ -52,6 +53,8 @@ export interface Played {
   npc: Decision[];
   /** Every engine message (ev: "msg"), in order. */
   msgs: Json[];
+  /** The Duel Log, with each NPC decision (NPC_SCENE_TRACE=1 prints it). */
+  log: string[];
   end: Json | null;
 }
 
@@ -108,11 +111,13 @@ export function play(dc: DuelCore, scene: Scene): Played {
   const log: LoggedCmd[] = [];
   const ai = new NpcAi({ npcId: scene.npcId, seat: NPC, seed: 1, cards: cardInfo(dc.cardDB, brainDb()), tier: "elite", link: () => ({ dc, decks, opts, log }), peek: () => dc.query(id) });
   const policy = scene.player_policy ?? passive;
-  const out: Played = { npc: [], msgs: [], end: null };
+  const out: Played = { npc: [], msgs: [], log: [], end: null };
+  const text = new DuelLog(["Player", "NPC"], { name: (c) => (dc.cardDB.get(c) ? dc.cardDB.name(c) : ""), stats: (c) => ({ atk: dc.cardDB.get(c)?.attack ?? 0, def: dc.cardDB.get(c)?.defense ?? 0 }) });
   let turn = 0;
   let evs = dc.new(id, decks, opts);
   try {
     for (let n = 0; n < 2000; n++) {
+      out.log.push(...text.feed(evs));
       for (const e of evs) {
         if (e.ev !== "msg") continue;
         out.msgs.push(e);
@@ -126,7 +131,7 @@ export function play(dc: DuelCore, scene: Scene): Played {
       let r: Json | null = null;
       if (!last.retry) {
         r = p === NPC ? ai.choose(last) : policy(last);
-        if (p === NPC) out.npc.push({ turn, sel: last, resp: r });
+        if (p === NPC) { out.npc.push({ turn, sel: last, resp: r }); out.log.push(`    npc> ${String(last.type)} -> ${JSON.stringify(r)}`); }
       }
       if (r) { log.push({ r, p }); evs = dc.respond(id, r, p); }
       else { log.push({}); evs = dc.auto(id); }
@@ -134,7 +139,44 @@ export function play(dc: DuelCore, scene: Scene): Played {
     return out;
   } finally {
     if (!out.end) dc.end(id);
+    if (process.env.NPC_SCENE_TRACE) console.log(out.log.join("\n"));
   }
+}
+
+/** A player script: activate the named card (idle or chain prompt) whenever it is offered, else `then`. */
+export function activating(name: string, then: (sel: Json) => Json | null = passive): (sel: Json) => Json | null {
+  const c = code(name);
+  return (sel) => {
+    const list = (sel.type === "SELECT_IDLECMD" ? sel.activates : sel.type === "SELECT_CHAIN" ? sel.selects : null) as Json[] | null;
+    const i = list?.findIndex((x) => x.code === c) ?? -1;
+    if (i >= 0 && sel.type === "SELECT_IDLECMD") return { type: "SELECT_IDLECMD", action: "SELECT_ACTIVATE", index: i };
+    if (i >= 0) return { type: "SELECT_CHAIN", index: i };
+    return then(sel);
+  };
+}
+
+/** A player script: Normal Summon the first monster it can each turn, else `then`. */
+export function summoning(then: (sel: Json) => Json | null = passive): (sel: Json) => Json | null {
+  return (sel) => (sel.type === "SELECT_IDLECMD" && (sel.summons as unknown[] | undefined)?.length
+    ? { type: "SELECT_IDLECMD", action: "SELECT_SUMMON", index: 0 } : then(sel));
+}
+
+const NPC_SEAT = 1;
+/** The NPC activated this card (a CHAINING message of its own). */
+export function npcActivated(p: Played, name: string): boolean {
+  return msgs(p, "CHAINING", name).some((m) => Number(m.controller ?? (m.card as Json | undefined)?.controller) === NPC_SEAT);
+}
+
+/** The card went from the field to the graveyard or banishment (destroyed, tributed, ...). */
+export function leftField(p: Played, name: string): boolean {
+  const c = code(name);
+  return p.msgs.some((m) => m.type === "MOVE" && (m.card === c || (m.card as Json | undefined)?.code === c || m.code === c)
+    && (Number((m.from as Json | undefined)?.location) & 0x0c) !== 0 && (Number((m.to as Json | undefined)?.location) & 0x30) !== 0);
+}
+
+/** The NPC's decisions of one prompt type, as [turn, response]. */
+export function npcChoices(p: Played, type: string): [number, Json | null][] {
+  return p.npc.filter((d) => d.sel.type === type).map((d) => [d.turn, d.resp]);
 }
 
 /** The messages of one type, optionally only those about one card (by name). */

@@ -25,6 +25,9 @@ export const EXT_NUM = [
    *  has played out minus its value now; and the ATK of the monsters it brought to my field minus the ATK of mine it
    *  took away. Computed only when a rule reads them, with the lookahead (0 without it). */
   "effectGain", "effectSummonGain",
+  /** The opponent's monsters that leave with a continuous / equip card of theirs (Call of the Haunted, Glorious
+   *  Illusion, Premature Burial): destroying the card takes the monster too. */
+  "oppLinkedMonsters",
 ] as const;
 export const EXT_BOOL = [
   /** My turn, before my Battle Phase is over (Main Phase 1 or the Battle Phase); my Main Phase 2; a battle under way. */
@@ -43,5 +46,10 @@ export const EXT_BOOL = [
   "attackTargetLoses", "attackerExtra",
   /** The card the rule is about is hit by a live opponent link; a face-up copy of it is already on the field. */
   "selfThreatened", "sameCardActive",
+  /** Master Duel's attack-response facts: the attack would cost me LP or the monster it hits; the attacker is the
+   *  strongest monster the opponent can still attack with; the opponent's attacks this turn add up to my LP. */
+  "attackHurts", "attackerIsStrongest", "oppPlanLethal",
+  /** A face-up card negates Trap effects (Royal Decree, Jinzo): a Trap activated now does nothing. */
+  "trapLock",
 ] as const;
 export type RuleCtxExt = Partial<Record<(typeof EXT_NUM)[number], number> & Record<(typeof EXT_BOOL)[number], boolean>>;

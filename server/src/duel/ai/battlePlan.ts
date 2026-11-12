@@ -1,4 +1,8 @@
-// The battle planner: the whole Battle Phase planned at once instead of one attack at a time. Every order of the
+// The battle planner. Which attack the NPC makes is Master Duel's decision (nextAttack, at the end of this file): one
+// attack at a time, only when it gains something. The whole-phase planner below answers whether lethal is on this turn
+// (and how), and feeds the rule facts that ask about a battle.
+//
+// The whole-phase planner: the Battle Phase planned at once instead of one attack at a time. Every order of the
 // attackers and every target (an opponent's monster, or a direct attack once the field is clear or the attacker may
 // attack directly anyway) is resolved exactly, and the end boards are compared in a fixed order of what matters:
 //   1. a line where our own LP reaches 0 is never taken;
@@ -241,4 +245,101 @@ export function planBattle(input: PlanInput, opts: PlanOpts = PLAN_DEFAULTS): Ba
   };
   walk({ myLp: input.base.myLp, oppLp: input.base.oppLp, my: input.my, opp: input.opp, used: 0, flipCost: 0 }, []);
   return best!;
+}
+
+// ---- Master Duel's attack decision ---------------------------------------------------------------------------------
+// Master Duel's CPU never compares "attack" with "don't attack" end boards: it commits one attack at a time. Every
+// attacker against every target is resolved, each single attack gets a result class, the best class wins (attacker
+// order breaks ties), and an attack is made only when its class is above 0 (it gains something). After the attack
+// resolves the CPU decides again on the new board. Comparing whole end boards by the verdict was wrong: with Lyla
+// (DEF 200) and a battle-indestructible Spirit Reaper on the opponent's field, killing Lyla left a board whose verdict
+// was a tier lower (only an unbeatable monster left), so production attacked nothing for three turns (duel 303).
+
+/** A single attack's result, best last: 0 it gains nothing (or loses the attacker for nothing), 1 a trade that costs
+ *  them more than it costs us (an equal trade is not made), 2 damage with the attacker kept, 3 a kill with the attacker kept, 7 lethal. */
+export const ATTACK_CLASS = { NOTHING: 0, TRADE: 1, DAMAGE: 2, KILL: 3, LETHAL: 7 } as const;
+
+const bodyWorth = (m: EvalMon): number => 1000 + Math.max(m.atk, m.def) * 0.4 + (m.afterlife ? -m.afterlife : 0);
+
+/** The class of one attack on this board (`t` null = direct). */
+export function attackClass(input: PlanInput, a: PlanAttacker, t: PlanMon | null): number {
+  const s: State = { myLp: input.base.myLp, oppLp: input.base.oppLp, my: input.my, opp: input.opp, used: 0, flipCost: 0 };
+  const r = resolve(s, a, t, 1);
+  if (r.oppLp <= 0) return ATTACK_CLASS.LETHAL;
+  const kept = r.my.some((m) => m.seq === a.seq);
+  const killed = t !== null && !r.opp.some((m) => m.seq === t.seq);
+  const damage = s.oppLp - r.oppLp;
+  if (kept && killed) return ATTACK_CLASS.KILL;
+  if (kept && damage > 0) return ATTACK_CLASS.DAMAGE;
+  if (!kept && killed) {
+    const me = input.my.find((m) => m.seq === a.seq);
+    return me && bodyWorth(t!) > bodyWorth(me) ? ATTACK_CLASS.TRADE : ATTACK_CLASS.NOTHING;
+  }
+  return ATTACK_CLASS.NOTHING;
+}
+
+/** Master Duel's attacker order: the attackers that can run over one of the opponent's attack-position monsters first,
+ *  strongest first (they clear blockers); then the rest, weakest first (the least valuable attacks probe first). */
+export function attackerOrder(input: PlanInput): PlanAttacker[] {
+  const weakest = input.opp.filter((m) => m.attackPos && !m.faceDown && !m.battleProof).reduce((n, m) => Math.min(n, m.atk), Infinity);
+  const bumped = (a: PlanAttacker) => a.atk > weakest;
+  return [...input.attackers].sort((x, y) => {
+    const bx = bumped(x), by = bumped(y);
+    if (bx !== by) return bx ? -1 : 1;
+    return bx ? y.atk - x.atk : x.atk - y.atk;
+  });
+}
+
+/** The attack to make now, Master Duel's way, or null: no attack gains anything (go to Main Phase 2). */
+export function nextAttack(input: PlanInput): PlannedAttack | null {
+  const openDirect = input.opp.length === 0;
+  let best: { attack: PlannedAttack; cls: number; order: number; worth: number } | null = null;
+  attackerOrder(input).forEach((a, order) => {
+    const targets: (PlanMon | null)[] = [...input.opp, ...(openDirect || a.canDirect ? [null] : [])];
+    for (const t of targets) {
+      const cls = attackClass(input, a, t);
+      if (cls === ATTACK_CLASS.NOTHING) continue;
+      // among equal classes: the earlier attacker, then the target worth the most to the opponent (an attack-position
+      // monster before a wall of the same worth), a direct attack last
+      const worth = t ? bodyWorth(t) + (t.attackPos ? 1 : 0) : -1;
+      const better = !best || cls > best.cls || (cls === best.cls && (order < best.order || (order === best.order && worth > best.worth)));
+      if (better) best = { attack: { index: a.index, seq: a.seq, atk: a.atk, target: t ? t.seq : null }, cls, order, worth };
+    }
+  });
+  return best ? (best as { attack: PlannedAttack }).attack : null;
+}
+
+/** The attacks Master Duel's CPU would make this Battle Phase on this board: nextAttack, resolved, again (at most 10).
+ *  Its attackers are "the plan": only they are raised to attack position before the battle. */
+export function planAttacks(input: PlanInput): PlannedAttack[] {
+  const out: PlannedAttack[] = [];
+  let cur = input;
+  for (let n = 0; n < 10; n++) {
+    const a = nextAttack(cur);
+    if (!a) break;
+    out.push(a);
+    const attacker = cur.attackers.find((x) => x.seq === a.seq)!;
+    const target = a.target === null ? null : cur.opp.find((m) => m.seq === a.target) ?? null;
+    const s = resolve({ myLp: cur.base.myLp, oppLp: cur.base.oppLp, my: cur.my, opp: cur.opp, used: 0, flipCost: 0 }, attacker, target, 1);
+    if (s.oppLp <= 0 || s.myLp <= 0) break;
+    cur = { base: { ...cur.base, myLp: s.myLp, oppLp: s.oppLp }, my: s.my, opp: s.opp, attackers: cur.attackers.filter((x) => x.seq !== a.seq) };
+  }
+  return out;
+}
+
+/** The board after planAttacks' Battle Phase on this one: the attacks and the end position (for comparing plays). */
+export function planEnd(input: PlanInput): { attacks: PlannedAttack[]; end: Position } {
+  let cur = input;
+  const attacks: PlannedAttack[] = [];
+  for (let n = 0; n < 10; n++) {
+    const a = nextAttack(cur);
+    if (!a) break;
+    attacks.push(a);
+    const attacker = cur.attackers.find((x) => x.seq === a.seq)!;
+    const target = a.target === null ? null : cur.opp.find((m) => m.seq === a.target) ?? null;
+    const s = resolve({ myLp: cur.base.myLp, oppLp: cur.base.oppLp, my: cur.my, opp: cur.opp, used: 0, flipCost: 0 }, attacker, target, 1);
+    cur = { base: { ...cur.base, myLp: s.myLp, oppLp: s.oppLp }, my: s.my, opp: s.opp, attackers: cur.attackers.filter((x) => x.seq !== a.seq) };
+    if (s.oppLp <= 0 || s.myLp <= 0) break;
+  }
+  return { attacks, end: { ...cur.base, myMon: cur.my, oppMon: cur.opp } };
 }

@@ -24,7 +24,7 @@
 //   - style: a personality on top of the tier (attackOnly, myTurnOnly, def, fool, light): see BotStyle.
 // The Battle Phase is planned whole (battlePlan.ts): every attack order and target, compared by survival, lethal,
 // the opponent's next Battle Phase, the board, then the fewest attacks.
-import { planBattle, PLAN_DEFAULTS, UNKNOWN_WALL, valueWithReply, type PlanAttacker, type PlanMon } from "./battlePlan.ts";
+import { ATTACK_CLASS, attackClass, compareVerdicts, nextAttack, outcomeScore, planAttacks, planBattle, planEnd, PLAN_DEFAULTS, replyPosition, UNKNOWN_WALL, type PlanInput, type PlannedAttack, valueWithReply, type PlanAttacker, type PlanMon } from "./battlePlan.ts";
 import BATTLE_PROOF_JSON from "./battleProof.json";
 import CATEGORIES from "./aiCategories.json";
 import { type CardRule, type RuleCard, type RuleCtx, type RuleMon, tagRule } from "./cardRules.ts";
@@ -33,6 +33,7 @@ import { activeRules, rulesOf, type RuleSet } from "./ruleSet.ts";
 import { H_ATOHAND, H_EQUIP, H_SPSUMMON, H_SUMMON, TAGS_NO_BOOST, TYPE_EXTRA, TYPE_CONTINUOUS, TYPE_COUNTER, TYPE_EFFECT, TYPE_EQUIP, TYPE_FIELD, TYPE_FUSION, TYPE_MONSTER, TYPE_QUICKPLAY, TYPE_SPELL, TYPE_TRAP, tagMask } from "../brain/cards.ts";
 import { COMBO_PLANS, type ComboPlan } from "./comboPlans.ts";
 import { evaluate, type EvalMon, type Position } from "./evaluate.ts";
+import { canPay, costOrder, expendable, type CostView } from "./costPick.ts";
 import {
   type Activatable, type BoardCard, type CardRef, type DuelBoard, type Json, type PlaceRef, type PlayerBoard, type Prompt,
   LOCATION, PHASE, POS, boardFromState, boardFromView, freePlaces, isFaceDown, lowestBits, solveAnnounceCard, solveSum, toPrompt,
@@ -69,8 +70,12 @@ const CATEGORY = Object.fromEntries(Object.entries(CATEGORIES.codes).map(([k, v]
 export function afterlife(code: number): number {
   return CATEGORY.graveSearch.has(code) || CATEGORY.selfRevive.has(code) ? 700 : CATEGORY.leavesField.has(code) ? 400 : 0;
 }
-/** Below this #worth a hand card is a spare (fodder for a discard cost). */
-const SPARE = 1600;
+/** Face-up cards that negate every Trap effect (Master Duel never activates a Trap into them). */
+const TRAP_LOCK = /^(royal decree|jinzo|jinzo - lord)$/;
+/** Face-up cards that negate Spell activations / effects. */
+const SPELL_LOCK = /^(imperial order|spell canceller)$/;
+/** Continuous / Equip cards that keep a revived monster on the field: it leaves with them. */
+const LINKED_REVIVAL = /^(call of the haunted|glorious illusion|premature burial|limit reverse|the shallow grave|soul resurrection)$/;
 /** Cards that take a monster off the opponent's field. */
 const REMOVAL = tagMask("destroy_monster", "nuke_opp", "nuke_all", "control", "bounce");
 
@@ -205,6 +210,11 @@ export class HeuristicBot {
   /** The select being answered (a what-if forks the duel at it), and this decision's what-if results. */
   #sel: Json | null = null;
   #whatIfs = new Map<string, { gain: number; summon: number }>();
+  #stored: { turn: number; seqs: ReadonlySet<number> } | null = null;
+  /** The chain length once our last answer in this window is on it (a later opponent link may be answered again). */
+  #answeredAt = 0;
+  /** This seat Normal Summoned this turn (the cost picker keeps a summonable monster until then). */
+  #normalSummoned = false;
 
   constructor(seat: number, cards: CardInfo, opts: BotOpts = {}) {
     this.seat = seat;
@@ -231,7 +241,7 @@ export class HeuristicBot {
   /** Public duel messages (ev.ev === "msg"): chain boundaries reset the per-window guard. */
   observe(ev: Json): void {
     switch (ev.type) {
-      case "CHAIN_END": this.#chainedThisWindow.clear(); this.#chainTop = null; this.#links = []; this.#solving = 0; break;
+      case "CHAIN_END": this.#chainedThisWindow.clear(); this.#chainTop = null; this.#links = []; this.#solving = 0; this.#answeredAt = 0; break;
       case "CHAIN_SOLVING": this.#solving = Number(ev.chain_size ?? 0); break;
       case "CHAIN_SOLVED": this.#solving = 0; break;
       case "CHAINING": {
@@ -248,8 +258,9 @@ export class HeuristicBot {
           for (const c of (Array.isArray(ev.cards) ? ev.cards : []) as Json[]) if (top && Number(c.controller) === this.seat) top.targets.push(`${Number(c.location)}:${Number(c.sequence)}`);
         }
         break;
-      case "NEW_PHASE": case "NEW_TURN": this.#attack = null; this.#oppSummonAtk = 0; break;
+      case "NEW_PHASE": case "NEW_TURN": this.#attack = null; this.#oppSummonAtk = 0; if (ev.type === "NEW_TURN") this.#normalSummoned = false; break;
       case "SUMMONING": case "SPSUMMONING": case "FLIPSUMMONING":
+        if (ev.type === "SUMMONING" && Number(ev.controller) === this.seat) this.#normalSummoned = true;
         this.#oppSummonAtk = Number(ev.controller) !== this.seat && Number(ev.code) ? Math.max(1, this.#stat(Number(ev.code)).atk) : 0;
         break;
       case "ATTACK": {
@@ -265,6 +276,8 @@ export class HeuristicBot {
   /** Response for a duelcore select addressed to this seat (brain mode, with `view`); null = let the engine decide. */
   choose(sel: Json): Json | null {
     this.#sync(sel);
+    // the turn's battle plan is stored at its first main-phase decision (tributes never take its attackers)
+    if (sel.type === "SELECT_IDLECMD" && this.#turnPlayer === this.seat) this.#storedPlan();
     this.#sel = sel;
     this.#whatIfs.clear();
     return this.decide(toPrompt(sel, this.seat, this.#vision), sel);
@@ -458,15 +471,34 @@ export class HeuristicBot {
     let quick = -1;
     for (let i = 0; i < ev.spellSet.length; i++) {
       const t = this.#cards.brain.get(ev.spellSet[i]!.code)?.type ?? 0;
+      // not into a face-up Royal Decree / Jinzo (a port choice: Master Duel's set routine has no lock check)
+      if (this.#locked(ev.spellSet[i]!.code)) continue;
       if (t & TYPE_TRAP) return i;
       if (quick < 0 && (t & TYPE_QUICKPLAY)) quick = i;
     }
     return quick;
   }
 
+  /** The activation a card rule asks for now (its idleActivate is true, its priority > 0), the highest priority first. */
+  #ruledActivation(ev: P<"selectIdleCmd">): Json | null {
+    const ctx = this.#ctx();
+    let best = -1, priority = 0;
+    ev.activatable.forEach((a, i) => {
+      if (!this.#ruleFor(a.code)?.idleActivate || this.#activatedThisTurn.has(`${a.location}:${a.sequence}:${a.description}`)) return;
+      const p = this.#idlePriority(a.code, ctx, a, { prompt: ev, resp: respIdle("SELECT_ACTIVATE", i) });
+      if (p > priority) { priority = p; best = i; }
+    });
+    if (best < 0) return null;
+    const a = ev.activatable[best]!;
+    this.#activatedThisTurn.add(`${a.location}:${a.sequence}:${a.description}`);
+    this.#activated(a.code);
+    return respIdle("SELECT_ACTIVATE", best);
+  }
+
   /** -Infinity = a rule says HOLD. Positive values are pre-development plays. */
   #idlePriority(code: number, ctx: RuleCtx, ref?: CardRef, action?: Action): number {
     const name = this.#nameOf(code);
+    if (this.#locked(code)) return -Infinity;
     if (this.#combo?.afterPayoff?.includes(name) && !this.#comboPayoffLive()) return -Infinity;
     const rule = this.#ruleFor(code);
     if (rule?.idleActivate && !rule.idleActivate(this.#withSelf(ctx, code, ref, action))) return -Infinity;
@@ -547,7 +579,8 @@ export class HeuristicBot {
     me.mzone.forEach((c, i) => { if (c && keys.has(`${LOCATION.MZONE}:${i}`)) { threat += c.attack ?? 0; hits++; } });
     me.szone.forEach((c, i) => { if (c && (clears || keys.has(`${LOCATION.SZONE}:${i}`))) { threat += 1000; hits++; hitsBackrow = true; } });
     const handMon = me.hand.filter((c) => (type(c) & TYPE_MONSTER) !== 0);
-    const spare = me.hand.filter((c) => this.#spare(c)).length;
+    const costs = this.#costView();
+    const spare = expendable(costs);
     const isMon = (c: number) => (type(c) & TYPE_MONSTER) !== 0;
     const maxAtk = (codes: number[]) => codes.filter(isMon).reduce((m, c) => Math.max(m, this.#stat(c).atk), 0);
     const effectMon = (p: PlayerBoard) => p.mzone.filter((c) => c && c.code && !isFaceDown(c.position) && (type(c.code) & TYPE_EFFECT) !== 0).length;
@@ -577,7 +610,7 @@ export class HeuristicBot {
       afterBattle: myTurn && phase === PHASE.MAIN2,
       inBattle: battlePhase && (myTurn ? !!this.#declaredAttacker : !!this.#attack),
       oppStandby: !myTurn && phase === PHASE.STANDBY,
-      discardFodder: spare >= 1,
+      discardFodder: canPay(costs, { safe: this.#safePayment() }),
       cheapTribute: myMon.some((m) => m.stolen || Math.max(m.atk, m.def) < 1200),
       myFieldSpell: !!me.szone[5] && !isFaceDown(me.szone[5]!.position),
       myLockActive: me.szone.some((c) => c && c.code && !isFaceDown(c.position) && LOCKS.test(this.#nameOf(c.code))),
@@ -589,14 +622,54 @@ export class HeuristicBot {
       oppSummoning: this.#oppSummonAtk > 0,
       lethalOnEmpty: myTurn && swinging >= opp.lp,
       attackTargetLoses: !!guard && attackAtk > guardValue,
+      attackHurts: incoming > 0 || (!!guard && attackAtk > guardValue && !(guard.code && BATTLE_PROOF.has(guard.code))),
+      attackerIsStrongest: !!oppAttack && oppMon.every((m) => m.seq === this.#attack!.sequence || !m.attackPos || m.atk <= attackAtk),
+      oppPlanLethal: !myTurn && replyPosition(this.#boardPosition()).myLp <= 0,
+      trapLock: this.#trapLock(),
+      oppLinkedMonsters: Math.min(oppMon.filter((m) => !m.faceDown).length,
+        opp.szone.filter((c) => c && c.code && !isFaceDown(c.position) && LINKED_REVIVAL.test(this.#nameOf(c.code))).length),
       attackerLevel: oppAttack ? oppAttack.level ?? (oppAttack.code ? this.#stat(oppAttack.code).level : 0) : 0,
       attackerExtra: !!oppAttack && !!oppAttack.code && ((type(oppAttack.code) & TYPE_EXTRA) !== 0),
     };
   }
 
-  /** A hand card worth giving up for a cost (not one to keep, not a strong card). */
-  #spare(code: number): boolean {
-    return !!code && !this.#ruleFor(code)?.keepInHand && this.#worth(code, true) < SPARE;
+  /** A face-up Trap lock (Royal Decree, Jinzo) on either field that is not itself being negated: a Trap does nothing. */
+  #trapLock(): boolean {
+    const b = this.#board;
+    if (!b) return false;
+    return b.players.some((p) => [...p.szone, ...p.mzone].some((c) => c && c.code && !isFaceDown(c.position) && TRAP_LOCK.test(this.#nameOf(c.code))));
+  }
+
+  /** A Spell / Trap that a face-up lock would negate (Master Duel tests "would this be negated" before any activation:
+   *  md-ai/port/E-chains.md §5): never activated, never set to wait. */
+  #locked(code: number): boolean {
+    const type = this.#cards.brain.get(code)?.type ?? 0;
+    const b = this.#board;
+    if (!b) return false;
+    if ((type & TYPE_TRAP) !== 0) return this.#trapLock();
+    if ((type & TYPE_SPELL) !== 0) return b.players.some((p) => [...p.szone, ...p.mzone].some((c) => c && c.code && !isFaceDown(c.position) && SPELL_LOCK.test(this.#nameOf(c.code))));
+    return false;
+  }
+
+  /** My hand as Master Duel's cost picker reads it (costPick.ts). */
+  #costView(hand?: number[]): CostView {
+    const me = this.#me();
+    const isMonster = (c: number) => ((this.#cards.brain.get(c)?.type ?? 0) & TYPE_MONSTER) !== 0;
+    const myMain = this.#turnPlayer === this.seat && (this.#board?.phase === PHASE.MAIN1 || this.#board?.phase === PHASE.MAIN2);
+    const monsters = me ? me.mzone.filter(Boolean).length : 0;
+    return {
+      hand: hand ?? me?.hand ?? [],
+      field: me ? [...me.mzone, ...me.szone].filter((c): c is BoardCard => !!c).map((c) => c.code) : [],
+      isMonster,
+      atk: (c) => this.#stat(c).atk,
+      canNormalSummon: (c) => myMain && !this.#normalSummoned && (this.#cards.brain.get(c)?.tributes() ?? 0) <= monsters,
+      keep: (c) => !!this.#ruleFor(c)?.keepInHand,
+    };
+  }
+
+  /** A "safe" payment (Master Duel's): one made while not behind on the board, which keeps the cards it keeps. */
+  #safePayment(): boolean {
+    return outcomeScore(this.#boardPosition()) >= 0;
   }
 
   /** The rule context about one card: its stats (on my field: its current ones), whether a live opponent link hits it,
@@ -613,8 +686,11 @@ export class HeuristicBot {
     const same = (p: PlayerBoard | null) => !!p && [...p.mzone, ...p.szone].some((c) => c && c.code === code && !isFaceDown(c.position)
       && !(ref && c.controller === ref.controller && c.location === ref.location && c.sequence === ref.sequence));
     // a card in my hand is not its own discard
-    const spare = (ctx.ext?.myHandSpare ?? 0) - (ref && (ref.location & LOCATION.HAND) !== 0 && this.#spare(code) ? 1 : 0);
-    const ext: RuleCtxExt = { ...ctx.ext, myHandSpare: spare, discardFodder: spare >= 1, selfAtk: atk, selfDef: def, selfValue: onField ? ((snap!.position & POS.DEFENSE) !== 0 ? def : atk) : 0,
+    // a card in my hand is not its own cost
+    const self = ref && ref.controller === this.seat && (ref.location & LOCATION.HAND) !== 0 ? ref.sequence : undefined;
+    const costs = this.#costView();
+    const spare = expendable(costs, self);
+    const ext: RuleCtxExt = { ...ctx.ext, myHandSpare: spare, discardFodder: canPay(costs, { exclude: self, safe: this.#safePayment() }), selfAtk: atk, selfDef: def, selfValue: onField ? ((snap!.position & POS.DEFENSE) !== 0 ? def : atk) : 0,
       selfThreatened: threatened, sameCardActive: same(this.#me()) || same(this.#opp()) };
     if (action) {
       // the what-if runs only if a rule reads it
@@ -684,9 +760,27 @@ export class HeuristicBot {
       }
     }
     if (!this.#search || !sel || !searchable(this.#search, sel, this.seat)) return this.respond(ev);
+    if (ev.kind === "selectIdleCmd" && this.#idleActions < MAX_IDLE_ACTIONS) {
+      // Master Duel's flip for effect comes first in Main 1 (before the Normal Summon)
+      const flip = this.#flipForEffect(ev);
+      if (flip) { this.#idleActions++; return flip; }
+      // Master Duel's activation tables: a card whose own rule says "now" (and that comes before the Normal Summon:
+      // priority > 0) is activated, not second-guessed by the rollout (its end-of-turn board value does not see what
+      // removing a Spell/Trap is worth: production set Mystical Space Typhoon instead of popping a Royal Decree)
+      const ruled = this.#ruledActivation(ev);
+      if (ruled) { this.#idleActions++; return ruled; }
+    }
     const cands = this.#candidates(ev);
     if (!cands || cands.length < 2) return this.respond(ev);
-    return this.#searchDecide(ev, sel, cands);
+    const r = this.#searchDecide(ev, sel, cands);
+    // Leaving the main phase: positions first (Master Duel's position pass), and Main 1 does not end while its battle
+    // plan has an attack.
+    if (ev.kind === "selectIdleCmd" && (r?.action === "TO_BP" || r?.action === "TO_EP") && this.#idleActions < MAX_IDLE_ACTIONS) {
+      const pos = this.#positionPass(ev);
+      if (pos) { this.#idleActions++; return pos; }
+      if (r.action === "TO_EP" && ev.canBattlePhase && this.#mainOnePlan().length > 0) return respIdle("TO_BP");
+    }
+    return r;
   }
 
   #searchDecide(ev: Prompt, sel: Json, cands: Candidate[]): Json | null {
@@ -756,33 +850,19 @@ export class HeuristicBot {
       .filter(({ a }) => this.#ruleFor(a.code)?.specialSummon?.(ctx) ?? true)
       .sort((a, b) => b.s - a.s).forEach(({ i }) => out.push({ resp: respIdle("SELECT_SPECIAL_SUMMON", i), commit: act }));
     // Fusion materials remain usable on the field: do not give up all board presence while waiting to draw Polymerization.
-    const summonable = ev.summonable.map((a, i) => ({ a, i }));
-    summonable.map(({ a, i }) => ({ i, s: this.#stat(a.code).atk + (this.#ruleFor(a.code)?.summonScore?.(ctx) ?? 0) }))
-      .sort((a, b) => b.s - a.s).forEach(({ i }) => out.push({ resp: respIdle("SELECT_SUMMON", i), commit: act }));
+    // the Normal Summons / Sets Master Duel's rules allow, each in its position
+    const summonable = this.#summonPlays(ev, ctx);
+    summonable.forEach((p) => out.push({ resp: respIdle(p.cmd, p.index), commit: act }));
     activatable.filter((x) => x.p === 0).forEach(pushActivation);
-    ev.repositionable.forEach((_, i) => out.push({ resp: respIdle("SELECT_POS_CHANGE", i), commit: act }));
-    // One set-monster line (the weakest body as a wall) and one set-backrow line.
-    const settable = ev.monsterSet.map((a, i) => ({ a, i }));
-    if (settable.length > 0 && !this.#style.attackOnly) {
-      let wi = 0;
-      settable.forEach(({ a }, i) => { if (this.#stat(a.code).atk < this.#stat(settable[wi]!.a.code).atk) wi = i; });
-      out.push({ resp: respIdle("SELECT_MONSTER_SET", settable[wi]!.i), commit: act });
-    }
+    // (no position changes here: they are Master Duel's position pass, made when the main phase is left)
+    // one set-backrow line
     const setIdx = this.#spellToSet(ev);
     if (setIdx >= 0) out.push({ resp: respIdle("SELECT_SPELL_SET", setIdx), commit: act });
     const canAttack = ev.canBattlePhase && this.#hasAttacker();
     if (canAttack) out.push({ resp: respIdle("TO_BP") });
     // Never let the hand-heavy evaluation choose "do nothing" over a clearly useful setup, summon, reposition or
     // attack. Once the productive actions are exhausted, END comes back.
-    const usefulReposition = ev.repositionable.some((c) => {
-      const s = this.#snap(c);
-      if (!s || isFaceDown(s.position)) return false;
-      const atk = s.attack ?? this.#stat(c.code).atk;
-      const def = s.defense ?? this.#stat(c.code).def;
-      return ((s.position & POS.DEFENSE) !== 0 && atk > def && (!ctx.oppMon.length || atk >= ctx.oppMaxAtk))
-        || ((s.position & POS.ATTACK) !== 0 && def > atk && ctx.oppMaxAtk > atk);
-    });
-    const productive = activatable.some((x) => x.p > 0) || ev.spSummonable.length > 0 || summonable.length > 0 || usefulReposition || canAttack;
+    const productive = activatable.some((x) => x.p > 0) || ev.spSummonable.length > 0 || summonable.length > 0 || canAttack;
     if (ev.canEndPhase && !productive) out.push({ resp: respIdle("TO_EP") });
     return out;
   }
@@ -899,6 +979,12 @@ export class HeuristicBot {
       }
     }
 
+    // 0a. Master Duel's flip for effect, before the Normal Summon.
+    if (this.#idleActions < MAX_IDLE_ACTIONS) {
+      const flip = this.#flipForEffect(ev);
+      if (flip) { this.#idleActions++; return flip; }
+    }
+
     // 0. (spy vision) A KNOWN board answer is set and we hold backrow removal: pop it BEFORE committing monsters.
     if (this.#idleActions < MAX_IDLE_ACTIONS && this.#threatSetCount() > 0) {
       for (let i = 0; i < ev.activatable.length; i++) {
@@ -948,23 +1034,6 @@ export class HeuristicBot {
     const play = this.#chooseMonsterPlay(ev, oppMax, oppHasMon, ctx);
     if (play && this.#idleActions < MAX_IDLE_ACTIONS) { this.#idleActions++; return respIdle(play.cmd, play.index); }
 
-    // 2b. Stand a DEFENSE monster up into ATTACK once it can swing and hold against the board: a face-up one, a set
-    // attacker (a Flip Summon), and a set flip monster whose effect has something to hit.
-    if (this.#idleActions < MAX_IDLE_ACTIONS && ev.canBattlePhase) {
-      for (let i = 0; i < ev.repositionable.length; i++) {
-        const r = ev.repositionable[i]!;
-        const s = this.#snap(r);
-        if (!s) continue;
-        const st = this.#stat(r.code);
-        const atk = s.attack ?? st.atk, def = s.defense ?? st.def;
-        const holds = !oppHasMon || atk >= oppMax;
-        let up = false;
-        if (isFaceDown(s.position)) up = (holds && atk >= 1400 && (atk >= def || atk >= 1500 || oppHasMon)) || (oppHasMon && this.#cards.flipRisk(r.code) >= 2200);
-        else if ((s.position & POS.DEFENSE) !== 0) up = atk > def && holds;
-        if (up) { this.#idleActions++; return respIdle("SELECT_POS_CHANGE", i); }
-      }
-    }
-
     // 3. An effect / spell not used yet this turn. A card rule can say "hold this" in a bad spot: skip it.
     if (this.#idleActions < MAX_IDLE_ACTIONS) {
       let best = -1, priority = -Infinity;
@@ -991,23 +1060,135 @@ export class HeuristicBot {
       return respIdle("SELECT_SPELL_SET", setIdx);
     }
 
-    // 4b. An attacker that stands under a bigger one only feeds LP: to defense. After the battle (Main Phase 2: the
-    // ones that did not attack), or before it when no monster of ours has a battle to win.
-    if (this.#idleActions < MAX_IDLE_ACTIONS && oppMax > 0 && !this.#style.attackOnly) {
-      const wins =(atk: number): boolean => this.#oppMonsters().some((m) => (m.attackPos ? atk > m.atk : m.faceDown && !m.known ? atk > UNKNOWN_WALL : atk > m.def));
-      const after = this.#board?.phase === PHASE.MAIN2 || !ev.canBattlePhase || !this.#monstersOf(this.#me()).some((m) => m.attackPos && wins(m.atk));
-      for (let i = 0; after && i < ev.repositionable.length; i++) {
-        const r = ev.repositionable[i]!;
-        const s = this.#snap(r);
-        if (!s || isFaceDown(s.position) || (s.position & POS.ATTACK) === 0) continue;
-        if ((s.attack ?? this.#stat(r.code).atk) < oppMax) { this.#idleActions++; return respIdle("SELECT_POS_CHANGE", i); }
-      }
+    // 4b. Positions, Master Duel's way (#positionPass): the planned attackers up, the rest by its defence rules.
+    if (this.#idleActions < MAX_IDLE_ACTIONS) {
+      const pos = this.#positionPass(ev);
+      if (pos) { this.#idleActions++; return pos; }
     }
 
     // 5. Into battle with something that can swing; otherwise end.
-    if (ev.canBattlePhase && this.#hasAttacker()) return respIdle("TO_BP");
+    if (ev.canBattlePhase && (this.#hasAttacker() || this.#mainOnePlan().length > 0)) return respIdle("TO_BP");
     if (ev.canEndPhase) return respIdle("TO_EP");
     return respIdle(ev.canBattlePhase ? "TO_BP" : "TO_EP");
+  }
+
+  // ---- positions (Master Duel's position passes: md-ai/port/A2-mainphase.md §5) ------------------------------------
+  /** My monsters and the opponent's as the battle planner reads them; `raised` set monsters are taken as flipped up. */
+  #planInput(raised: ReadonlySet<number> = new Set()): PlanInput {
+    const base = this.#battlePosition();
+    const toPlan = (o: OppMon): PlanMon => ({ atk: o.atk, def: o.faceDown && !o.known ? Math.max(o.def, UNKNOWN_WALL) : o.def, faceDown: o.faceDown,
+      attackPos: o.attackPos, known: o.known, flipRisk: o.flipRisk, battleProof: o.battleProof, afterlife: o.afterlife, seq: o.seq });
+    const my = this.#monstersOf(this.#me()).map((m) => {
+      const up = !m.faceDown || raised.has(m.seq);
+      return { ...toPlan(m), faceDown: !up, attackPos: up, known: true };
+    });
+    // every face-up monster (and a raised set one) may attack: a defender the plan uses is switched up first
+    const attackers: PlanAttacker[] = my.filter((m) => !m.faceDown && m.atk > 0).map((m) => ({ index: m.seq, seq: m.seq, atk: m.atk, canDirect: false }));
+    return { base, my, opp: this.#monstersOf(this.#opp()).map(toPlan), attackers };
+  }
+
+  /** The attackers of the battle plan as it stood at my turn's first main-phase decision (Master Duel stores it then). */
+  #storedPlan(): ReadonlySet<number> {
+    if (this.#stored?.turn !== this.#turn) this.#stored = { turn: this.#turn, seqs: new Set(this.#mainOnePlan().map((a) => a.seq)) };
+    return this.#stored.seqs;
+  }
+
+  /** The Main Phase 1 battle plan (Master Duel's: planAttacks) on my turn; empty in Main Phase 2 and on turn 1. */
+  #mainOnePlan(raised?: ReadonlySet<number>): PlannedAttack[] {
+    // no Battle Phase on the duel's first turn
+    if (this.#board?.phase === PHASE.MAIN2 || this.#turnPlayer !== this.seat || this.#turn <= 1) return [];
+    return planAttacks(this.#planInput(raised));
+  }
+
+  /** "Better in defence": a face-up monster that could fight a known enemy monster but gains nothing doing it. */
+  #betterInDefence(m: OppMon, input: PlanInput): boolean {
+    if (m.battleProof) return false;
+    const self = input.my.find((x) => x.seq === m.seq);
+    if (!self) return false;
+    const att: PlanAttacker = { index: m.seq, seq: m.seq, atk: m.atk, canDirect: false };
+    const one = { ...input, my: [{ ...self, faceDown: false, attackPos: true }], attackers: [att] };
+    return input.opp.some((o) => !o.faceDown && attackClass(one, att, o) === ATTACK_CLASS.NOTHING);
+  }
+
+  /** The strongest ATK that can come at one of my monsters next turn: the opponent's face-up monsters, a set one at the
+   *  halved estimate, and the Normal Summon it may still make (the unknown-monster estimate). */
+  #threatAtk(): number {
+    const opp = this.#opp();
+    let t = (opp?.hand.length ?? 1) > 0 ? UNKNOWN_WALL : 0;
+    for (const o of this.#oppMonsters()) t = Math.max(t, o.faceDown && !o.known ? UNKNOWN_WALL / 2 : o.atk);
+    return t;
+  }
+
+  /** Master Duel's Main-2 (and no-Battle-Phase) position for one monster: attack, defence or keep. */
+  #mainTwoPosition(m: OppMon, input: PlanInput): "atk" | "def" | "keep" {
+    const lp = this.#me()?.lp ?? 8000;
+    // staying in attack could be lethal
+    const loss = this.#oppMonsters().filter((o) => !o.faceDown && o.atk > m.atk).reduce((n, o) => n + (o.atk - m.atk), 0);
+    if (lp - loss <= 0) return "def";
+    if (this.#betterInDefence(m, input)) return "def";
+    // a set flip monster stays set: its flip is judged for its effect (#flipForEffect)
+    if (m.faceDown && this.#cards.brain.get(m.code)?.is_flip) return "keep";
+    const atk = m.atk, def = m.def, threat = this.#threatAtk();
+    if (atk === 0) return "def";
+    const cap = Math.min(lp, 1000), gap = threat - atk;
+    if (gap < cap) {
+      if (atk < def) {
+        if (threat + 500 <= def && atk + 1000 < def) return "def";
+        if (threat <= atk && atk >= 1700) return "atk";
+        if (def > 1500 && def >= this.#oppMaxAtk()) return "def";
+      } else if (gap <= 0) return "atk";
+      if (threat <= atk) return "atk";
+      return gap > 0 ? "def" : "keep";
+    }
+    return "def";
+  }
+
+  /** One position change or flip summon, Master Duel's way, or null. Main 1 with a Battle Phase ahead: the monsters the
+   *  battle plan uses go to attack (a set attacker is flipped when the plan with it face-up attacks with it), a face-up
+   *  attacker the plan leaves out goes to defence when it faces a known monster it cannot beat, nothing else moves.
+   *  Main 2 and turns with no Battle Phase: #mainTwoPosition. */
+  #positionPass(ev: P<"selectIdleCmd">): Json | null {
+    if (this.#style.attackOnly || ev.repositionable.length === 0) return null;
+    const mine = this.#monstersOf(this.#me());
+    const at = (r: CardRef) => mine.find((m) => m.seq === r.sequence && (r.location & LOCATION.MZONE) !== 0);
+    const input = this.#planInput();
+    const battleAhead = ev.canBattlePhase && this.#board?.phase !== PHASE.MAIN2 && this.#turn > 1;
+    if (battleAhead) {
+      const inPlan = new Set(this.#mainOnePlan().map((a) => a.seq));
+      for (let i = 0; i < ev.repositionable.length; i++) {
+        const m = at(ev.repositionable[i]!);
+        if (!m || m.faceDown) continue;
+        if (inPlan.has(m.seq) ? !m.attackPos : m.attackPos && this.#betterInDefence(m, input)) return respIdle("SELECT_POS_CHANGE", i);
+      }
+      // a set monster without a flip effect: flipped when the battle plan with it face-up uses it
+      for (let i = 0; i < ev.repositionable.length; i++) {
+        const m = at(ev.repositionable[i]!);
+        if (!m || !m.faceDown || this.#cards.brain.get(m.code)?.is_flip) continue;
+        if (this.#mainOnePlan(new Set([m.seq])).some((a) => a.seq === m.seq)) return respIdle("SELECT_POS_CHANGE", i);
+      }
+      return null;
+    }
+    for (let i = 0; i < ev.repositionable.length; i++) {
+      const m = at(ev.repositionable[i]!);
+      if (!m) continue;
+      const want = this.#mainTwoPosition(m, input);
+      if (want === "atk" && (m.faceDown || !m.attackPos)) return respIdle("SELECT_POS_CHANGE", i);
+      if (want === "def" && !m.faceDown && m.attackPos) return respIdle("SELECT_POS_CHANGE", i);
+    }
+    return null;
+  }
+
+  /** Master Duel's flip for effect (Main 1 before the Normal Summon, and again later): a set flip monster is flipped when
+   *  its flip, played out on the engine with its effect, leaves the board better. */
+  #flipForEffect(ev: P<"selectIdleCmd">): Json | null {
+    if (!this.#search || !this.#sel) return null;
+    for (let i = 0; i < ev.repositionable.length; i++) {
+      const r = ev.repositionable[i]!;
+      const s = this.#snap(r);
+      if (!s || !isFaceDown(s.position) || !this.#cards.brain.get(r.code)?.is_flip) continue;
+      if (this.#whatIf({ prompt: ev, resp: respIdle("SELECT_POS_CHANGE", i) }).gain > 0) return respIdle("SELECT_POS_CHANGE", i);
+    }
+    return null;
   }
 
   /** The fool's main phase: the first legal play of each kind (an activation not used yet this turn, a summon, a
@@ -1051,65 +1232,104 @@ export class HeuristicBot {
     return { standing, turned, turnIndex, summon, summonIndex };
   }
 
-  /** The best monster to commit this main phase, and whether to summon it or set it. Greedy "play the strongest"
-   *  (a 1-ply evaluation here under-develops: it prices the card spent, not the tempo gained); card rules'
-   *  summonScore still biases the pick. */
-  #chooseMonsterPlay(ev: P<"selectIdleCmd">, oppMax: number, oppHasMon: boolean, ctx: RuleCtx): { cmd: "SELECT_SUMMON" | "SELECT_MONSTER_SET"; index: number } | null {
-    if (ev.summonable.length === 0) return null;
-    const bonus = (code: number): number => this.#ruleFor(code)?.summonScore?.(ctx) ?? 0;
-    const cands = ev.summonable.map((c, index) => ({ index, code: c.code, ...this.#stat(c.code), score: this.#stat(c.code).atk + bonus(c.code) }))
-      .filter((c) => !this.#ruleFor(c.code)?.keepInHand);
-    if (cands.length === 0) return null;
-    const noTrib = cands.filter((c) => c.level <= 4).sort((a, b) => b.score - a.score);
-    // What a tribute gives up: a stolen monster goes back anyway, so it is free.
-    const material = this.#monstersOf(this.#me()).map((m) => (m.stolen ? 0 : 1000 + Math.max(m.atk, m.def) * 0.4)).sort((a, b) => a - b);
-    const tributes = (level: number): number => (level >= 7 ? 2 : 1);
-    const costOf = (level: number): number => material.slice(0, tributes(level)).reduce((sum, value) => sum + value, 0);
-    const trib = cands.filter((c) => {
-      if (c.level < 5) return false;
-      const b = bonus(c.code);
-      if (c.atk < oppMax && b <= 0) return false; // a tribute for a body the board already beats
-      const breaksWall = c.atk > oppMax && ctx.myMaxAtk <= oppMax && oppHasMon;
-      return breaksWall || 1000 + c.atk * 0.4 + b > costOf(c.level);
-    }).sort((a, b) => b.score - a.score);
-    const bestNoTrib = noTrib[0] ?? null;
-    const bestTrib = trib[0] ?? null;
+  /** The best monster to commit this main phase, and whether to summon it or set it (Master Duel's rules,
+   *  #summonPlays), or null. */
+  #chooseMonsterPlay(ev: P<"selectIdleCmd">, _oppMax: number, _oppHasMon: boolean, ctx: RuleCtx): { cmd: "SELECT_SUMMON" | "SELECT_MONSTER_SET"; index: number } | null {
+    return this.#summonPlays(ev, ctx)[0] ?? null;
+  }
 
-    // Tribute up when the big monster beats the board and the cheap options can't, when the tributes are free
-    // (stolen) or weak bodies (a boss for a 1000-ATK searcher: tribute monsters must not rot in the hand).
-    let chosen = bestNoTrib;
-    if (bestTrib) {
-      const n = tributes(bestTrib.level), cost = costOf(bestTrib.level), gain = bestTrib.atk - (bestNoTrib?.atk ?? 0);
-      const free = material.length >= n && cost <= 600 * n && gain > 0;
-      const upgrade = material.length >= n && bestTrib.atk >= 2200 && cost <= 1600 * n && gain >= 500 + 500 * this.#picky;
-      if (bestTrib.atk > oppMax && (!bestNoTrib || bestNoTrib.atk <= oppMax)) chosen = bestTrib;
-      else if (!bestNoTrib || free || upgrade) chosen = bestTrib;
-      if (bestTrib.score > bestTrib.atk && (!chosen || bestTrib.score > chosen.score)) chosen = bestTrib;
-    }
-    if (!chosen) return null;
+  /** Master Duel's position for a monster it summons (md-ai/port/A1-summon.md §5): a weak FLIP monster is set; else set
+   *  when the opponent's best next-turn attack out-guns it by min(LP, 1000), or its DEF is a clear wall; face-up when
+   *  nothing beats it. */
+  #summonPosition(code: number, bonus: number): "up" | "set" {
+    if (this.#style.attackOnly || this.#allIn) return "up";
+    const st = this.#stat(code);
+    const { atk, def } = st;
+    if (this.#cards.brain.get(code)?.is_flip && atk < 2000 && !(atk >= 1200 && def <= atk + 200)) return "set";
+    // a card rule that wants it on the field for its effect (a Monarch, an on-summon effect)
+    if (bonus > 0) return "up";
+    const T = this.#threatAtk(), lp = this.#me()?.lp ?? 8000;
+    if (atk === 0) return "set";
+    if (this.#turn <= 1 && def >= atk) return "set";
+    const gap = T - atk;
+    if (gap >= Math.min(lp, 1000)) return "set";
+    if (atk < def) {
+      if (def >= T + 500 && def > atk + 1000) return "set";
+      if (atk >= T && atk >= 1700) return "up";
+      if (def > 1500 && def >= this.#oppMaxAtk()) return "set";
+    } else if (gap <= 0) return "up";
+    if (atk >= T) return "up";
+    return "set";
+  }
 
-    // Face-down instead: a small monster that can't survive the opponent's board, a wall, a body too feeble to
-    // stand in attack and a FLIP monster (unless a rule wants it up, or the turn is the lethal push).
-    const oppAttacks = ctx.oppMon.some((m) => m.attackPos);
-    // A weaker (pickier) player wants more before it stands a body in attack position.
-    const margin = 400 * this.#picky;
-    const setIt = (c: { code: number; atk: number; def: number; level: number; score: number }): boolean => {
-      if (this.#style.attackOnly || c.level > 4 || c.score > c.atk || this.#allIn) return false;
-      return (oppAttacks && c.atk < oppMax + margin) || (c.def > c.atk && c.atk < 1500 + margin) || c.atk < 1000 + 2 * margin || !!this.#cards.brain.get(c.code)?.is_flip;
-    };
-    if (setIt(chosen)) {
-      // Among the bodies that would be set anyway, the best one face-down: a disruptive FLIP, then the highest DEF.
-      const wallValue = (code: number): number => (this.#cards.flipRisk(code) >= 2200 ? 5000 : 0) + this.#stat(code).def;
-      let best = -1, bestValue = -Infinity;
-      ev.monsterSet.forEach((c, i) => {
-        const st = this.#stat(c.code);
-        if (this.#ruleFor(c.code)?.keepInHand || !setIt({ code: c.code, ...st, score: st.atk + bonus(c.code) })) return;
-        const v = wallValue(c.code);
-        if (v > bestValue) { bestValue = v; best = i; }
-      });
-      if (best >= 0) return { cmd: "SELECT_MONSTER_SET", index: best };
+  /** The board after Normal Summoning (or setting) this monster with these tributes and Master Duel's planned attacks
+   *  (planEnd): its value (the hand left out: every play spends the one card) and its battle verdict. */
+  #afterSummon(code: number, set: boolean, tributes: number[]): { value: number; verdict: number } {
+    const input = this.#planInput();
+    const st = this.#stat(code);
+    const free = [0, 1, 2, 3, 4].find((z) => !input.my.some((m) => m.seq === z && !tributes.includes(m.seq))) ?? 9;
+    const mon: PlanMon = { atk: st.atk, def: st.def, faceDown: set, attackPos: !set, known: true, flipRisk: 0, seq: free,
+      battleProof: BATTLE_PROOF.has(code), afterlife: afterlife(code) };
+    const my = [...input.my.filter((m) => !tributes.includes(m.seq)), mon];
+    const attackers = [...input.attackers.filter((a) => !tributes.includes(a.seq)), ...(set ? [] : [{ index: free, seq: free, atk: st.atk, canDirect: false }])];
+    const { end } = planEnd({ ...input, my, attackers });
+    return { value: evaluate({ ...end, myHand: 0 }), verdict: outcomeScore(end) };
+  }
+
+  /** The Normal Summons / Sets Master Duel's rules allow, best first (A1-summon.md §4.3, §6, §10): its position by
+   *  #summonPosition; a Tribute Summon only when the new monster holds more than every tribute did and reaches the
+   *  strongest opposing monster (a card rule's summon score, a Monarch, skips the test), a Tribute Set otherwise only
+   *  to wall an opponent's lethal with more than the tributes stopped; never an attacker of the turn's stored battle
+   *  plan as a tribute; and in Main 2 nothing at all when a safe monster is out, the NPC is not behind and no candidate beats both. */
+  #summonPlays(ev: P<"selectIdleCmd">, ctx: RuleCtx): { cmd: "SELECT_SUMMON" | "SELECT_MONSTER_SET"; index: number; score: number }[] {
+    const holdOf = (m: OppMon): number => (m.faceDown && !m.known ? Math.max(m.def, UNKNOWN_WALL) : m.attackPos ? m.atk : m.def);
+    const mine = this.#monstersOf(this.#me()), opp = this.#oppMonsters();
+    const planned = new Set(this.#mainOnePlan().map((a) => a.seq));
+    // tributes: never an attacker of the battle plan stored at the start of the turn (Master Duel's 180812130: a
+    // monster flipped up since then is fair game), a borrowed monster first, then the weakest
+    const stored = this.#storedPlan();
+    const fodder = mine.filter((m) => !stored.has(m.seq)).sort((x, y) => Number(y.stolen) - Number(x.stolen) || holdOf(x) - holdOf(y));
+    const bar = opp.reduce((n, m) => Math.max(n, holdOf(m)), 0);
+    const lethalOnMe = replyPosition(this.#boardPosition()).myLp <= 0;
+    const stops = (def: number) => opp.filter((m) => m.attackPos && m.atk <= def).length;
+    const battleAhead = ev.canBattlePhase && this.#board?.phase !== PHASE.MAIN2 && this.#turn > 1;
+    const out: { cmd: "SELECT_SUMMON" | "SELECT_MONSTER_SET"; index: number; score: number; stat: number; verdict: number }[] = [];
+    const seen = new Set<number>();
+    ev.summonable.forEach((c, i) => {
+      if (seen.has(c.code) || this.#ruleFor(c.code)?.keepInHand) return;
+      seen.add(c.code);
+      const st = this.#stat(c.code), bonus = this.#ruleFor(c.code)?.summonScore?.(ctx) ?? 0;
+      const setIndex = ev.monsterSet.findIndex((x) => x.code === c.code);
+      const set = this.#summonPosition(c.code, bonus) === "set" && setIndex >= 0;
+      const stat = set ? st.def : st.atk;
+      const n = st.level > 6 ? 2 : st.level > 4 ? 1 : 0;
+      if (n > 0 && bonus <= 0) {
+        const tributes = fodder.slice(0, n);
+        if (tributes.length < n) return;
+        const given = tributes.reduce((m, t) => Math.max(m, t.stolen ? 0 : holdOf(t)), 0);
+        const pays = stat > given && stat >= bar;
+        const walls = set && lethalOnMe && stops(st.def) > Math.max(0, ...tributes.map((t) => stops(t.def)));
+        if (!pays && !walls) return;
+      }
+      // Main 1 before a Battle Phase: the play as Master Duel's turn plan judges it, by the battle it leads to (the board
+      // after the summon, its tributes gone, and the planned attacks); otherwise by the body
+      const after = battleAhead ? this.#afterSummon(c.code, set, fodder.slice(0, n).map((t) => t.seq)) : null;
+      const score = after ? after.value + bonus : (set ? st.def * 0.5 : st.atk) + bonus;
+      out.push({ cmd: set ? "SELECT_MONSTER_SET" : "SELECT_SUMMON", index: set ? setIndex : i, score, stat, verdict: after?.verdict ?? 0 });
+    });
+    // Main 2 (or no Battle Phase): a safe monster out and not behind: only a play that beats both
+    if (this.#board?.phase === PHASE.MAIN2 || !ev.canBattlePhase) {
+      const threat = this.#threatAtk();
+      const safe = mine.filter((m) => holdOf(m) >= threat).reduce((n, m) => Math.max(n, holdOf(m)), -1);
+      const hand = this.#me()?.hand.length ?? 0;
+      if (safe >= 0 && outcomeScore(this.#boardPosition()) >= 0 && hand < 6) {
+        const keep = out.filter((o) => o.stat > Math.max(bar, safe));
+        out.length = 0;
+        out.push(...keep);
+      }
     }
-    return { cmd: "SELECT_SUMMON", index: chosen.index };
+    // before a Battle Phase Master Duel's turn plan compares the boards by its battle verdict first, then by value
+    return out.sort((x, y) => (battleAhead ? compareVerdicts(y.verdict, x.verdict) : 0) || y.score - x.score);
   }
 
   // ---- battle phase -----------------------------------------------------------------------------------------------
@@ -1199,8 +1419,10 @@ export class HeuristicBot {
       const i = ev.attackable.findIndex((a) => !this.#deadAttackers.has(a.sequence));
       if (i >= 0) { bestIdx = i; bestAtk = me?.mzone[ev.attackable[i]!.sequence]?.attack ?? this.#stat(ev.attackable[i]!.code).atk; this.#plannedTarget = undefined; }
     } else {
-      // The whole Battle Phase planned (battlePlan.ts): its first attack now, the rest re-planned after it resolves.
-      const first = this.#planBattle(ev).attacks[0];
+      // Lethal this Battle Phase (the whole phase planned, battlePlan.ts): its first attack. Otherwise Master Duel's
+      // decision: the one attack that gains the most, or none (nextAttack); decided again after it resolves.
+      const { input, plan } = this.#planBattle(ev);
+      const first = plan.outcome.lethal ? plan.attacks[0] : nextAttack(input);
       if (first) { bestIdx = first.index; bestAtk = first.atk; this.#plannedTarget = first.target; }
     }
     // no way out of the battle (the opponent's card makes every monster attack): the least bad attack, not a refused End
@@ -1236,7 +1458,8 @@ export class HeuristicBot {
       if (this.#deadAttackers.has(a.sequence)) return;
       attackers.push({ index, seq: a.sequence, atk: me?.mzone[a.sequence]?.attack ?? this.#stat(a.code).atk, canDirect: a.directAttackable });
     });
-    return planBattle({ base, my: withSeq(me, base.myMon), opp: withSeq(opp, base.oppMon), attackers }, this.#planOpts());
+    const input = { base, my: withSeq(me, base.myMon), opp: withSeq(opp, base.oppMon), attackers };
+    return { input, plan: planBattle(input, this.#planOpts()) };
   }
 
   // ---- chains / responses -----------------------------------------------------------------------------------------
@@ -1254,8 +1477,12 @@ export class HeuristicBot {
     if (!live || isFaceDown(live.position) || !(live.position & POS.ATTACK)) return respYesNo(false);
     const atk = live.attack ?? this.#stat(live.code).atk;
     const base = this.#battlePosition();
-    const targets: (EvalMon | null)[] = description === "31" || base.oppMon.length === 0 ? [null] : base.oppMon;
-    const yes = targets.some((target) => this.#attackScore(base, atk, target) > evaluate(base));
+    // the replay goes on when the attack would still gain something (Master Duel's attack classes, battlePlan.ts)
+    const direct = description === "31" || base.oppMon.length === 0;
+    const self: PlanMon = { atk, def: live.defense ?? this.#stat(live.code).def, faceDown: false, attackPos: true, known: true, seq: -1, battleProof: BATTLE_PROOF.has(live.code) };
+    const input = { base, my: [self], opp: base.oppMon.map((m, i) => ({ ...m, seq: i })), attackers: [{ index: 0, seq: -1, atk, canDirect: direct }] };
+    const targets: (PlanMon | null)[] = direct ? [null] : input.opp;
+    const yes = targets.some((target) => attackClass(input, input.attackers[0]!, target) > 0);
     if (yes) this.#pendingAttacker = atk;
     return respYesNo(yes);
   }
@@ -1267,7 +1494,7 @@ export class HeuristicBot {
     if (this.#style.myTurnOnly && this.#turnPlayer !== this.seat) return respChain(null);
     // A set card the opponent's chain is taking: used now if it does anything (production: Scapegoat, Raigeki Break,
     // Ring of Destruction and Compulsory Evacuation Device destroyed unused).
-    const doomedIdx = ev.chains.findIndex((c, i) => this.#isDoomed(c) && !this.#chainedThisWindow.has(`${c.code}:${c.description}`)
+    const doomedIdx = ev.chains.findIndex((c, i) => this.#isDoomed(c) && !this.#chainedThisWindow.has(`${c.code}:${c.description}`) && !this.#locked(c.code)
       && (this.#ruleFor(c.code)?.doomed?.(this.#withSelf(this.#ctx(), c.code, c, { prompt: ev, resp: respChain(i) })) ?? true));
     if (doomedIdx >= 0) {
       const c = ev.chains[doomedIdx]!;
@@ -1275,10 +1502,13 @@ export class HeuristicBot {
       this.#activated(c.code);
       return respChain(doomedIdx);
     }
-    // Set traps / quick effects on the OPPONENT's turn (removal and negation timing), one answer per chain (a second
-    // trap on the same attack is a card wasted). On our own turn only a negation of the opponent's link: no
-    // optional self-chains that would interrupt our own plays.
-    if (this.#chainedThisWindow.size > 0) return respChain(null);
+    // Set traps / quick effects on the OPPONENT's turn (removal and negation timing), one answer per window (a second
+    // trap on the same attack is a card wasted) unless the opponent has chained a new link since our answer (Master
+    // Duel answers each new link). On our own turn only a negation of the opponent's link: no optional self-chains
+    // that would interrupt our own plays.
+    const top = this.#links[this.#links.length - 1];
+    const newLink = this.#links.length > this.#answeredAt && !!top && top.controller !== this.seat;
+    if (this.#chainedThisWindow.size > 0 && !newLink) return respChain(null);
     const ctx = this.#ctx();
     const own = this.#turnPlayer === this.seat;
     if (own && !ctx.oppChained) return respChain(null);
@@ -1297,13 +1527,16 @@ export class HeuristicBot {
       const c = ev.chains[i]!;
       const key = `${c.code}:${c.description}`;
       if (this.#chainedThisWindow.has(key)) continue;
+      if (this.#locked(c.code)) continue;
       if (own && !this.#cards.brain.get(c.code)?.has("negate")) continue;
       const rule = this.#ruleFor(c.code);
       if (rule?.chainReact && !rule.chainReact(this.#withSelf(ctx, c.code, c, { prompt: ev, resp: respChain(i) }))) continue;
-      // On the opponent's turn, with the lookahead: the response played out against passing (the chain resolved under
-      // the real rules, both ways): a response that leaves the board worse than passing is held.
-      if (!own && this.#search && this.#sel && this.#whatIf({ prompt: ev, resp: respChain(i) }).gain < this.#whatIf({ prompt: ev, resp: respChain(null) }).gain) continue;
+      // (No what-if veto: Master Duel has none on its responses, only "would this be negated" (#locked). Rev 6 held a
+      // response that left the board worse than passing: the board value prices a set card at a whole card, cannot see
+      // the opponent's cards it stops, and the what-if ends with the chain, before the attack the trap stops, so it
+      // held nearly every trap: Magic Cylinder, Raigeki Break and Judgment of Anubis never fired.)
       this.#chainedThisWindow.add(key);
+      this.#answeredAt = this.#links.length + 1;
       this.#activated(c.code);
       return respChain(i);
     }
@@ -1441,8 +1674,11 @@ export class HeuristicBot {
     if (ruled) return respTribute(ruled);
     // Feed a stolen monster first (it goes back otherwise), then the weakest, enough to satisfy the minimum.
     const stolen = (c: CardRef): boolean => { const b = this.#snap(c); return !!b && b.owner !== undefined && b.owner !== b.controller && this.#lentTurn === this.#turn; };
+    // Master Duel: then a monster outside the battle plan before a planned attacker (D-costs.md §7.1), the weakest first
+    const planned = this.#storedPlan();
     const ranked = ev.cards
-      .map((c, index) => ({ index, atk: stolen(c) ? -1 : (this.#liveAtk(c) ?? this.#stat(c.code).atk) - afterlife(c.code), param: c.releaseParam }))
+      .map((c, index) => ({ index, atk: stolen(c) ? -1 : (this.#liveAtk(c) ?? this.#stat(c.code).atk) - afterlife(c.code)
+        + ((c.location & LOCATION.MZONE) !== 0 && planned.has(c.sequence) ? 100000 : 0), param: c.releaseParam }))
       .sort((a, b) => a.atk - b.atk);
     const picks: number[] = [];
     let weight = 0;
@@ -1468,6 +1704,11 @@ export class HeuristicBot {
     // the engine says the pick summons or adds the card (a Special Summon from the hand: Marauding Captain): our best,
     // not the cheapest as a cost would be
     const gain = hint === H_SPSUMMON || hint === H_SUMMON || hint === H_ATOHAND;
+    // giving up cards from my own hand (a discard, a cost): Master Duel's cost picker order
+    if (!gain && cards.length > 0 && cards.every((c) => c.controller === this.seat && (c.location & LOCATION.HAND) !== 0 && c.code)) {
+      const n = Math.min(Math.max(min, 0), max > 0 ? max : cards.length);
+      return (costOrder(this.#costView(cards.map((c) => c.code))) ?? []).slice(0, n);
+    }
     return chooseTargets(valued, this.seat, min, max, gain);
   }
 
@@ -1554,16 +1795,7 @@ export class HeuristicBot {
     if (!me) return 0;
     let w = 0;
     if (me.hand.filter((c) => c === code).length >= (inHand ? 2 : 1)) w -= 400;
-    // Master Duel's precious cards are never a discard or a cost
-    if (inHand && CATEGORY.precious.has(code)) w += 3000;
-    // its discard picker: an effect monster over a plain one, and the last monster in the hand kept (unless far behind)
-    if (inHand && (k.type & TYPE_MONSTER)) {
-      if (k.type & TYPE_EFFECT) w += 500;
-      const monsters = me.hand.filter((c) => ((this.#cards.brain.get(c)?.type ?? 0) & TYPE_MONSTER) !== 0).length;
-      if (monsters === 1 && evaluate({ ...this.#boardPosition(), myHand: 0, myBackrow: 0 }) > -2000) w += 1500;
-    }
-    // in the hand, a card that pays off in the graveyard (Treeborn Frog, Sangan) is the best discard
-    if (inHand && (CATEGORY.selfRevive.has(code) || CATEGORY.graveSearch.has(code))) w -= 500;
+    // (hand discards and costs: costPick.ts, Master Duel's picker)
     if ((k.type & TYPE_MONSTER) && !k.is_extra && k.tributes() === 0) {
       const needs = Math.max(0, ...me.hand.map((c) => this.#cards.brain.get(c)?.tributes() ?? 0));
       if (needs > me.mzone.filter(Boolean).length) w += 300;

@@ -119,7 +119,7 @@ describe("NPC gaps found in duel traces", () => {
   const field = (code: number, sequence = 0, more = {}) => ({ code, controller: 0, location: 4, sequence, ...more });
   const set = (atk: number, sequence = 0) => ({ ...mon(atk, sequence), position: 8 });
   const idle = (own: unknown[], opp: unknown[], more: Record<string, unknown>, lp = [8000, 8000]) =>
-    select("SELECT_IDLECMD", own as never, opp as never, { to_bp: true, to_ep: true, phase: 4, lp, ...more });
+    select("SELECT_IDLECMD", own as never, opp as never, { turn: 3, to_bp: true, to_ep: true, phase: 4, lp, ...more });
 
   it("counts lethal on an open field: the set monsters turn up before anything weaker is summoned", () => {
     const bot = new HeuristicBot(0, cards);
@@ -172,7 +172,10 @@ describe("NPC gaps found in duel traces", () => {
     const stats: Record<number, { atk: number; def: number; level: number }> = { 2500: { atk: 2500, def: 1200, level: 6 } };
     const bot = new HeuristicBot(0, { ...cards, stat: (code) => stats[code] ?? { atk: code, def: 1000, level: 4 } });
     expect(bot.choose(idle([set(1000)], [], { summons: [hand(2500), hand(1700, 1)], monster_sets: [hand(1700, 1)] }))).toMatchObject({ action: "SELECT_SUMMON", index: 0 });
-    expect(bot.choose(idle([mon(1900)], [], { summons: [hand(2500), hand(1700, 1)], monster_sets: [hand(1700, 1)] }))).toMatchObject({ action: "SELECT_SUMMON", index: 1 });
+    // another position (a new bot: the turn's stored battle plan is the first position's); the 1900 is a planned
+    // attacker, so it is not tributed
+    const other = new HeuristicBot(0, { ...cards, stat: (code) => stats[code] ?? { atk: code, def: 1000, level: 4 } });
+    expect(other.choose(idle([mon(1900)], [], { summons: [hand(2500), hand(1700, 1)], monster_sets: [hand(1700, 1)] }))).toMatchObject({ action: "SELECT_SUMMON", index: 1 });
   });
 
   it("holds Mystical Space Typhoon until there is something to hit and a reason (it destroyed its own cards)", () => {
@@ -198,14 +201,14 @@ describe("NPC gaps found in duel traces", () => {
     expect(bot.choose(chain([104]))?.index).toBe(0);
   });
 
-  it("does not spring a trap on a weak poke, but does to survive", () => {
+  it("springs an attack trap when the attack costs LP or a monster (Master Duel's generic attack check)", () => {
     const poke = (lp: number[]) => {
       const bot = new HeuristicBot(0, named);
       bot.observe({ ev: "msg", type: "ATTACK", card: { controller: 1, location: 4, sequence: 0 }, target: null });
       return bot.choose(select("SELECT_CHAIN", [], [mon(900)], { turn_player: 1, phase: 8, lp,
         selects: [{ code: 104, controller: 0, location: 8, sequence: 0, description: 0 }], forced: false }))?.index;
     };
-    expect(poke([8000, 8000])).toBe(null);
+    expect(poke([8000, 8000])).toBe(0);
     expect(poke([800, 8000])).toBe(0);
   });
 

@@ -1,7 +1,7 @@
 // The battle planner (src/duel/ai/battlePlan.ts): whole Battle Phase plans compared by survival, lethal, the
 // opponent's reply, the board, then the fewest attacks.
 import { describe, expect, it } from "vitest";
-import { compareVerdicts, outcomeScore, planBattle, replyPosition, UNKNOWN_WALL, type PlanAttacker, type PlanMon } from "../src/duel/ai/battlePlan.ts";
+import { compareVerdicts, nextAttack, outcomeScore, planBattle, replyPosition, UNKNOWN_WALL, type PlanAttacker, type PlanMon } from "../src/duel/ai/battlePlan.ts";
 import type { Position } from "../src/duel/ai/evaluate.ts";
 
 const up = (seq: number, atk: number, def = 0): PlanMon => ({ seq, atk, def, faceDown: false, attackPos: true, known: true, flipRisk: 0 });
@@ -88,3 +88,38 @@ describe("battle planner", () => {
     expect(after.myLp).toBe(2200);
   });
 });
+
+// Master Duel's attack decision: one attack at a time, made only when it gains something.
+function next(my: PlanMon[], opp: PlanMon[], o: { myLp?: number; oppLp?: number } = {}) {
+  const base: Position = { myMon: my, oppMon: opp, myLp: o.myLp ?? 8000, oppLp: o.oppLp ?? 8000, myHand: 3, myBackrow: 1, oppBackrow: 0 };
+  return nextAttack({ base, my, opp, attackers: my.filter((m) => m.attackPos).map((m, i) => atk(i, m)) });
+}
+const proof = (m: PlanMon): PlanMon => ({ ...m, battleProof: true });
+
+describe("next attack (Master Duel's decision)", () => {
+  it("kills the monster it beats although a battle-indestructible one stays (duel 303: Lyla + Spirit Reaper)", () => {
+    const a = next([up(0, 2500), up(1, 1400)], [guard(3, 1700, 200), proof(guard(4, 300, 200))]);
+    expect(a).toMatchObject({ target: 3 });
+  });
+
+  it("does not attack a lone battle-indestructible defender, nor into a bigger monster", () => {
+    expect(next([up(0, 2500)], [proof(guard(3, 300, 200))])).toBeNull();
+    expect(next([up(0, 1400)], [up(3, 1800)])).toBeNull();
+  });
+
+  it("does not trade for an equal monster, does for a better one", () => {
+    expect(next([up(0, 2000)], [up(3, 2000)])).toBeNull();
+    expect(next([up(0, 2000, 0)], [up(3, 2000, 2500)])).toMatchObject({ target: 3 });
+  });
+
+  it("attacks directly onto an empty field; a set unknown monster only above the 1600 wall", () => {
+    expect(next([up(0, 1000)], [])).toMatchObject({ target: null });
+    expect(next([up(0, 1600)], [set(3)])).toBeNull();
+    expect(next([up(0, 1700)], [set(3)])).toMatchObject({ target: 3 });
+  });
+
+  it("a blocker the strongest attacker runs over goes first: the strongest, so the next can follow", () => {
+    expect(next([up(0, 1900), up(1, 2000)], [up(3, 1500)])).toMatchObject({ seq: 1, target: 3 });
+  });
+});
+
