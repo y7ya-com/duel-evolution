@@ -189,8 +189,6 @@ export async function click(page:Page,text:string,timeout = 30000) {
     }
     return;
   }
-  // Find Player is no Main Menu entry (as live): the Friend List's Find a Player opens it
-  if (text === 'Find Player') { await click(page,'Friend List',timeout); await until(page,byKey('list-find'),timeout); await press(page,byKey('list-find')); return; }
   await until(page,`${byText(text)}||${inMainMenu(text)}`,timeout);
   // the menu already open (its entries waiting on a busy app): wait for the entry; closed: open it with MAIN
   if (!await page.ev(`Boolean(${byText(text)})`)) {

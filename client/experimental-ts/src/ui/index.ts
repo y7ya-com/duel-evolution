@@ -213,7 +213,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const p = state.profileDetail, lobby = state.lobby; if (!p || p.selectedPid === null || p.selectedPid === p.selfPid) return {};
     const pid = p.selectedPid, avatar = lobby?.avatars.find(a => a.id === pid), name = p.summary?.name ?? p.details?.name ?? avatar?.name ?? '';
     const close = () => send({ type: 'profileAction', action: { type: 'close' } });
-    const social = (type: 'inviteFriend' | 'inviteTrade' | 'ignore') => () => { send({ type: 'socialAction', action: { type, pid } }); close(); };
+    const social = (type: 'inviteFriend' | 'inviteTrade' | 'inviteTeam' | 'ignore') => () => { send({ type: 'socialAction', action: { type, pid } }); close(); };
     const watchable = !!avatar?.duelling && !lobby?.rooms?.some(r => (r.owner === pid || r.opponent === pid) && r.watch === false);
     return {
       ...(!avatar?.duelling ? { duel: () => {
@@ -227,6 +227,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       ...(watchable ? { watch: () => { close(); send({ type: 'spectate', pid }); } } : {}),
       ...(state.socialDetail ? { friend: social('inviteFriend'), trade: social('inviteTrade'), ignore: social('ignore') } : {}),
       ...(name ? { whisper: () => { htmlUiState.chatDraft = `/w ${name} `; close(); } } : {}),
+      // Invite to Team: a team's leader, to a player not in it (CPlayerListMenu: inTeam, authority, no team name)
+      ...(socialLists()?.team?.leader && !state.socialDetail?.teamMembers.some(m => m.pid === pid) ? { team: social('inviteTeam') } : {}),
       // Go to the same Area (CPlayerListMenu::pressJump): to the player's side, where the server says they stand
       jump: () => { const at = p.location ?? (avatar ? { x: avatar.x, y: avatar.y } : null); close(); if (at && state.scene === 'lobby') send({ type: 'move', x: Math.round(at.x) + 32, y: Math.round(at.y) }); },
     };
@@ -249,7 +251,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       unignore: pid => social({ type: 'unignore', pid }), formTeam: name => social({ type: 'createTeam', name }),
       leaveTeam: () => social({ type: 'leaveTeam' }), disbandTeam: () => social({ type: 'disbandTeam' }),
       removeFriend: pid => social({ type: 'removeFriend', pid }),
-      // Find a Player (CWindowModelFriendEnum) and Ignore by name (CWindowModelBlacklistInput)
+      // Ignore by name (CWindowModelBlacklistInput), the invitations' Yes / No
       lookup: sd.lookup?.name !== undefined ? { name: sd.lookup.name, pid: sd.lookup.result === 0 && sd.lookup.pid ? sd.lookup.pid : null } : null, error: sd.error,
       offers: sd.friendOffers.map(o => ({ pid: o.pid, name: o.name, level: o.level })), teamInvites: sd.teamInvites.map(t => ({ teamId: t.teamId, teamName: t.teamName, inviterPid: t.inviterPid, inviterName: t.inviterName })),
       canTrade: ['idle', 'finished', 'closing'].includes(sd.trade.phase),
@@ -1288,7 +1290,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
           { label: 'Duel Log', key: 'duellog', disabled: blocked || sideboard, run: () => { duellog = duellogUi(); loadDuellog(duellog.search, 1); } },
           // main's Audio page (htmlui/audio-page.ts: client/recomp/web/audiopage.js over the rewrite's audio manager), as live
           { label: 'Audio', key: 'audio', disabled: blocked || !state.audio, run: () => openAudioPage() },
-          // Find a Player (CWindowModelFriendEnum) is the Friend List's (its Find a Player button), as live: no entry here
+          // live finds players from the player list and the map (no Find a Player window)
           // main's list windows (src/ui/htmlui: CWindowModelBlacklist / Friendlist / Teamlist) over the scene
           ...(state.socialDetail ? (['ignore', 'friends', 'team'] as const).map(kind => ({ label: { ignore: 'Ignore List', friends: 'Friend List', team: 'Team List' }[kind], key: kind === 'team' ? 'teams' : kind,
             disabled: blocked || sideboard, run: () => { htmlUiState.lists = { kind, selected: -1 }; if (kind === 'team') send({ type: 'socialAction', action: { type: 'refreshTeam' } }); if (kind === 'friends') loadPresence(); showHtml(); } })) : []),
