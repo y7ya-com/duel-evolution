@@ -27,7 +27,9 @@ const LANGUAGES: Record<string,string> = { Japanese:'J',English:'E',German:'G',F
 /** The title's OPTIONS (htmlui/options.ts titleOptionsWindow, live's COptionDlg): the flags, the monitors, the slider. */
 const optionsShown = byKey('opt-ok');
 const named = (name:string) => `document.querySelector('[data-name="${name}"]')`;
-const langShown = `${named('COptionDlg::m_textSelectedLang')}?.textContent.trim()`;
+/** The chosen language (its English name): the flag shown checked. Its name over the flags is in the language the game
+ * shows (live's text table: Japanisch on a German game), so the flag tells the choice, and the name is there. */
+const langShown = `(${named('COptionDlg::m_textSelectedLang')}?.textContent.trim()?Object.entries(${JSON.stringify(LANGUAGES)}).find(([,c])=>document.querySelector('[data-key="opt-lang-'+c+'"]')?.getAttribute('aria-pressed')==='true')?.[0]:undefined)`;
 const langReady = `(${byKey('opt-lang-E')}&&!${byKey('opt-lang-E')}.disabled)`;
 /** main's error dialog: a language whose tables could not load. */
 const langError = byKey('language-error-ok');
