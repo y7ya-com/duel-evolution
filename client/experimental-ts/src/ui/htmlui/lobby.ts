@@ -165,13 +165,15 @@ function moveWindow(ctx: BuildContext, deps: LobbyDeps): WindowSpec | null {
   const right = 11 + Math.max(258, ...widths);
   b.add('CWindowTaskFrameMove', 'frame', { x: 0, y: 0, w: 0, h: 0 }, { alpha: 0.9 });
   const bar = b.add('CWindowResultScroll', 'scroll', { x: right + 3, y: 22, w: 16, h: 158 }, { shown: false, value: topRow, max: Math.max(0, areas.length - MOVE_ROWS), page: MOVE_ROWS, horizontal: false });
-  b.on(bar, { value: v => { ui.moveTop = Math.round(v); ctx.rerender(); } });
+  // the wheel over the rows moves them a row a notch (the bar is hidden, so the rows take it, as live's list does)
+  const wheel = (d: number) => { const next = Math.max(0, Math.min(areas.length - MOVE_ROWS, topRow + (d > 0 ? 1 : -1))); if (next !== topRow) { ui.moveTop = next; ctx.rerender(); } };
+  b.on(bar, { value: v => { ui.moveTop = Math.round(v); ctx.rerender(); }, ...(areas.length > MOVE_ROWS ? { wheel } : {}) });
   const blocked = waiting(ctx.state);
   areas.forEach((a, i) => {
     const row = i - topRow, shown = row >= 0 && row < MOVE_ROWS, text = label(a);
     const c = b.add('CWindowTaskButtonDuel', `area:${a.area}:${a.block}`, shown ? { x: 11, y: 24 + 26 * row, w: widths[i]!, h: 24 } : { x: 0, y: 0, w: widths[i]!, h: 24 },
       { shown, label: text, align: 1, state: ctx.state.busy ? 'disabled' : 'normal', color: [1, 1, 1, 1], shadow: { dx: 1, dy: 1, color: [0, 0, 0, 1] } },
-      { key: `move-area:${a.area}/${a.block}`, label: text, click: () => {
+      { key: `move-area:${a.area}/${a.block}`, label: text, ...(areas.length > MOVE_ROWS ? { wheel } : {}), click: () => {
         if (ctx.state.busy) return;
         // the original keeps a player waiting for a duel where they are (0x13e4)
         if (blocked) { ctx.ui.dialog = { kind: 'ok', text: say(ctx, 'noMove') }; ui.open = null; ctx.rerender(); return; }

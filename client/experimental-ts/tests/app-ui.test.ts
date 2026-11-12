@@ -110,6 +110,16 @@ describe('actual ClientApp mounted through semantic UI', () => {
     expect(f.mounted.htmlUi.press('move-area:3/1')).toBe(true); await flush();
     expect(f.game.enterArea).toHaveBeenCalledWith(3); expect(f.app.getState().lobby?.name).toContain('Area 3'); f.dispose();
   });
+  it('the wheel over the Move list moves its rows a row a notch, so every area past the sixth can be reached', async () => {
+    const f = harness(); await f.enter(); f.session.areas = Array.from({ length: 9 }, (_, i) => ({ area: i, block: 1, kind: 0, population: 1 })); f.emit(); await flush();
+    expect(f.mounted.htmlUi.press('menubar-move')).toBe(true); await flush();
+    const rowShown = (area: number) => f.mounted.htmlUi.windows().flatMap(w => w.win.controls).some(c => c.shown && String(c.name).startsWith(`area:${area}:`));
+    expect(rowShown(0)).toBe(true); expect(rowShown(8)).toBe(false);
+    for (let i = 0; i < 5; i++) { const spec = f.mounted.htmlUi.windows().find(w => w.win.controls.some(c => String(c.name).startsWith('area:')))!; [...spec.handlers.values()].find(h => h.wheel)!.wheel!(100); await flush(); }
+    expect(rowShown(8)).toBe(true); expect(rowShown(0)).toBe(false);
+    expect(f.mounted.htmlUi.press('move-area:8/1')).toBe(true); await flush();
+    expect(f.game.enterArea).toHaveBeenCalledWith(8); f.dispose();
+  });
   it('buys through the authenticated idempotency token and confirms the returned balance', async () => {
     // the store's door opens the shop (live has no Main Menu entry for it); the purchase itself is the app's buy command
     const f = harness(); await f.enter(); await f.app.dispatch({ type: 'openScene', scene: 'shop' }); await flush();
