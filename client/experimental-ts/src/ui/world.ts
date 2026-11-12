@@ -130,6 +130,8 @@ export class WorldRenderer {
   private busyNpc: number | null = null;
   private wanderClock = 0;
   private roomProps: RoomProps | null = null;
+  /** The camera of the map left for another scene (hide), put back if that map comes back next. */
+  private keptCamera: { mapId: number; at: Point } | null = null;
   private hitNodes: ReadonlyMap<number, HTMLElement> = new Map();
   private hitShift = '';
   private readonly poses: PoseCache | null;
@@ -208,7 +210,12 @@ export class WorldRenderer {
     try { loading = this.options.loadScene(mapId, request.signal); } catch (error) { loading = Promise.reject(error); }
     void loading.then(scene => {
       if (this.closed || request.signal.aborted || generation !== this.generation) { scene.dispose(); return; }
-      this.scene = scene; this.camera = new WorldCamera(scene.definition); this.camera.follow(this.followPoint, true); this.placeWorld();
+      this.scene = scene; this.camera = new WorldCamera(scene.definition);
+      // back on the map a scene was shown over (the card shop, the deck editor): the camera where it was, then the dead
+      // zone (live keeps the area map under those scenes); a new map: centred on the player
+      const kept = this.keptCamera; this.keptCamera = null;
+      if (kept && kept.mapId === mapId) { this.camera.restore(kept.at); this.camera.follow(this.followPoint); } else this.camera.follow(this.followPoint, true);
+      this.placeWorld();
       this.options.onViewport?.(); this.ensureFrame();
       // the avatars set before the camera was known: which ones get their art is decided again now (a lone player in My
       // Room has no other update to wait for)
@@ -533,6 +540,7 @@ export class WorldRenderer {
   /** Leaving a scene releases every lease, texture and pose strip. */
   hide(): void {
     if (this.closed) return;
+    if (this.camera && this.requestedMap !== null) this.keptCamera = { mapId: this.requestedMap, at: this.camera.exact };
     ++this.generation; this.loadAbort?.abort(); this.loadAbort = null; this.cancelPendingFrame(); this.resizeObserver?.disconnect(); this.resizeObserver = null; this.observedParent = null;
     this.clearFrame(); this.clearActors(); this.avatars.replaceChildren(); this.hitNodes = new Map();
     const scenes = new Set([this.scene, this.displayedScene]); for (const scene of scenes) scene?.dispose();

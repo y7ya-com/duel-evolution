@@ -309,8 +309,17 @@ export async function claimStarter(page:Page,index = 0) {
     const said = await page.ev(`document.getElementById('starter')?.innerText ?? ''`) as string;
     await press(page,btn('OK')); await until(page,`!document.getElementById('starter')`,10000).catch(e => { throw new Error(`starter claim: ${said}\n${String(e)}`); });
   }
-  // the picker is My Room's (live): out to the lobby
-  if (await page.ev(roomShown)) await until(page,lobbyShown,60000);
+  // the picker is My Room's (live): out to the lobby, where a new character is first told of its challenge right
+  if (await page.ev(roomShown)) { await until(page,lobbyShown,60000); await closeUnlocks(page); }
+}
+/** The unlock picture(s) a new character gets on first reaching the world (live's item window: "Now, you can challenge
+ * Yami Marik to a Duel!"): OK on each. */
+export const unlockShown = `document.querySelector('#htmlui-host [data-window-class="CWindowModelItemGet"]')`;
+const unlockOk = `[...document.querySelectorAll('#htmlui-host [data-window-class="CWindowModelItemGet"] *')].find(e=>e.textContent.trim()==='OK'&&!e.children.length)`;
+export async function closeUnlocks(page:Page,wait = 8000) {
+  // it comes once the world's ITEMGET(1) is answered
+  await until(page,unlockShown,wait).catch(() => {});
+  for (let i = 0; i < 4 && await page.ev(`Boolean(${unlockShown})`); i++) { await press(page,unlockOk); await sleep(300); }
 }
 
 /** Evidence: one JSON line per asserted flow, with the client commit and run time. */
