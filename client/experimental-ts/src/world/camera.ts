@@ -49,6 +49,8 @@ export class WorldCamera {
     this.cx = x; this.cy = y;
     return this.viewport;
   }
+  /** Puts the camera back where it was (a scene shown over the map and left: the map was not rebuilt on live). */
+  restore(at: Point): void { if ([at.x, at.y].every(Number.isFinite)) { this.cx = f(at.x); this.cy = f(at.y); } }
   /** The float camera before the draw's truncation. */
   get exact(): Point { return { x: this.cx, y: this.cy }; }
   get viewport(): Viewport { return Object.freeze({ x: Math.trunc(this.cx) || 0, y: Math.trunc(this.cy) || 0, width: WORLD_VIEW_WIDTH, height: WORLD_VIEW_HEIGHT }); }

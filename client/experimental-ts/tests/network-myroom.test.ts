@@ -8,6 +8,18 @@ afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
 async function boot(session:GameSession,name:string) { await drive(session.start()); await drive(session.createCharacter(0,name)); await drive(session.selectCharacter(0)); }
 
 describe('native My Room port transitions against actual World',() => {
+  it('comes online in My Room (live\'s CWorldMng ENTER_MYROOM) and leaves by a door into that door\'s world',async () => {
+    const a=setup(undefined,'myroom-door');
+    try {
+      await drive(a.session.start()); await drive(a.session.createCharacter(0,'Room Door')); await drive(a.session.selectCharacter(0,'my-room'));
+      expect(a.session.state).toMatchObject({phase:'lobby',location:'my-room',area:8});
+      const kind=(port:number)=>a.session.state.servers.find(s=>s.port-1000===port||s.port===port)?.roomKind;
+      await drive(a.session.leaveMyRoom(13)); await vi.advanceTimersByTimeAsync(100);
+      expect(a.session.state.location).toBe('world'); expect(kind(a.session.lobby!.port)).toBe(13);
+      await drive(a.session.enterMyRoom()); await drive(a.session.leaveMyRoom(14)); await vi.advanceTimersByTimeAsync(100);
+      expect(a.session.state.location).toBe('world'); expect(kind(a.session.lobby!.port)).toBe(14);
+    } finally { a.session.dispose(); }
+  });
   it('leaves public presence, privately registers both looks, preserves rights/economy and returns to the cached world area',async () => {
     const a=setup(undefined,'myroom-a'),b=setup(a.server,'myroom-b');
     try {

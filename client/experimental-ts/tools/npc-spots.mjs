@@ -7,7 +7,8 @@
 //   { int32 map; int32 spot; int32 x; int32 y; uint8 direction; uint8 flags; uint8 pad[2] }
 // whose counts and bases are immediates of those two functions (count 0x00bf0c50 = 64 at 0x00d0f7a0; count
 // 0x00bf0c4c = 14 at 0x00d0f688). A record on another map than the scene's (+0x274) is skipped; on this map the NPC
-// is placed at (float)x, (float)y facing `direction`, or rand() % 8 when flags & 2 (0x009ff533..0x009ff56c).
+// is placed at (float)x, (float)y facing `direction`, or rand() % 8 when flags & 2 (0x009ff533..0x009ff56c); with
+// flags & 1 it wanders among the map's spots (0x009ff6e4, src/world/npc-wander.ts).
 import { readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
@@ -50,7 +51,7 @@ export function extractNpcSpots(exe) {
       const map = dv.getInt32(o, true), spot = dv.getInt32(o + 4, true), x = dv.getInt32(o + 8, true), y = dv.getInt32(o + 12, true);
       const direction = dv.getUint8(o + 16), flags = dv.getUint8(o + 17);
       need(map >= 0 && map <= 9 && spot > 0 && spot <= 65535 && x >= 0 && x <= 65535 && y >= 0 && y <= 65535 && direction <= 7, 'Invalid spot record');
-      spots.push({ spot, map, x, y, direction, randomDirection: (flags & 2) !== 0 });
+      spots.push({ spot, map, x, y, direction, randomDirection: (flags & 2) !== 0, wander: (flags & 1) !== 0 });
     }
   }
   // 0x009ff337 tries the famous table first, so a spot in both keeps the famous record
@@ -61,7 +62,7 @@ export function extractNpcSpots(exe) {
 
 /** Puts each map's spots into a world-maps.json object (its npcSpots). */
 export function withNpcSpots(worldMaps, spots) {
-  for (const map of worldMaps.maps) map.npcSpots = spots.filter(s => s.map === map.id).map(({ spot, x, y, direction, randomDirection }) => ({ spot, x, y, direction, ...(randomDirection ? { randomDirection } : {}) }));
+  for (const map of worldMaps.maps) map.npcSpots = spots.filter(s => s.map === map.id).map(({ spot, x, y, direction, randomDirection, wander }) => ({ spot, x, y, direction, ...(randomDirection ? { randomDirection } : {}), wander }));
   return worldMaps;
 }
 

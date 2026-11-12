@@ -17,6 +17,11 @@ export function crossingAt(map: number, avatarPosition: Point): CrossingRegion |
   mapId(map); validPoint(avatarPosition);
   return CROSSING_REGIONS.find(r => r.mapId === map && avatarPosition.x >= r.x0 && avatarPosition.x < r.x1 && avatarPosition.y >= r.y0 && avatarPosition.y < r.y1) ?? null;
 }
+/** My Room (Map_r01): not a world area but the character's own lobby. */
+export const MY_ROOM_MAP = 8;
+/** My Room's doors by exit index: the room kind each opens (live: the blue door into Domino City's room, 13; the red
+ * one into Duel Academy's, 14; the server's gate.ts announces those two). */
+export const MY_ROOM_DOORS: Readonly<Record<number, number>> = Object.freeze({ 0: 13, 1: 14 });
 /** An exit whose entry source is 11: the card shop's door, not a map. */
 export const SHOP_DOOR = 11;
 /** The shop door re-arms once the avatar is this far from where it entered it (shopdirect.c: 48 px). */
@@ -33,6 +38,9 @@ export function detectExit(map: Pick<WorldMap, 'id' | 'entries'>, probeColor: nu
   if (color === null) return null;
   const index = exitIndexFromPixel(color);
   if (index === null) return null;
+  // My Room's two doors (Map_r01's mask: exit 0 the blue door, 1 the red one) lead out of the room, to the world each
+  // names (MY_ROOM_DOORS); its arrival table has the room alone, so the door's index is what tells them apart
+  if (map.id === MY_ROOM_MAP) return index in MY_ROOM_DOORS ? Object.freeze({ index, color, destination: MY_ROOM_MAP, source: 'mask' as const }) : null;
   const destination = crossing?.destination ?? map.entries[index]?.from;
   // 11 is the card shop's door (the Game Shop / Store counter: CAreaMap::receive's exit message 0x1d pushes SCENE_SHOP
   // for an entry whose source is 11; recomp shopdirect.c); 12 is END. Neither is a map.

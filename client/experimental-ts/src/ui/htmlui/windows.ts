@@ -62,7 +62,9 @@ export interface MenuView { entries: MenuEntry[]; message: string; duel?: () => 
   duelOpen?: () => boolean; moveOpen?: () => boolean; mainOpen?: () => boolean;
   /** How far main's message field moved right for the page's own bar buttons (lobby.js fieldLeft - 391: the Wardrobe and
    * Missions slots, lobby_icons.js reserveBar): the message's x follows, so main's bar redraws it at the field's start. */
-  fieldShift?: number }
+  fieldShift?: number;
+  /** My Room's bar: the Main Menu key alone of the game's (live: Main Menu, then the page's Wardrobe and Missions). */
+  room?: boolean }
 
 export interface BuildContext {
   state: ClientView; ui: HtmlUiLocal; ids: Ids;
@@ -395,8 +397,10 @@ export function menuBar(ctx: BuildContext, menu: MenuView): WindowSpec {
     const key = (name: string, x: number, v: number, run: (() => void) | undefined, dataKey: string, label: string, checked = false) =>
       b.add('CWindowTaskPictureSwitch', name, { x, y: 0, w: 80, h: 32 }, { state: run ? 'normal' : 'disabled', checked, art: pictureArt(v) }, { key: dataKey, label, click: () => run?.() });
     key('MENUBAR_MENU_MAIN', 0, 0, () => { ctx.ui.menu = !ctx.ui.menu; ctx.rerender(); }, 'main-menu', 'Main Menu', ctx.ui.menu || !!menu.mainOpen?.());
-    key('MENUBAR_MENU_DUEL', 80, 32, menu.duel, 'menubar-duel', 'Duel', !!menu.duelOpen?.());
-    key('MENUBAR_MENU_MOVE', 160, 96, menu.move, 'menubar-move', 'Move', !!menu.moveOpen?.());
+    if (!menu.room) {
+      key('MENUBAR_MENU_DUEL', 80, 32, menu.duel, 'menubar-duel', 'Duel', !!menu.duelOpen?.());
+      key('MENUBAR_MENU_MOVE', 160, 96, menu.move, 'menubar-move', 'Move', !!menu.moveOpen?.());
+    }
   }
   return b.spec();
 }
@@ -437,7 +441,9 @@ export function placeBanner(ctx: BuildContext): WindowSpec | null {
   text('lobby', 20, 9, worldName, 0);
   if (lobbyCount !== undefined) text('lobbyCount', at, 9, `(${lobbyCount}/1000)`, 2);
   text('map', 20, 26, mapName, 0);
-  text('mapCount', at, 26, myRoom ? `(${lobby.avatars.length})` : `(${lobby.avatars.length}/32)`, 2);
+  // the area's players (live counts people, not the map's NPCs)
+  const here = lobby.avatars.filter(a => !a.npc).length;
+  text('mapCount', at, 26, myRoom ? `(${here})` : `(${here}/32)`, 2);
   return b.spec();
 }
 
@@ -818,10 +824,12 @@ export function htmlWindows(ctx: BuildContext): WindowSpec[] {
   // the account dialogs stand alone: main's game hides Select Player under them (its create capture)
   else if (state.scene === 'characters' && !account) out.push(playerSelect(ctx));
   if (state.scene === 'lobby' && state.connection === 'online') {
-    const place = !ctx.covered && placeBanner(ctx); if (place) out.push(place);
+    // My Room shows none of the place plate, the chat and the player list (live: the room and the bar alone)
+    const room = state.location === 'my-room';
+    const place = !ctx.covered && !room && placeBanner(ctx); if (place) out.push(place);
     // live's free-mode lobby has the player list alone, no chat window
-    const chat = state.mode !== 'free' ? chatWindow(ctx) : null; if (chat) out.push(chat);
-    const list = !ctx.covered && (ctx.lobby ? ctx.lobby.list(ctx) : ctx.openPlayer && playerList(ctx, ctx.openPlayer)); if (list) out.push(list);
+    const chat = !room && state.mode !== 'free' ? chatWindow(ctx) : null; if (chat) out.push(chat);
+    const list = !ctx.covered && !room && (ctx.lobby ? ctx.lobby.list(ctx) : ctx.openPlayer && playerList(ctx, ctx.openPlayer)); if (list) out.push(list);
     const profile = profileWindow(ctx); if (profile) out.push(profile);
     const card = playerCard(ctx, ctx.cardActions ?? {}); if (card) { out.push(card); const flag = cardFlag(ctx, card); if (flag) out.push(flag); }
     if (card) ui.discordCard = null;   // one card at a time

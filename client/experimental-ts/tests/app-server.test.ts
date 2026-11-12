@@ -42,7 +42,7 @@ function harness(server = setup().server, user = 'app-test', deckId = '51', opti
   const app = new ClientApp({ gatewayUrl: 'ws://localhost/net', api: new GameApi(new HttpClient({ origin: 'http://localhost', fetch: fetcher })), sessionFactory: transport.factory,...options });
   apps.push(app);
   const send = (command: ClientCommand) => drive(app.dispatch(command));
-  const enter = async (name = 'App Duelist') => { await drive(app.initialize()); await send({ type: 'connect' }); await send({ type: 'createCharacter', slot: 0, name }); await send({ type: 'selectCharacter', slot: 0 }); };
+  const enter = async (name = 'App Duelist') => { await drive(app.initialize()); await send({ type: 'connect' }); await send({ type: 'createCharacter', slot: 0, name }); await send({ type: 'selectCharacter', slot: 0 }); if (!app.getState().mode || app.getState().mode === 'world') await send({ type: 'myRoom', enter: false }); };
   return { app, server, requests, sockets: transport.sockets, send, enter };
 }
 function promptCommand(app: ClientApp): ClientCommand {

@@ -5,8 +5,10 @@ export interface WalkGrid { readonly width: number; readonly height: number; rea
 export interface MapEntry extends WorldPosition { readonly from: number }
 export interface MapExit { readonly to: number }
 /** Where an NPC with this spot number stands (the exe's spot tables; tools/npc-spots.mjs). `randomDirection`: it faces a
- * random way each time the map is built. */
-export interface NpcSpot extends WorldPosition { readonly spot: number; readonly randomDirection?: boolean }
+ * random way each time the map is built (record flag bit 1); `wander`: it walks among the map's spots (bit 0,
+ * world/npc-wander.ts; absent in an older world-maps.json, where randomDirection says the same: the exe sets both or
+ * neither). */
+export interface NpcSpot extends WorldPosition { readonly spot: number; readonly randomDirection?: boolean; readonly wander?: boolean }
 export interface WorldMap { readonly id: number; readonly name: string; readonly width: number | null; readonly height: number | null; readonly grid: WalkGrid | null; readonly entries: readonly MapEntry[]; readonly exits: readonly MapExit[]; readonly npcSpots: readonly NpcSpot[] }
 export interface WorldMaps { readonly version: 1; readonly maps: readonly WorldMap[] }
 const MAX_BYTES = 1024 * 1024;
@@ -32,7 +34,7 @@ export function parseWorldMaps(value: unknown): WorldMaps {
     if (grid && (width !== grid.width * CELL_SIZE || height !== grid.height * CELL_SIZE)) throw new RangeError('Map dimensions mismatch');
     const entries = array(m.entries, 10).map(v => { const e = object(v); return Object.freeze({ ...position(e), from: integer(e.from, 0, 11) }); });
     const exits = array(m.exits, 10).map(v => Object.freeze({ to: integer(object(v).to, 0, 9) }));
-    const npcSpots = array(m.npcSpots, 256).map(v => { const s = object(v); if (s.randomDirection !== undefined && typeof s.randomDirection !== 'boolean') throw new TypeError('Invalid NPC spot'); return Object.freeze({ ...position(s), spot: integer(s.spot, 0, 65535), ...(s.randomDirection ? { randomDirection: true } : {}) }); });
+    const npcSpots = array(m.npcSpots, 256).map(v => { const s = object(v); for (const k of ['randomDirection', 'wander']) if (s[k] !== undefined && typeof s[k] !== 'boolean') throw new TypeError('Invalid NPC spot'); return Object.freeze({ ...position(s), spot: integer(s.spot, 0, 65535), ...(s.randomDirection ? { randomDirection: true } : {}), ...(s.wander !== undefined ? { wander: s.wander as boolean } : {}) }); });
     return Object.freeze({ id, name: m.name, width, height, grid, entries: Object.freeze(entries), exits: Object.freeze(exits), npcSpots: Object.freeze(npcSpots) });
   });
   return Object.freeze({ version: 1, maps: Object.freeze(maps) });

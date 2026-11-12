@@ -26,19 +26,19 @@ function syntheticPe(records: { famous: number[][]; area: number[][] }) {
 }
 
 describe('NPC spots (tools/npc-spots.mjs)', () => {
-  it('reads both spot tables through their lookups: map, spot, x, y, facing, the random-facing flag', () => {
+  it('reads both spot tables through their lookups: map, spot, x, y, facing, the random-facing and wander flags', () => {
     const exe = syntheticPe({ famous: [[4, 209, 599, 439, 1, 0], [9, 206, 602, 484, 0, 0]], area: [[4, 1, 95, 583, 0, 3], [4, 8, 1911, 1287, 3, 0], [5, 9, 423, 319, 0, 3]] });
     const { spots, source } = extractNpcSpots(exe);
     expect(source.map(s => [s.table, s.count])).toEqual([[0x00d0f7a0, 3], [0x00d0f688, 2]]);
     expect(spots).toEqual([
-      { spot: 1, map: 4, x: 95, y: 583, direction: 0, randomDirection: true }, { spot: 8, map: 4, x: 1911, y: 1287, direction: 3, randomDirection: false },
-      { spot: 9, map: 5, x: 423, y: 319, direction: 0, randomDirection: true }, { spot: 206, map: 9, x: 602, y: 484, direction: 0, randomDirection: false },
-      { spot: 209, map: 4, x: 599, y: 439, direction: 1, randomDirection: false }]);
+      { spot: 1, map: 4, x: 95, y: 583, direction: 0, randomDirection: true, wander: true }, { spot: 8, map: 4, x: 1911, y: 1287, direction: 3, randomDirection: false, wander: false },
+      { spot: 9, map: 5, x: 423, y: 319, direction: 0, randomDirection: true, wander: true }, { spot: 206, map: 9, x: 602, y: 484, direction: 0, randomDirection: false, wander: false },
+      { spot: 209, map: 4, x: 599, y: 439, direction: 1, randomDirection: false, wander: false }]);
     const maps = { version: 1, maps: [4, 5].map(id => ({ id, name: `Map_t0${id}`, width: null, height: null, grid: null, entries: [], exits: [], npcSpots: [] })) };
     const parsed = parseWorldMaps(withNpcSpots(maps, spots));
     expect(parsed.maps[0]!.npcSpots.map(s => s.spot)).toEqual([1, 8, 209]);
-    expect(parsed.maps[0]!.npcSpots[0]).toEqual({ spot: 1, x: 95, y: 583, direction: 0, randomDirection: true });
-    expect(parsed.maps[0]!.npcSpots[1]).toEqual({ spot: 8, x: 1911, y: 1287, direction: 3 });
+    expect(parsed.maps[0]!.npcSpots[0]).toEqual({ spot: 1, x: 95, y: 583, direction: 0, randomDirection: true, wander: true });
+    expect(parsed.maps[0]!.npcSpots[1]).toEqual({ spot: 8, x: 1911, y: 1287, direction: 3, wander: false });
   });
   it('refuses an exe whose lookups have another shape', () => {
     const exe = syntheticPe({ famous: [], area: [] }); exe[0x009dc4b0 - 0x00401000 + 0x400] = 0x90;

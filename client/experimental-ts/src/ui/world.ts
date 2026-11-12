@@ -12,12 +12,16 @@ import type { LobbyAvatar } from './contracts';
 import { safeImageUrl } from './helpers';
 import { AvatarActor, npcPoseKey, PoseCache, poseKey, type PoseRequest, type PoseStrip } from './world-avatars';
 import { flagCell as flagCellOf } from './nation-flag';
+import type { GlyphAtlas } from '../world/name-tag';
+import type { NpcWanderer } from '../world/npc-wander';
+import { RoomProps, type RoomPropsDeps } from './world-room';
 
 export type RenderScene = Pick<WorldScene, 'mapId' | 'definition' | 'frame' | 'dispose'>;
 /** A decoded picture the renderer owns: released when no displayed frame uses it (on a map change, all of them). */
 export interface WorldTexture { texture: Texture; release(): void }
 /** What PixiJS's Application gives the renderer: its stage, a ticker and teardown (a fake one in the unit tests). */
-export interface WorldHost { readonly stage: Container; readonly canvas?: HTMLCanvasElement; add(tick: (dtMs: number) => void): void; /** Stops / restarts the ticker (no drawing off the lobby). */ run?(on: boolean): void; destroy(): void }
+export interface WorldHost { readonly stage: Container; readonly canvas?: HTMLCanvasElement; add(tick: (dtMs: number) => void): void; /** Stops / restarts the ticker (no drawing off the lobby). */ run?(on: boolean): void;
+  /** The canvas's pixels per game pixel (1, or 2: live's render scale on a big window). */ resolution?(scale: number): void; destroy(): void }
 export interface WorldRendererOptions {
   loadScene(mapId: number, signal: AbortSignal): Promise<RenderScene>;
   onViewport?(): void;
@@ -29,6 +33,11 @@ export interface WorldRendererOptions {
   loadFlagAtlas?(signal: AbortSignal): Promise<WorldTexture>;
   /** The NPCs' level stars: data/Avatar/npc/npc_star16_01.png and npc_star08_01.png (avatars/npc.ts). */
   loadStarArt?(signal: AbortSignal): Promise<{ big: WorldTexture; small: WorldTexture }>;
+  /** The engine's name-tag glyphs (main's ui/glyphs-dejavu<px>.json, name-tag.ts): 16, and 32 at render scale 2;
+   * absent: no name tags drawn. */
+  loadGlyphs?(px: 16 | 32, signal: AbortSignal): Promise<GlyphAtlas>;
+  /** My Room's shelf and TV (world-room.ts): their pictures and the TV's movies; absent: the bare room. */
+  room?: Omit<RoomPropsDeps, 'makeCanvas'>;
   /** The blink timer's rand() (tests). */
   random?(): number;
   /** The PixiJS application on a canvas in `parent` (default: a WebGL Application at 60 fps); null draws nothing. */
@@ -67,7 +76,8 @@ async function defaultHost(parent: HTMLElement): Promise<WorldHost | null> {
   app.ticker.maxFPS = 60;
   const canvas = app.canvas; canvas.className = 'de-world-canvas'; canvas.setAttribute('aria-hidden', 'true'); canvas.dataset.key = 'world-canvas';
   parent.prepend(canvas);
-  return { stage: app.stage, canvas, add: tick => app.ticker.add(t => tick(t.deltaMS)), run: on => { if (on) app.ticker.start(); else { app.ticker.stop(); app.render(); } }, destroy: () => app.destroy({ removeView: true }, { children: true }) };
+  return { stage: app.stage, canvas, add: tick => app.ticker.add(t => tick(t.deltaMS)), run: on => { if (on) app.ticker.start(); else { app.ticker.stop(); app.render(); } },
+    resolution: r => { if (app.renderer.resolution !== r) app.renderer.resize(WORLD_VIEW_WIDTH, WORLD_VIEW_HEIGHT, r); }, destroy: () => app.destroy({ removeView: true }, { children: true }) };
 }
 
 /**
@@ -116,6 +126,12 @@ export class WorldRenderer {
   readonly actors = new Map<number, AvatarActor>();
   private readonly motions = new Map<number, ActorMotion>();
   private readonly lastAvatars = new Map<number, LobbyAvatar>();
+  private lastList: readonly LobbyAvatar[] = [];
+  private busyNpc: number | null = null;
+  private wanderClock = 0;
+  private roomProps: RoomProps | null = null;
+  /** The camera of the map left for another scene (hide), put back if that map comes back next. */
+  private keptCamera: { mapId: number; at: Point } | null = null;
   private hitNodes: ReadonlyMap<number, HTMLElement> = new Map();
   private hitShift = '';
   private readonly poses: PoseCache | null;
@@ -123,6 +139,12 @@ export class WorldRenderer {
   private flagLoading: AbortController | null = null;
   private readonly flagTextures = new Map<string, Texture>();
   private starArt: { big: WorldTexture; small: WorldTexture } | null = null;
+  private glyphs: GlyphAtlas | null = null;
+  private glyphsHi: GlyphAtlas | null = null;
+  private glyphLoading: AbortController | null = null;
+  private glyphHiLoading: AbortController | null = null;
+  /** The canvas's resolution: 2 once the stage is shown 1.5 times its size or more (live's d3d8 renderScale), else 1. */
+  private scale = 1;
   private starLoading: AbortController | null = null;
   private readonly random: () => number;
   private hitClock = 0;
@@ -174,7 +196,7 @@ export class WorldRenderer {
     const create = this.options.createHost ?? defaultHost;
     void create(this.element).then(host => {
       if (!host) return; if (this.closed) { host.destroy(); return; }
-      this.host = host; host.stage.addChild(this.root); host.add(dt => this.tick(dt)); if (this.paused) host.run?.(false);
+      this.host = host; host.stage.addChild(this.root); host.add(dt => this.tick(dt)); if (this.paused) host.run?.(false); if (this.scale > 1) host.resolution?.(this.scale);
     }).catch(error => console.warn('world renderer:', error));
   }
   private load(mapId: number): void {
@@ -188,8 +210,16 @@ export class WorldRenderer {
     try { loading = this.options.loadScene(mapId, request.signal); } catch (error) { loading = Promise.reject(error); }
     void loading.then(scene => {
       if (this.closed || request.signal.aborted || generation !== this.generation) { scene.dispose(); return; }
-      this.scene = scene; this.camera = new WorldCamera(scene.definition); this.camera.follow(this.followPoint, true); this.placeWorld();
+      this.scene = scene; this.camera = new WorldCamera(scene.definition);
+      // back on the map a scene was shown over (the card shop, the deck editor): the camera where it was, then the dead
+      // zone (live keeps the area map under those scenes); a new map: centred on the player
+      const kept = this.keptCamera; this.keptCamera = null;
+      if (kept && kept.mapId === mapId) { this.camera.restore(kept.at); this.camera.follow(this.followPoint); } else this.camera.follow(this.followPoint, true);
+      this.placeWorld();
       this.options.onViewport?.(); this.ensureFrame();
+      // the avatars set before the camera was known: which ones get their art is decided again now (a lone player in My
+      // Room has no other update to wait for)
+      if (this.lastList.length) { this.drawnKey = ''; this.setAvatars(this.lastList); }
     }).catch(error => { if (!this.closed && !request.signal.aborted && generation === this.generation && (error as Error)?.name !== 'AbortError') { this.failedLoad = true; this.message('Map artwork could not be loaded.', true); } })
       .finally(() => { if (this.loadAbort === request) this.loadAbort = null; });
   }
@@ -218,7 +248,7 @@ export class WorldRenderer {
       if (previous) { for (const s of previous.sprites) s.destroy(); this.releaseFrame(previous.frame); }
       this.dropUnusedTextures();
       if (previousScene && previousScene !== scene) previousScene.dispose();
-      this.root.visible = true; this.sortDirty = true;
+      this.root.visible = true; this.sortDirty = true; this.ensureRoom();
       this.element.dataset.mapReady = 'true'; this.element.dataset.sceneImages = String(this.displayed.count); this.avatars.style.visibility = ''; this.message(''); this.layoutHits(true); this.options.onViewport?.();
     }).catch(error => {
       if (!this.closed && !request.signal.aborted && generation === this.generation && (error as Error)?.name !== 'AbortError') { this.failedViewport = key; this.message('Map artwork could not be loaded.', true); }
@@ -261,6 +291,19 @@ export class WorldRenderer {
     add(frame.tiles, this.tiles, false); add(frame.objects, this.sorted, true); add(frame.frontObjects, this.front, false);
     return out;
   }
+  /** My Room (map 8) gets its shelf (just under the shelf's front frame, Map_r01_0101_obj: the back frame is the floor
+   * tiles', so the glass lies between them) and its TV (over the floor) once its map is up. */
+  private ensureRoom(): void {
+    if (this.requestedMap !== 8 || !this.options.room) { this.dropRoom(); return; }
+    if (!this.roomProps) {
+      this.roomProps = new RoomProps(this.options.room, this.now);
+      this.tiles.addChild(this.roomProps.tv); this.sorted.addChild(this.roomProps.shelf);
+    }
+    this.tiles.addChild(this.roomProps.tv);   // over every tile the frame put in
+    const frame = this.sorted.children.find(c => c.label === 'data/Map/Map_r01/Map_r01_0101_obj.png');
+    const z = (frame?.zIndex ?? 1) - 1; if (this.roomProps.shelf.zIndex !== z) { this.roomProps.shelf.zIndex = z; this.sortDirty = true; }
+  }
+  private dropRoom(): void { if (this.roomProps) { this.roomProps.destroy(); this.roomProps = null; } }
   private dropUnusedTextures(): void {
     const keep = this.displayed?.paths;
     for (const [path, entry] of this.textures) if (!keep?.has(path)) { entry.tex.release(); this.textures.delete(path); }
@@ -269,20 +312,22 @@ export class WorldRenderer {
    * there; art for the nearest 24 near the view. */
   setAvatars(avatars: readonly LobbyAvatar[]): void {
     if (this.closed) return;
-    const t = this.now(), seen = new Set<number>();
+    const t = this.now(), seen = new Set<number>(); this.lastList = avatars;
     for (const a of avatars) {
       seen.add(a.id); this.lastAvatars.set(a.id, a);
       let actor = this.actors.get(a.id), motion = this.motions.get(a.id);
       if (!actor) { actor = new AvatarActor(a.id, a.name, !!a.self); this.actors.set(a.id, actor); this.sorted.addChild(actor.root); this.sortDirty = true; }
-      actor.setName(a.name); this.applyFlag(actor, a.country); this.applyStars(actor, a);
-      if (!motion) { motion = new ActorMotion(a, a.direction ?? 0); this.motions.set(a.id, motion); }
+      this.applyName(actor, a); this.applyFlag(actor, a.country); this.applyStars(actor, a);
+      const w = a.wander;
+      if (!motion) { motion = new ActorMotion(w ?? a, (w ?? a).direction ?? 0); this.motions.set(a.id, motion); }
+      else if (w) this.wanderPlace(motion, w);
       else motion.retarget(a, a.direction, !!a.self);
       if (a.self) { motion.direction = a.direction ?? motion.direction; motion.walking = a.motion === 'walk'; }
       this.place(actor, motion);
     }
     for (const [id, actor] of this.actors) if (!seen.has(id)) { this.dropActor(id, actor); }
     const v = this.camera?.viewport ?? null, viewKey = v ? `${v.x}/${v.y}/${avatars.length}` : `-/${avatars.length}`;
-    if (viewKey !== this.drawnKey || ++this.drawnClock >= 30) { this.drawnKey = viewKey; this.drawnClock = 0; this.drawn = drawnAvatars(avatars, v); }
+    if (viewKey !== this.drawnKey || ++this.drawnClock >= 30) { this.drawnKey = viewKey; this.drawnClock = 0; this.drawn = drawnAvatars(this.placed(avatars), v); }
     for (const [id, actor] of this.actors) this.pose(actor, this.lastAvatars.get(id)!, this.drawn.has(id), t);
   }
   /** Index's hit targets (button.de-avatar by avatar id), written by the renderer as the avatars move. */
@@ -357,6 +402,27 @@ export class WorldRenderer {
       this.starArt = art; for (const [id, actor] of this.actors) { const last = this.lastAvatars.get(id); if (last) this.applyStars(actor, last); }
     }, (e: unknown) => console.warn('npc stars:', e)).finally(() => { if (this.starLoading === abort) this.starLoading = null; });
   }
+  private applyName(actor: AvatarActor, a: LobbyAvatar): void {
+    if (!this.glyphs) this.loadGlyphs(16);
+    if (this.scale > 1 && !this.glyphsHi) this.loadGlyphs(32);
+    actor.setName(a.name, a.nameColor ?? 0, this.glyphs, this.scale > 1 ? this.glyphsHi : null);
+  }
+  private loadGlyphs(px: 16 | 32): void {
+    const busy = px === 16 ? this.glyphLoading : this.glyphHiLoading;
+    if (busy || (px === 16 ? this.glyphs : this.glyphsHi) || !this.options.loadGlyphs) return;
+    const abort = new AbortController(); if (px === 16) this.glyphLoading = abort; else this.glyphHiLoading = abort;
+    void this.options.loadGlyphs(px, abort.signal).then(atlas => {
+      if (abort.signal.aborted || this.closed) return;
+      if (px === 16) this.glyphs = atlas; else this.glyphsHi = atlas;
+      this.renameAll();
+    }, (e: unknown) => console.warn('name tags:', e)).finally(() => { if (px === 16 && this.glyphLoading === abort) this.glyphLoading = null; if (px === 32 && this.glyphHiLoading === abort) this.glyphHiLoading = null; });
+  }
+  private renameAll(): void { for (const [id, actor] of this.actors) { const last = this.lastAvatars.get(id); if (last) this.applyName(actor, last); } }
+  /** The stage's on-screen scale (CSS px x device px per game px): the render scale and the tags' glyphs follow it. */
+  private setScale(onScreen: number): void {
+    const scale = onScreen >= 1.5 ? 2 : 1; if (scale === this.scale) return;
+    this.scale = scale; this.host?.resolution?.(scale); this.renameAll();
+  }
   private applyFlag(actor: AvatarActor, country: string | undefined): void {
     const cell = country ? flagCellOf(country) : null;
     if (!cell || !this.options.loadFlagAtlas) { actor.setFlag(null); return; }
@@ -384,9 +450,13 @@ export class WorldRenderer {
     if (this.closed) return;
     this.frameTimes[this.frameCursor] = dtMs; this.frameCursor = (this.frameCursor + 1) % this.frameTimes.length; this.frameCount++;
     const t = this.now(), reduced = this.options.reducedMotion?.() ?? false;
+    let wandered = false;
     for (const [id, actor] of this.actors) {
-      const motion = this.motions.get(id)!, last = this.lastAvatars.get(id);
-      if (last && !last.self && motion.step(dtMs, last.direction)) this.repose(actor, last, t);
+      const motion = this.motions.get(id)!, last = this.lastAvatars.get(id), w = last?.wander;
+      // a wandering NPC walks by its own frames (world/npc-wander.ts), held while it is being talked to; none under
+      // reduced motion
+      if (w) { w.busy = id === this.busyNpc; if (!reduced && w.update(dtMs)) { wandered = true; this.wanderPlace(motion, w); this.repose(actor, last!, t); } }
+      else if (last && !last.self && motion.step(dtMs, last.direction)) this.repose(actor, last, t);
       this.place(actor, motion);
       const strip = actor.strip, blink = strip && !reduced ? this.blinkTexture(actor, t) : null;
       if (blink) { if (actor.body.texture !== blink) actor.body.texture = blink; }
@@ -395,9 +465,21 @@ export class WorldRenderer {
         if (frame !== actor.frame || actor.body.texture !== strip.frames[frame]) { actor.frame = frame; actor.body.texture = strip.frames[frame]!; }
       }
     }
+    if (wandered && ++this.wanderClock >= 60) { this.wanderClock = 0; this.redraw(t); }
+    this.roomProps?.step(reduced);
     if (this.sortDirty) { this.sorted.sortChildren(); this.sortDirty = false; }
     if (++this.hitClock >= 6) { this.hitClock = 0; this.layoutHits(false); }
   }
+  /** The avatars where they stand now (a wandering NPC at its wanderer's place). */
+  private placed(avatars: readonly LobbyAvatar[]): readonly LobbyAvatar[] { return avatars.some(a => a.wander) ? avatars.map(a => a.wander ? { ...a, x: a.wander.x, y: a.wander.y } : a) : avatars; }
+  /** Every second while NPCs wander: which avatars get art again (one walking into view gets its own). */
+  private redraw(t: number): void {
+    const was = this.drawn; this.drawn = drawnAvatars(this.placed(this.lastList), this.camera?.viewport ?? null);
+    for (const [id, actor] of this.actors) if (was.has(id) !== this.drawn.has(id)) { const last = this.lastAvatars.get(id); if (last) this.pose(actor, last, this.drawn.has(id), t); }
+  }
+  private wanderPlace(motion: ActorMotion, w: NpcWanderer): void { motion.retarget(w, w.direction, true); motion.direction = w.direction; motion.walking = w.walking; }
+  /** The NPC whose card or talk is open (its avatar id): it stops wandering (0x009d8d60). */
+  setBusyNpc(id: number | null): void { this.busyNpc = id; }
   /** A remote that started or stopped walking (or turned) asks for that pose. */
   private repose(actor: AvatarActor, a: LobbyAvatar, t: number): void {
     if (!actor.drawn && !actor.wanted) return;
@@ -435,28 +517,30 @@ export class WorldRenderer {
       mapId: this.requestedMap, ready: this.ready, viewport: v, sprites: this.displayed?.count ?? 0, textures: this.textures.size, poses: this.poses?.size ?? 0, renderer: this.host ? 'pixi' : 'none',
       frames: { count: this.frameCount, fps: mean ? 1000 / mean : 0, p95: n ? times[Math.min(n - 1, Math.floor(n * 0.95))] : 0, worst: n ? times[n - 1] : 0 },
       // look: the pose strip on screen (world/motion/direction/parts), the old one until a new look's strip is in
-      avatars: [...this.actors.values()].map(a => { const m = this.motions.get(a.id)!; return { id: a.id, name: a.name.text, x: m.x, y: m.y, direction: m.direction, walking: m.walking, frame: a.frame, z: a.root.zIndex, drawn: a.drawn, look: a.drawn ? a.strip?.key ?? '' : '', stars: a.starsKey, blink: a.blink?.key ?? '', blinking: a.blinkAt !== null }; }),
+      avatars: [...this.actors.values()].map(a => { const m = this.motions.get(a.id)!; return { id: a.id, name: a.label, nameColor: a.labelColor, tag: a.name.visible, x: m.x, y: m.y, direction: m.direction, walking: m.walking, frame: a.frame, z: a.root.zIndex, drawn: a.drawn, look: a.drawn ? a.strip?.key ?? '' : '', stars: a.starsKey, blink: a.blink?.key ?? '', blinking: a.blinkAt !== null }; }),
     };
   }
   private fit(): void {
     const parent = this.element.parentElement ?? this.element.parentNode as HTMLElement | null;
     if (!parent || typeof parent.getBoundingClientRect !== 'function' || parent === this.observedParent) return;
     this.resizeObserver?.disconnect(); this.observedParent = parent;
-    const layout = () => { const box = parent.getBoundingClientRect(); if (!(box.width > 0 && box.height > 0)) return; const scale = Math.min(box.width / WORLD_VIEW_WIDTH, box.height / WORLD_VIEW_HEIGHT); this.element.style.width = `${WORLD_VIEW_WIDTH * scale}px`; this.element.style.height = `${WORLD_VIEW_HEIGHT * scale}px`; this.element.style.left = `${(box.width - WORLD_VIEW_WIDTH * scale) / 2}px`; this.element.style.top = `${(box.height - WORLD_VIEW_HEIGHT * scale) / 2}px`; };
+    const layout = () => { const box = parent.getBoundingClientRect(); if (!(box.width > 0 && box.height > 0)) return; const scale = Math.min(box.width / WORLD_VIEW_WIDTH, box.height / WORLD_VIEW_HEIGHT); this.setScale(scale * (globalThis.devicePixelRatio || 1)); this.element.style.width = `${WORLD_VIEW_WIDTH * scale}px`; this.element.style.height = `${WORLD_VIEW_HEIGHT * scale}px`; this.element.style.left = `${(box.width - WORLD_VIEW_WIDTH * scale) / 2}px`; this.element.style.top = `${(box.height - WORLD_VIEW_HEIGHT * scale) / 2}px`; };
     layout(); if (typeof ResizeObserver === 'function') { this.resizeObserver = new ResizeObserver(layout); this.resizeObserver.observe(parent); }
   }
   private cancelPendingFrame(): void { this.frameAbort?.abort(); this.frameAbort = null; this.framePending = false; this.releaseFrame(this.pendingFrame); this.pendingFrame = null; }
   private releaseFrame(frame: SceneFrame | null): void { if (frame && !this.releasedFrames.has(frame)) { this.releasedFrames.add(frame); frame.release(); } }
   /** The displayed frame's sprites and every texture go (a map change: nothing of the old map stays in memory). */
   private clearFrame(): void {
+    this.dropRoom();
     if (this.displayed) { for (const s of this.displayed.sprites) s.destroy(); this.releaseFrame(this.displayed.frame); this.displayed = null; }
     for (const entry of this.textures.values()) entry.tex.release(); this.textures.clear();
     this.root.visible = false;
   }
-  private clearActors(): void { for (const [id, actor] of [...this.actors]) this.dropActor(id, actor); this.poses?.clear(); this.drawn = new Set(); this.drawnKey = ''; }
+  private clearActors(): void { this.lastList = []; for (const [id, actor] of [...this.actors]) this.dropActor(id, actor); this.poses?.clear(); this.drawn = new Set(); this.drawnKey = ''; }
   /** Leaving a scene releases every lease, texture and pose strip. */
   hide(): void {
     if (this.closed) return;
+    if (this.camera && this.requestedMap !== null) this.keptCamera = { mapId: this.requestedMap, at: this.camera.exact };
     ++this.generation; this.loadAbort?.abort(); this.loadAbort = null; this.cancelPendingFrame(); this.resizeObserver?.disconnect(); this.resizeObserver = null; this.observedParent = null;
     this.clearFrame(); this.clearActors(); this.avatars.replaceChildren(); this.hitNodes = new Map();
     const scenes = new Set([this.scene, this.displayedScene]); for (const scene of scenes) scene?.dispose();
@@ -466,6 +550,7 @@ export class WorldRenderer {
   dispose(): void {
     if (this.closed) return; this.hide(); this.closed = true;
     this.flagLoading?.abort(); for (const t of this.flagTextures.values()) t.destroy(false); this.flagTextures.clear(); this.flagAtlas?.release(); this.flagAtlas = null;
+    this.glyphLoading?.abort(); this.glyphHiLoading?.abort();
     this.starLoading?.abort(); if (this.starArt) { this.starArt.big.release(); this.starArt.small.release(); this.starArt = null; }
     this.host?.destroy(); this.host = null; this.root.destroy({ children: true });
     this.element.replaceChildren(); this.element.remove();

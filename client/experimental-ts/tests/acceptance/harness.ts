@@ -127,8 +127,14 @@ export const resultLeave = `(${resultNext}??[...document.querySelectorAll('butto
 export async function leaveResult(page:Page,timeout = 60000):Promise<void> { await until(page,resultShown,timeout); await press(page,resultLeave); }
 /** In the lobby: main's menu bar with its Duel key, the map drawn (or none to draw: no original art; or its art
  * unreachable, the map's own failure with Retry Map). */
-export const lobbyShown = `(!!document.querySelector('[data-key="menubar-duel"]')&&(document.querySelector('.de-world-view')?.dataset.mapReady!=='false'||document.querySelector('.de-world-view')?.dataset.mapFailed==='true'))`;
-/** A row of the lobby's player list (main's CPlayerListDlg) by its name. */
+const mapShown = `(document.querySelector('.de-world-view')?.dataset.mapReady!=='false'||document.querySelector('.de-world-view')?.dataset.mapFailed==='true')`;
+/** In My Room (live's first stop online: the room, its bar with the Main Menu key and no Duel key). */
+export const roomShown = `(!!document.querySelector('[data-key="main-menu"]')&&!document.querySelector('[data-key="menubar-duel"]')&&window.__deApp?.getState().location==='my-room'&&${mapShown})`;
+/** In the lobby: main's menu bar with its Duel key, the map drawn (or none to draw: no original art; or its art
+ * unreachable, the map's own failure with Retry Map). A character comes online in My Room, as live: waiting for the
+ * lobby there walks it out through the red door (Duel Academy) unless the starter deck picker is up (claimStarter
+ * waits for the lobby again after it), which also counts as shown. */
+export const lobbyShown = `((!!document.querySelector('[data-key="menubar-duel"]')&&${mapShown})||(${roomShown}&&(!!document.getElementById('starter')||((w,t)=>{if(!w.__leaveRoomAt||t-w.__leaveRoomAt>15000){w.__leaveRoomAt=t;void w.__deApp.dispatch({type:'move',x:860,y:360}).catch(()=>{});}return false;})(window,Date.now()))))`;
 /** A row's name: its label past the level live's rows lead with ("Lv 1 Name"; an NPC's row has none). */
 const rowName = `(b=>(b.getAttribute('aria-label')??'').replace(/^Lv \\d+ /,''))`;
 export const listRow = (name:string) => `[...document.querySelectorAll('#htmlui-host .pl-row')].find(b=>${rowName}(b)===${JSON.stringify(name)}&&b.getClientRects().length)`;
@@ -300,6 +306,25 @@ export async function claimStarter(page:Page,index = 0) {
     await until(page,btn('OK'),30000);
     const said = await page.ev(`document.getElementById('starter')?.innerText ?? ''`) as string;
     await press(page,btn('OK')); await until(page,`!document.getElementById('starter')`,10000).catch(e => { throw new Error(`starter claim: ${said}\n${String(e)}`); });
+  }
+  // the picker is My Room's (live): out to the lobby, where a new character is first told of its challenge right
+  if (await page.ev(roomShown)) { await until(page,lobbyShown,60000); await closeUnlocks(page); }
+}
+/** The unlock picture(s) a new character gets on first reaching the world (live's item window: "Now, you can challenge
+ * Yami Marik to a Duel!"): OK on each. */
+export const unlockShown = `document.querySelector('#htmlui-host [data-window-class="CWindowModelItemGet"]')`;
+const unlockOk = `[...document.querySelectorAll('#htmlui-host [data-window-class="CWindowModelItemGet"] *')].find(e=>e.textContent.trim()==='OK'&&!e.children.length)`;
+export async function closeUnlocks(page:Page,wait = 25000) {
+  // it comes once the world's ITEMGET(1) is answered
+  await until(page,unlockShown,wait).catch(() => {});
+  // its OK is the window's own text (the click lands on the window, which finds the control under it): the pointer at it
+  for (let i = 0; i < 4 && await page.ev(`Boolean(${unlockShown})`); i++) {
+    const point = await page.ev(`(()=>{const e=${unlockOk};if(!e)return null;const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`) as { x:number; y:number } | null;
+    if (!point) break;
+    await page.send('Input.dispatchMouseEvent',{ type:'mouseMoved',...point });
+    await page.send('Input.dispatchMouseEvent',{ type:'mousePressed',...point,button:'left',clickCount:1 });
+    await page.send('Input.dispatchMouseEvent',{ type:'mouseReleased',...point,button:'left',clickCount:1 });
+    await sleep(400);
   }
 }
 

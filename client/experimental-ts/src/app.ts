@@ -48,9 +48,11 @@ import { WorldNavigator } from './world';
 import { chooseInitialArrival } from './world/arrival';
 import { isWalkable } from './world/pathfinding';
 import { WorldRuntime } from './world/runtime';
-import { npcsOnMap, npcStance } from './world/npcs';
+import { MY_ROOM_SPAWN, npcsOnMap, npcStance } from './world/npcs';
+import { NpcWanderer } from './world/npc-wander';
+import { nameTagColor } from './world/name-tag';
 import { npcChibiSet, npcStars } from './avatars/npc';
-import { arrivalEntries, chooseArrival, SHOP_DOOR, SHOP_DOOR_REARM } from './world/exits';
+import { arrivalEntries, chooseArrival, MY_ROOM_DOORS, SHOP_DOOR, SHOP_DOOR_REARM } from './world/exits';
 import type { ExitTrigger } from './world/exits';
 import type { WorldMap, WorldPosition } from './world/maps';
 import { MAP_NAMES, SceneLoader } from './world/scene';
@@ -316,7 +318,8 @@ export class ClientApp implements ClientController {
   private emit(): void { if (!this.disposed) { this.view = { ...this.view, ...this.place() }; this.syncAudioScene(); this.options.preloader?.observe(this.view.scene, this.game?.state.area ?? null, this.game?.state.phase ?? null); for (const listener of this.listeners) listener(this.view);this.scheduleNpcEligibility(); } }
   private scheduleNpcEligibility():void {
     const game=this.game,state=this.npc?.state;
-    if(!this.eligibilityDue || this.eligibilityQueued || this.view.busy || this.freeMode || !game || game.state.phase!=='lobby' || !game.state.pbin || !game.state.npcbin || !state ||
+    // live's area map asks (CAreaMapScene::onInit); My Room does not: its check waits for the world
+    if(!this.eligibilityDue || this.eligibilityQueued || this.view.busy || this.freeMode || !game || game.state.phase!=='lobby' || game.state.location==='my-room' || !game.state.pbin || !game.state.npcbin || !state ||
       !['idle','done'].includes(state.stage) || state.eligibility.refreshing || [state.eligibility.status,state.firstContactStatus,state.giftStatus].some(s=>s==='pending'||s==='uncertain') || state.packStatus==='pending' || state.packs.length>0&&state.packStatus==='idle')return;
     const epoch=this.epoch;this.eligibilityQueued=true;
     queueMicrotask(()=>{this.eligibilityQueued=false;if(this.disposed || epoch!==this.epoch || this.game!==game || this.view.busy || !this.eligibilityDue)return;
@@ -381,8 +384,9 @@ export class ClientApp implements ClientController {
     if (!this.options.assets) throw new Error('Original artwork is not configured.');
     // Duel effects are also movie/sheet scripts (.txt) next to their PNGs; the waist-up avatar parts are listed in .csv;
     // the menu bar and windows use data/common/window and data/common/icon (the duel bar's ring: an icon movie); card-get uses data/y/result and data/card_get;
-    // the shop data/shop and its clerk's picture data/avatar/npc (tiles listed in its .csv); the trade's lamps data/deck; the lobby data/menu.
-    if (!/^data\/(?:(?:cardpack|y\/duel|y\/duel_end|y\/janken|y\/result|result|card_get|card|avatar\/wu|avatar\/npc|avatar\/flag|shop|deck|common\/window|common\/icon|menu)\/(?:[\w#.-]+\/)*[\w#.-]+\.png|(?:y2?\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.txt|menu\/menu_mark_a01\.txt|common\/window\/icon\/menuicon_03_a0\d\.txt|title\/title_flash_01\.txt|title\/(?:title_\w+|option_\w+)\.png|y2\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.png|y2\/duel_(?:window|gauge|font)_0\d_c0\d\.png|avatar\/wu\/w[mw]_data\.csv|avatar\/npc\/[ad]\d\d\.csv))$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
+    // the shop data/shop and its clerk's picture data/avatar/npc (tiles listed in its .csv); the trade's lamps data/deck; the lobby data/menu;
+    // My Room's shelf (data/Map/Map_r01, Map_switch) and its TV's pictures (data/tv).
+    if (!/^data\/(?:(?:cardpack|y\/duel|y\/duel_end|y\/janken|y\/result|result|card_get|card|avatar\/wu|avatar\/npc|avatar\/flag|shop|deck|common\/window|common\/icon|menu|tv|itemget|scene\/avatarchange|map\/map_r01|map\/map_switch)\/(?:[\w#.-]+\/)*[\w#.-]+\.png|(?:y2?\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.txt|menu\/menu_mark_a01\.txt|common\/window\/icon\/menuicon_03_a0\d\.txt|title\/title_flash_01\.txt|title\/(?:title_\w+|option_\w+)\.png|y2\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.png|y2\/duel_(?:window|gauge|font)_0\d_c0\d\.png|avatar\/wu\/w[mw]_data\.csv|avatar\/npc\/[ad]\d\d\.csv))$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
     const lease = await this.options.assets.readScene(path, signal);
     return { url: lease.value.url, release: () => lease.release() };
   }
@@ -391,7 +395,7 @@ export class ClientApp implements ClientController {
   async readGameFile(path: string, signal?: AbortSignal): Promise<Uint8Array> {
     if (!this.options.assets) throw new Error('Original artwork is not configured.');
     // (and the card pack catalogue's tables: the deck screen's structure deck texts, htmlui/pack-info.ts)
-    if (!/^data\/(?:avatar\/chibi|avatar\/wu|map\/map_switch|shop|y\/result|card|cardpack)\/(?:[\w#.-]+\/)*[\w#.-]+\.(?:png|jpg|csv|txt)$/i.test(path) && !/^data\/cardpack\/PACK_\w+\.bin$/.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
+    if (!/^data\/(?:avatar\/chibi|avatar\/wu|map\/map_switch|shop|y\/result|card|cardpack|tv)\/(?:[\w#.-]+\/)*[\w#.-]+\.(?:png|jpg|csv|txt)$/i.test(path) && !/^data\/cardpack\/PACK_\w+\.bin$/.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
     const lease = await this.options.assets.readScene(path, signal ?? this.scope.signal);
     try { return lease.value.bytes.slice(); } finally { lease.release(); }
   }
@@ -505,8 +509,9 @@ export class ClientApp implements ClientController {
       this.worldSpawnContext = spawnContext;
       // A fresh server presence uses (0,0) until the client sends its initial move. My Room (map 8, Map_r01) is the
       // area map scene too: its player stands at GetInitPos(8, 8) = (680,400) plus rand()%60-30 each way (0x00a01575..)
-      if (this.arrivalFrom?.to===state.area || this.arrivalArea===state.area || this.arrivalArea===-1 && state.location!=='my-room' || selfAt.x === 0 && selfAt.y === 0 && (!worldMap.grid || !isWalkable(worldMap.grid,selfAt)) && worldMap.entries.some(e=>e.from===8)) {
-        spawn = this.arrivalFrom?.to===state.area && arrivalEntries(worldMap,this.arrivalFrom.from,{crossings:true}).length ? chooseArrival(worldMap,this.arrivalFrom.from,{crossings:true,random:this.options.random}) : chooseInitialArrival(worldMap,this.options.random);
+      if (state.area===8 || this.arrivalFrom?.to===state.area || this.arrivalArea===state.area || this.arrivalArea===-1 || selfAt.x === 0 && selfAt.y === 0 && (!worldMap.grid || !isWalkable(worldMap.grid,selfAt)) && worldMap.entries.some(e=>e.from===8)) {
+        // My Room's scene stands the player by the red door, always there (CMyRoomScene: 0x00825823, (790, 430))
+        spawn = state.area===8 ? { ...MY_ROOM_SPAWN } : this.arrivalFrom?.to===state.area && arrivalEntries(worldMap,this.arrivalFrom.from,{crossings:true}).length ? chooseArrival(worldMap,this.arrivalFrom.from,{crossings:true,random:this.options.random}) : chooseInitialArrival(worldMap,this.options.random);
         this.arrivalFrom=null;this.arrivalArea=null;this.shopDoor=null;
         const game = this.game, epoch = this.epoch, position = spawn;
         queueMicrotask(()=> {
@@ -546,7 +551,7 @@ export class ClientApp implements ClientController {
         invitation: this.project('invitation', state.challenge, challenge => challenge ? { name: challenge.name, pid: challenge.pid } : undefined),
         outgoing: this.project('outgoing', state.outgoingChallengeRoom, room => room ? { name: this.nextOpponent ?? state.players.find(p => state.rooms.some(r => r.id === room && r.owner === p.pid))?.name ?? 'your opponent' } : undefined),
         // All areas of a world share one server block; only players in this area (its area block) are on this map.
-        avatars: state.players.filter(p => p.pid === profile.pid || p.areaBlock === state.areaBlock).map(p => ({ id:p.pid,name:p.name,level:p.level,country:p.country,x:p.pid === profile.pid && spawn ? spawn.x : p.x ?? 0,y:p.pid === profile.pid && spawn ? spawn.y : p.y ?? 0,self:p.pid === profile.pid,parts:p.parts,direction:p.direction,world:([4,5,6,7].includes(state.area)?1:0) as 0|1,duelling:p.state !== undefined && p.state >= 0x67 && p.state <= 0x6a,motion:p.pid === profile.pid && this.world.walking ? 'walk' as const : 'stand' as const }) as LobbyAvatar).concat(this.mapNpcAvatars(state,worldMap)),
+        avatars: state.players.filter(p => p.pid === profile.pid || p.areaBlock === state.areaBlock).map(p => ({ id:p.pid,name:p.name,level:p.level,country:p.country,x:p.pid === profile.pid && spawn ? spawn.x : p.x ?? 0,y:p.pid === profile.pid && spawn ? spawn.y : p.y ?? 0,self:p.pid === profile.pid,parts:p.parts,direction:p.direction,world:this.lobbyWorld(state),duelling:p.state !== undefined && p.state >= 0x67 && p.state <= 0x6a,nameColor:nameTagColor(p.state),motion:p.pid === profile.pid && this.world.walking ? 'walk' as const : 'stand' as const }) as LobbyAvatar).concat(this.mapNpcAvatars(state,worldMap)),
         chat: this.project('chat', state.chat, chat => chat.map((m, i) => ({ id: String(i), sender: m.name, text: m.text, channel: channelName(m.channel) }))),
         channels: ['global', 'trade', 'whisper', 'team'],
       } : null,
@@ -624,6 +629,9 @@ export class ClientApp implements ClientController {
     } catch { return false; }
     this.syncDuel(); return true;
   }
+  /** The world the lobby's avatars are drawn in (CGameMng +0x448, g_lobbyWorld): the area's, and in My Room the one the
+   * player came from (the look the session registered last), as live. */
+  private lobbyWorld(state:SessionState): 0|1 { return (state.location==='my-room' ? state.appearanceWorld : [4,5,6,7].includes(state.area) ? 1 : 0) as 0|1; }
   private npcAvatarCache:{key:readonly unknown[];avatars:LobbyAvatar[]}|null = null;
   /** The NPCs standing on this map (the area map's NPC builder, src/world/npcs.ts) as avatars: id -npc (the NPC
    * card's own entry), standing idle where their spot puts them; built once per map visit and NPC list, so a spot
@@ -634,11 +642,16 @@ export class ClientApp implements ClientController {
     const key = [worldMap,state.npcs,state.npcbin,state.pbin,this.worldSpawnContext];
     if (this.npcAvatarCache && this.npcAvatarCache.key.every((v,i)=>v===key[i])) return this.npcAvatarCache.avatars;
     const npcbin = state.npcbin, rank = (id:number) => npcbin && id*4+3 < npcbin.length ? npcbin[id*4+3]! : 0;
-    const world = ([4,5,6,7].includes(worldMap.id)?1:0) as 0|1, old = new Map((this.npcAvatarCache?.avatars ?? []).map(a=>[a.id,a]));
+    const world = this.lobbyWorld(state), old = new Map((this.npcAvatarCache?.avatars ?? []).map(a=>[a.id,a]));
     const avatars = npcsOnMap(worldMap,state.npcs,rank).map(({npc,spot}):LobbyAvatar => {
       const kept = old.get(-npc.id), at = kept && kept.x===spot.x && kept.y===spot.y ? { x:kept.x,y:kept.y,direction:kept.direction ?? 0 } : npcStance(spot,this.options.random);
+      // a wandering spot's NPC walks among the map's spots (CNpcChibiAvatar, world/npc-wander.ts), from where it was
+      const wanders = (spot.wander ?? spot.randomDirection) && !!worldMap.grid;
+      const wander = !wanders ? undefined : kept?.wander && kept.x===spot.x && kept.y===spot.y ? kept.wander
+        : new NpcWanderer(at, worldMap.npcSpots.map(p => ({ x:p.x,y:p.y })), worldMap.grid, this.options.random ? { rand:() => Math.floor(this.options.random!() * 32768) } : {});
       const set = npcChibiSet(npc.id), stars = npcbin ? npcStars(npc,state.npcs,npcbin,state.pbin) : undefined;
-      return { id:-npc.id,name:npc.name,x:at.x,y:at.y,direction:at.direction,npc:true,parts:npc.parts,...(set ? { npcArt:set } : {}),...(stars ? { stars } : {}),world,motion:'stand' };
+      // every NPC's tag carries the world's NPC flag (CNpcChibiAvatar::setNpc 0x009d7c2f: NPCL in Domino, NPCG in the Academy)
+      return { id:-npc.id,name:npc.name,x:at.x,y:at.y,direction:at.direction,npc:true,country:world ? 'NPCG' : 'NPCL',parts:npc.parts,...(wander ? { wander } : {}),...(set ? { npcArt:set } : {}),...(stars ? { stars } : {}),world,motion:'stand' };
     });
     this.npcAvatarCache = { key,avatars }; return avatars;
   }
@@ -676,7 +689,7 @@ export class ClientApp implements ClientController {
     // My Room's door goes back out to the world area it was entered from, at that map's My Room arrivals (entries from 8)
     const leaving=game.state.location==='my-room';
     if(leaving){this.arrivalFrom=null;this.arrivalArea=-1;} else this.arrivalFrom={from,to:exit.destination};
-    try {if(leaving)await game.leaveMyRoom();else await game.enterArea(exit.destination);this.assertEpoch(epoch);}
+    try {if(leaving)await game.leaveMyRoom(MY_ROOM_DOORS[exit.index]);else await game.enterArea(exit.destination);this.assertEpoch(epoch);}
     catch(error) {if(epoch===this.epoch){this.arrivalFrom=null;throw error;}}
     finally {if(epoch===this.epoch)this.worldTransition=false;}
   }
@@ -1006,7 +1019,10 @@ export class ClientApp implements ClientController {
         case 'signOut': this.disconnect(); this.lockToken = token; this.patch({ busy: true, auth: { signedIn: false } }); await this.services.signOut({ signal: this.connectionScope.signal }); this.patch({ auth: { signedIn: false }, status: 'Signed out.' }); break;
         case 'createCharacter': await this.requireGame().createCharacter(command.slot, command.name, command.appearance); break;
         case 'deleteCharacter': await this.requireGame().deleteCharacter(command.slot); break;
-        case 'selectCharacter': await this.requireGame().selectCharacter(command.slot); this.assertEpoch(epoch); await this.refresh('lobby'); await this.refresh('deck'); this.assertEpoch(epoch); this.patch({ scene: 'lobby' }); break;
+        // live's world manager enters My Room first (CWorldMng ENTER_MYROOM, recomp ovr/lobbyretry.c): a character comes
+        // online in its room and leaves it by a door (free mode has no room: its lobby straight away)
+        case 'selectCharacter': this.arrivalFrom = null; this.arrivalArea = null;
+          await this.requireGame().selectCharacter(command.slot, this.freeMode ? undefined : 'my-room'); this.assertEpoch(epoch); await this.refresh('lobby'); await this.refresh('deck'); this.assertEpoch(epoch); this.patch({ scene: 'lobby' }); break;
         case 'claimStarter': {
           // as live's: the server adds the deck to the character's decks (and makes it current) itself; nothing is saved
           // for the player (live's "Save a playable owned deck" mission waits for their own save), and the structure
