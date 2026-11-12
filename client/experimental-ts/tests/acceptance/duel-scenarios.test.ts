@@ -33,7 +33,7 @@ const VIEW = `(()=>{const ok=b=>!b.disabled&&b.getClientRects().length;const p=d
   actions:[...document.querySelectorAll('.de-phase-bar button')].filter(ok).map(b=>b.textContent),zones:[...document.querySelectorAll('.de-zone-target,.de-card-target')].filter(ok).map(b=>b.getAttribute('aria-label')),
   waiting:[...document.querySelectorAll('.de-duel-prompt:not([role])')].map(n=>n.textContent).join(' ')||null,errors:[...document.querySelectorAll('.de-error')].map(n=>n.textContent),
   log:[...document.querySelectorAll('.de-duel-log div')].map(d=>d.textContent),ended:window.__duelEnd()??null,
-  instruction:document.querySelector('.de-duel-instruction')?.textContent??null,
+  instruction:document.querySelector('.de-duel-help')?.getAttribute('aria-label')??null,
   badges:[...document.querySelectorAll('.de-field-card .de-badge')].map(b=>{const img=b.querySelector('.de-badge-icon img');return (b.closest('.de-field-card').getAttribute('aria-label')??'').split(',')[0]+' '+b.dataset.kind+'='+b.dataset.count+(img&&img.complete&&img.naturalWidth?' drawn':' not drawn');})}})()`;
 const view = (page:Page) => page.ev(VIEW) as Promise<View>;
 /** A prompt's answer: main's duel dialogs (src/ui/htmlui/duel-dialogs.ts: prompt-option / prompt-cancel / prompt-confirm / prompt-ok), or the rewrite's own prompt. */

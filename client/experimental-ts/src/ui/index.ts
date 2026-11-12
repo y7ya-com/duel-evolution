@@ -1041,8 +1041,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       bar.append(cell);
     });
     board.append(bar);
-    // A choice made on the board itself (a target, a Tribute, a zone) says what to choose, without covering the board.
-    if (duel.instruction) { const line = el('div', 'de-duel-instruction', duel.instruction); line.setAttribute('role', 'status'); board.append(line); }
+    // A choice made on the board itself (a target, a Tribute, a zone) says what to choose in the duel bar's help line
+    // only, as live (no banner over the field)
     if (state.relay) { const roster = el('aside', 'de-relay-roster'); roster.setAttribute('aria-label', 'Tag relay teams'); for (const team of [0, 1] as const) { const group = el('section', 'de-relay-team'); for (const slot of [0, 1] as const) { const member = state.relay.players[2 * team + slot], active = state.relay.active[team] === slot; const row = el('div', 'de-relay-member', el('strong', '', member?.name ?? 'Waiting for player'), note(active ? state.relay.self === 255 ? 'Team pilot' : team ? 'Opponent playing' : state.relay.self === slot ? 'You are playing' : 'Partner playing' : 'Tag partner')); row.dataset.active = String(active); group.append(row); } roster.append(group); } stage.append(roster); }
     const cards = el('div', 'de-field-cards');
     const visibleCardIds = new Set<string>();
@@ -1088,8 +1088,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const cardActions = (duel.actions ?? []).filter(a => a.cardId === c.id), selection = cardActions.length === 1 && !cardActions[0]!.disabled && cardActions[0]!.label.startsWith('Select:') ? cardActions[0]! : null;
       // live: a click (or a right click) on a card opens its command list; a card with none shows its details
       const listOn = (commands.get(c.id)?.length ?? 0) > 0 || (canSurrender || !!duel.spectating) && c.id === ownDeckTop || !!duel.spectating && c.zone === 'deck';
-      // the hand's faces carry no names (live): the name is the card's label, tooltip and details
-      const p = fieldCardPosition(c, handCount), tile = drawCard(c, c.zone !== 'hand' && state.settings.showCardNames, c.faceUp), b = button('', () => { const target = duel.prompt?.options.find(o => o.cardId === c.id && !o.disabled); if (target && duel.prompt) respondToPrompt(duel.prompt.id, { optionId: target.id }); else if (selection) { if (!state.busy) sendAction(duel, selection.id); } else if (listOn) { openCmd(local.duelCmd === c.id ? null : c.id); } else if (c.faceUp || ownSet) { inspect(c, 'duel'); if (c.faceUp) send({ type: 'inspectCard', cardId: c.id }); } });
+      // no name bands on the field (live draws the card pictures alone): the name is the card's label, tooltip and details
+      const p = fieldCardPosition(c, handCount), tile = drawCard(c, false, c.faceUp), b = button('', () => { const target = duel.prompt?.options.find(o => o.cardId === c.id && !o.disabled); if (target && duel.prompt) respondToPrompt(duel.prompt.id, { optionId: target.id }); else if (selection) { if (!state.busy) sendAction(duel, selection.id); } else if (listOn) { openCmd(local.duelCmd === c.id ? null : c.id); } else if (c.faceUp || ownSet) { inspect(c, 'duel'); if (c.faceUp) send({ type: 'inspectCard', cardId: c.id }); } });
       b.oncontextmenu = event => { event.preventDefault(); if (listOn && !selection) openCmd(c.id); };
       if (c.faceUp || ownSet) b.title = c.name;
       if (listOn) b.setAttribute('aria-haspopup', 'menu');

@@ -59,15 +59,12 @@ describe('card-name declarations', () => {
 });
 
 describe('board selection instructions', () => {
-  it('shows the instruction over the board without blocking it', async () => {
+  it('says what to choose in the duel bar\'s help line only, as live (no banner over the field)', async () => {
     const f = fixture();
     f.update({ scene: 'duel', duel: duel({ instruction: 'Select a target card from the Field.', actionsFor: '3',
       actions: [{ id: 'action:1:5:0:11', label: 'Select: opponent’s spell/trap zone 1', place: { controller: 1, zone: 'spell', index: 0 } }] }) }); await Promise.resolve();
-    const line = byClass(f.root, 'de-duel-instruction');
-    expect(line.map(n => n.textContent)).toEqual(['Select a target card from the Field.']);
-    expect(line[0]!.getAttribute('role')).toBe('status');
-    f.update({ duel: duel({}) }); await Promise.resolve();
     expect(byClass(f.root, 'de-duel-instruction')).toEqual([]);
+    expect(byClass(f.root, 'de-duel-help').map(n => n.getAttribute('aria-label'))).toEqual(['Select a target card from the Field.']);
     f.mounted.dispose();
   });
 });
