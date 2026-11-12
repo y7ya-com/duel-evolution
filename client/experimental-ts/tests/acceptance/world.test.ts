@@ -96,13 +96,42 @@ describe.skipIf(!enabled)('world (PixiJS)',() => {
       await walkInto(page,name,0,`${world}?.mapId===0&&${world}.ready`); await sleep(1500); log.push('map 2 exit 0 -> map 0'); await shot(page,'24-exit-back-map0');
       await walkInto(page,name,3,`${world}?.mapId===8&&${world}.ready`); await sleep(1500);
       w = await page.ev(world) as World; expect(onScreen(w,name)).toBe(true); log.push('map 0 exit 3 -> My Room'); await shot(page,'25-my-room');
-      // My Room's own door (its exit 0) back out: known open (the avatar may stand at My Room's (0,0) and the collision
-      // runtime keeps the last map's mask there), so it is logged, not asserted
-      try { await walkInto(page,name,0,`${world}?.mapId===0&&${world}.ready`); await sleep(1500); w = await page.ev(world) as World; log.push(`My Room door -> map ${w.mapId}`); }
-      catch (error) { log.push(`My Room door NOT reached: ${String((error as Error).message).slice(0,160)}`); }
+      // My Room is its own map (Map_r01): the player stands at its arrival (680,400 +- 30), its own exits load, and its
+      // door (exit 0) goes back out to the world area, at that map's My Room arrivals
+      const room = await page.ev(world) as World, me = room.avatars.find(a => a.name === name)!;
+      expect(Math.abs(me.x - 680) <= 30 && Math.abs(me.y - 400) <= 30).toBe(true);
+      const roomExits = await page.ev(`window.__deExits?.()`) as Box[]; expect(roomExits.some(b => b.index === 0 && b.x1 < 1024 && b.y1 < 768)).toBe(true);
+      log.push(`My Room arrival ${Math.round(me.x)},${Math.round(me.y)}; exits ${JSON.stringify(roomExits)}`);
+      await walkInto(page,name,0,`${world}?.mapId===0&&${world}.ready`); await sleep(1500); w = await page.ev(world) as World;
+      expect(onScreen(w,name)).toBe(true); log.push(`My Room door -> map ${w.mapId}`);
       await shot(page,'26-out-of-my-room');
       console.log('doors',log.join(' | '));
       record('world.doors',{ actions:'Walk into the Store counter, a map exit, My Room and its door',expected:'Shop opens; maps change; arrivals on screen',observed:log.join('; ') });
+    } finally { closeAll(); }
+  },600000);
+
+  it('NPCs stand at their spots (the exe\'s spot tables) on three maps, idle, and a click opens the NPC card',async () => {
+    const name = `Wn ${RUN}`, page = await openPage(1100,900), log:string[] = [];
+    try {
+      await openClient(page,await signIn(`TestWn${RUN}`)); await enterWorld(page,name);
+      for (const [area,file] of [[/^Store|Game Shop/,'30-npcs-store'],[/Clock Square/,'31-npcs-clock-square'],[/Main Street|Domino Pier|Card Shop Street|Downtown/,'32-npcs-domino']] as const) {
+        try { await moveTo(page,area); } catch (error) { if (file === '32-npcs-domino') { log.push(String((error as Error).message).slice(0,200)); continue; } throw error; }
+        await sleep(2000);
+        const w = await page.ev(world) as World & { avatars:{ name:string; x:number; y:number; direction:number; z:number }[] };
+        const spots = MAPS.maps.find(m => m.id === w.mapId)!.npcSpots, npcs = await page.ev(`JSON.stringify(window.__deApp.getState?.().lobby?.avatars?.filter(a=>a.npc).map(a=>[a.id,a.name,a.x,a.y,a.direction]))`) as string;
+        const listed = JSON.parse(npcs) as [number,string,number,number,number][];
+        expect(listed.length).toBeGreaterThan(0);
+        for (const [,n,x,y] of listed) { expect(spots.some(s => s.x === x && s.y === y)).toBe(true); expect(w.avatars.some(a => a.name === n && Math.round(a.x) === x && Math.round(a.y) === y)).toBe(true); }
+        log.push(`map ${w.mapId}: ${listed.map(([,n,x,y,d]) => `${n}@${x},${y}/${d}`).join(' ')}`);
+        await shot(page,file);
+      }
+      // the nearest NPC's hit target opens its card (main's CNpcListMenu), as its row of the player list does
+      const id = await page.ev(`(()=>{const a=window.__deApp.getState().lobby.avatars.filter(a=>a.npc);const me=window.__deApp.getState().lobby.avatars.find(a=>a.self);a.sort((p,q)=>Math.hypot(p.x-me.x,p.y-me.y)-Math.hypot(q.x-me.x,q.y-me.y));return a[0]?.id})()`) as number;
+      await page.ev(`document.querySelector('[data-key="avatar:${id}"]').click()`);
+      await until(page,`document.querySelector('[data-key="npc-duel:${-id}"]')`,10000); await sleep(800); await shot(page,'33-npc-card');
+      log.push(`clicked NPC ${-id}: its card is open`);
+      console.log('npcs',log.join(' | '));
+      record('world.npcs',{ actions:'Visit three maps; click an NPC',expected:'NPCs at the exe spot coordinates; the NPC card opens',observed:log.join('; ') });
     } finally { closeAll(); }
   },600000);
 
