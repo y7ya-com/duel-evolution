@@ -29,13 +29,14 @@ const CSS = `
 .de-duel-board>.de-duel-stats { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:6; }
 .de-duel-stats>i { position:absolute; width:${7 / 1024 * 100}%; height:${16 / 768 * 100}%; background-repeat:no-repeat; }
 .de-duel-info { position:absolute; left:${6 / 1024 * 100}%; top:${496 / 768 * 100}%; width:${240 / 1024 * 100}%; height:${122 / 768 * 100}%; z-index:8;
-  box-sizing:border-box; padding:.35em .5em; overflow:hidden; pointer-events:none; font:13px/1.25 Arial,'Segoe UI',sans-serif; color:#2a2f38;
+  box-sizing:border-box; padding:.35em .5em; overflow-x:hidden; overflow-y:auto; scrollbar-width:auto; pointer-events:auto; font:13px/1.25 Arial,'Segoe UI',sans-serif; color:#2a2f38;
   background:linear-gradient(180deg,rgba(236,246,255,.9),rgba(214,232,250,.86)); border:1px solid #6fb3ea; border-radius:3px; box-shadow:inset 0 0 0 1px rgba(255,255,255,.7); }
 .de-duel-info[hidden] { display:none; }
-.de-duel-info-name { color:#a3922a; font-weight:bold; letter-spacing:.02em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.de-duel-info-kind { color:#62862a; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.de-duel-info-text { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; word-break:break-word; }
-.de-duel-info-stats { position:absolute; left:.5em; right:.5em; bottom:.3em; display:flex; align-items:center; gap:2px; white-space:nowrap; font-weight:bold; }
+.de-duel-info-name { color:#8a7d1e; letter-spacing:.02em; }
+.de-duel-info-kind { color:#62862a; }
+/* live: the whole text, its scroll bar at the box's right (no cut with an ellipsis) */
+.de-duel-info-text { word-break:break-word; }
+.de-duel-info-stats { display:flex; margin-top:.2em; align-items:center; gap:2px; white-space:nowrap; font-weight:bold; }
 .de-duel-info-icon { width:16px; height:16px; overflow:hidden; position:relative; flex:none; }
 .de-duel-info-icon img { position:absolute; top:0; height:16px; }
 .de-duel-info-star { width:19px; height:16px; flex:none; }
@@ -143,7 +144,8 @@ export class DuelPresentation {
     this.renderInfo();
     if (!this.load) return;
     this.fx.update(duel, reducedMotion);
-    this.fx.thinking = thinkingSide(duel);
+    // live lights "Now Thinking" for the other side while it decides (the player's own plate stays grey)
+    const thinking = thinkingSide(duel); this.fx.thinking = duel.spectating ? thinking : thinking === 1 ? 1 : null;
     // the loser's face at the duel's end (live: the result screen's sweating, gritted-teeth portrait)
     const loser = duel.ended === 'Victory' ? 1 : duel.ended === 'Defeat' ? 0 : -1;
     for (const side of [0, 1] as const) this.portrait(side, duel.players[side].parts, side === loser ? 'lose' : 'normal');

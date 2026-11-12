@@ -71,6 +71,10 @@ button.de-card { padding:2px; min-height:0; color:#fff; background:linear-gradie
 .de-card-counter,.de-card-turns { position:absolute; top:2px; left:2px; color:#fff; background:#07519be8; border:1px solid #ffe877; padding:1px 3px; font:bold 10px Arial; border-radius:2px; }
 .de-card-turns { top:19px; }
 .de-card-count { position:absolute; right:1px; top:1px; font:bold 11px Arial; color:#092f58; background:#fff3a2; padding:1px 4px; border-radius:2px; }
+/* live: the deck and the Fusion deck are a thick stack (the edges of the cards under the top one), the count in the middle
+   of the top card back in small white figures */
+.de-field-card:is([data-zone=deck],[data-zone=extra]) { box-shadow:1px 1px 0 #d9b77a, 2px 2px 0 #7a5a2c, 3px 3px 0 #d9b77a, 4px 4px 0 #7a5a2c, 5px 5px 0 #c8a466, 6px 6px 1px #3d2c14; }
+.de-field-card:is([data-zone=deck],[data-zone=extra])>.de-card-count { left:50%; top:50%; right:auto; transform:translate(-50%,-50%); padding:0; background:none; color:#fff; font:9px/1 Arial,sans-serif; letter-spacing:.25em; text-shadow:0 0 2px #000; border-radius:0; }
 .de-zone-title { padding:3px 7px; background:#075db9; color:white; display:flex; justify-content:space-between; }
 .de-deck-zone { background:#effcffaa; margin-bottom:6px; min-height:70px; }
 .de-relay-roster { position:absolute; top:70px; left:12px; right:12px; display:flex; justify-content:space-between; pointer-events:none; z-index:4; }
@@ -157,7 +161,11 @@ html:has(.yo2r-board) .de-duel-info { display:none; }
 @keyframes de-help-run { from { transform:translateX(0); } to { transform:translateX(-100%); } }
 @media (prefers-reduced-motion: reduce) { .de-duel-help-run { padding-left:8px; animation:none; } }
 .de-phase-bar>button.de-phase { pointer-events:auto; cursor:pointer; padding:0; border:0; background:none; }
-.de-phase-bar>button.de-phase:hover img { filter:brightness(1.2); }
+/* the phase keys are the art alone (no button look); the pointer's look is the art's hover column (1), as live */
+.de-client .de-phase-bar>button.de-phase { box-shadow:none; filter:none; border-radius:0; min-height:0; }
+.de-phase-bar>button.de-phase:not(.current):hover img { left:-100% !important; }
+/* the hand card whose command menu is open, raised 33 px (a margin in % is of the board's width: 1024 game px) */
+.de-field-card.raised { margin-top:-3.2227%; z-index:20; }
 .de-phase-bar>button.de-phase:disabled { cursor:default; }
 .de-connection { display:inline-block; width:8px; height:8px; border-radius:50%; background:#fbd56b; margin-right:5px; }
 .de-connection.online { background:#95f19a; }

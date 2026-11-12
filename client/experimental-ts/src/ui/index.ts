@@ -549,7 +549,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     // over the question the server re-sends after it
     if (!duel.notice) local.noticeSeen = 0;
     const notice = duel.notice;
-    if (notice && notice.id > local.noticeSeen) out.push(duelOkDialog(htmlIds, String(notice.id), notice.text, () => { local.noticeSeen = Math.max(local.noticeSeen, notice.id); showHtml(); }));
+    if (notice && notice.id > local.noticeSeen) out.push(duelOkDialog(htmlIds, String(notice.id), notice.text, () => { local.noticeSeen = Math.max(local.noticeSeen, notice.id); showHtml(); }, /ran out of time|Time is up|disconnected|lost the connection/i.test(notice.text)));
     const prompt = duel.prompt;
     if (prompt && htmlDuelPrompt(prompt)) {
       if (local.promptId !== prompt.id) { local.promptId = prompt.id; local.selected.clear(); local.promptInspection = null; duelHover = { selected: local.selected, hover: null }; }
@@ -761,6 +761,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     // The original draws a card's badges upright whatever the card's position: turn them back.
     const badges = node.querySelector?.<HTMLElement>('.de-card-badges');
     if (badges) badges.style.transform = `rotate(${-(motion?.rotation ?? (p.rotate ? 90 : 0))}deg)`;
+    // and a pile's count reads upright too (the opponent's piles stand upside down)
+    const count = node.querySelector?.<HTMLElement>('.de-card-count');
+    if (count && (card.zone === 'deck' || card.zone === 'extra')) count.style.transform = `translate(-50%,-50%) rotate(${-(motion?.rotation ?? 0)}deg)`;
   };
   const canSkipRender = (previous: ClientView, next: ClientView) => {
     if (previous.scene !== next.scene || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.relay !== next.relay || previous.sideboarding !== next.sideboarding || previous.match !== next.match || previous.preparation !== next.preparation || previous.unavailable?.[previous.scene] !== next.unavailable?.[next.scene]) return false;
@@ -1055,7 +1058,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (archive) {
       hud.className += ' de-sr';
       for (const i of [0, 1] as const) {
-        const t = duel.timer && duel.timer.player === i ? timeFraction(duel.timer) : null;
+        // (an NPC duel's TIME bar stays empty on live, though the turn still times out)
+        const t = duel.timer && duel.timer.player === i && state.npc?.stage !== 'duel' ? timeFraction(duel.timer) : null;
         const plate = lpPlate({ side: i, name: duel.players[i].name, lp: duel.players[i].lp, time: t, image: archive });
         plate.root.setAttribute('aria-hidden', 'true'); board.append(plate.root); lpPlates[i] = plate;
       }
@@ -1064,7 +1068,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const current = phases.find(([key]) => key === duel.phase);
     const bar = el('div', `de-phase-bar${duel.turnPlayer ? ' opponent' : ''}`); bar.setAttribute('role', 'status');
     bar.setAttribute('aria-label', `Turn ${duel.turn}${current ? `, ${current[2]}` : ''}, ${duel.players[duel.turnPlayer].name}'s turn`);
-    bar.append(el('div', 'de-turn-box', el('small', '', 'Turn'), el('strong', '', String(duel.turn))));
+    bar.append(el('div', 'de-turn-box', el('small', '', 'Turn'), el('strong', '', String(Math.max(1, duel.turn)))));   // live counts from 1, before the first draw too
     // The phase buttons are the engine's (CDuelPhaseButton): on the player's turn BP / M2 / EP are pressed to enter the
     // Battle Phase, Main Phase 2 or end the turn, as live; no separate action buttons.
     const PHASE_ACTION: Partial<Record<string, string>> = { battle: 'phase:3', main2: 'phase:4', end: 'phase:5' };
@@ -1073,8 +1077,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const cell: HTMLElement = act ? button('', () => { local.duelCmd = null; sendAction(duel, act.id); }, !!act.disabled || !!state.busy) : el('div');
       cell.className = `de-phase${key === duel.phase ? ' current' : ''}${act ? ' de-phase-go' : ''}`; cell.title = act ? act.label : long;
       if (act) { cell.dataset.key = `duel-phase:${key}`; cell.setAttribute('aria-label', act.label); }
-      // duel_pbutton_01: c01 for the player's turn, c00 the opponent's; column 2 is the lit current phase, 1 the hover.
-      if (archive) { const sheet = archive(`data/y/duel/phase/duel_pbutton_01_c0${duel.turnPlayer ? 0 : 1}.png`); sheet.style.left = key === duel.phase ? '-200%' : '0'; sheet.style.top = `-${row * 100}%`; cell.append(sheet, el('span', 'de-sr', act ? act.label : short)); }
+      // duel_pbutton_01: c01 for the player's turn (yellow, the current phase lit cyan: column 3), c02 the opponent's (red),
+      // as live
+      if (archive) { const sheet = archive(`data/y/duel/phase/duel_pbutton_01_c0${duel.turnPlayer ? 2 : 1}.png`); sheet.style.left = key === duel.phase ? '-300%' : '0'; sheet.style.top = `-${row * 100}%`; cell.append(sheet, el('span', 'de-sr', act ? act.label : short)); }
       else cell.textContent = act ? act.label : short;
       bar.append(cell);
     });
@@ -1133,7 +1138,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (listOn) b.setAttribute('aria-haspopup', 'menu');
       b.dataset.key = `field-card:${c.id}`; b.dataset.side = c.controller ? 'opponent' : 'your'; b.dataset.zone = c.zone; b.dataset.index = String(c.index); if (c.zone === 'monster') b.dataset.position = c.position ?? 'attack';
       const choice = fieldPrompt?.options.find(o => o.cardId === c.id && !o.disabled), target = selection ?? choice;
-      b.className = `de-card de-field-card${c.faceUp ? '' : ' de-card-back'}${p.rotate ? ' defense' : ''}${target ? ' de-card-target' : ''}`; b.append(...Array.from(tile.childNodes)); if (target) b.title = target.label;
+      // the hand card whose command menu is open stands raised over the hand's edge, as live
+      b.className = `de-card de-field-card${c.faceUp ? '' : ' de-card-back'}${p.rotate ? ' defense' : ''}${target ? ' de-card-target' : ''}${c.zone === 'hand' && c.controller === 0 && local.duelCmd === c.id ? ' raised' : ''}`; b.append(...Array.from(tile.childNodes)); if (target) b.title = target.label;
       placeFieldCard(b, c, handCount); fieldNodes.set(c.id, b);
       const counters = c.faceUp ? (c.counters ?? []).filter(counter => counter.count > 0) : [], turnCounter = c.faceUp ? c.turnCounter ?? 0 : 0;
       const counterText = counters.map(counter => `${counter.kind === 0 ? 'Spell counters' : `Counter ${counter.kind}`}: ${counter.count}`).join(', ');
@@ -1145,7 +1151,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         if (turnCounter > 0) b.append(el('span', 'de-card-turns', `Turns ${turnCounter}`));
       }
       b.setAttribute('aria-label', (c.faceUp ? `${c.name}, ${c.controller ? 'opponent' : 'your'} ${c.zone}, ${c.position ?? ''}${counterText ? `, ${counterText}` : ''}${turnCounter ? `, ${turnCounter} turns` : ''}` : ownSet ? `${c.name} (set face-down), your ${c.zone}${c.zone === 'monster' ? `, ${c.position ?? ''}` : ''}` : `Face-down card, ${c.controller ? 'opponent' : 'your'} ${c.zone}`) + (selection ? `, ${selection.label}` : ''));
-      if (pileTop.has(`${c.controller}/${c.zone}`)) b.append(el('span', 'de-card-count', String(duel.cards.filter(x => x.controller === c.controller && x.zone === c.zone).length)));
+      if (pileTop.has(`${c.controller}/${c.zone}`)) { b.append(el('span', 'de-card-count', String(duel.cards.filter(x => x.controller === c.controller && x.zone === c.zone).length))); placeFieldCard(b, c, handCount); }
       cards.append(b);
     }
     // Zone selections (where to summon or set, a zone the server asks for): the empty zones themselves are the controls, as in the original.
