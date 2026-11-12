@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, click, openDeckEditor, exitDeckEditor, until, press, pressAvatar, type, byKey, sleep, screenshot, record, prepareDuel, duelBot, startNpcDuel, surrender, claimStarter, type Page, createCharacter, freeSlot, cardButton, lobbyShown, listedNames, claimNpcReward } from './harness';
+import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, click, openDeckEditor, exitDeckEditor, until, press, pressAvatar, type, byKey, sleep, screenshot, record, prepareDuel, duelBot, startNpcDuel, surrender, claimStarter, type Page, createCharacter, freeSlot, cardButton, lobbyShown, npcNames, claimNpcReward } from './harness';
 import { resultShown, resultLeave } from './harness';
 import { ArchiveReader } from '../../src/assets/archive';
 
@@ -380,7 +380,7 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
         // after a duel its result's Next; in the lobby the Main Menu has no Return to Lobby (as live)
         if (!await page.ev(lobbyShown) && await page.ev(resultShown)) await press(page,resultLeave).catch(() => {});
         await until(page,lobbyShown,60000);
-        const listed = await listedNames(page);
+        const listed = await npcNames(page);
         if (!listed.includes(npc)) { results.push(`${npc}: not in this area (${listed.join(', ')})`); continue; }
         try { await startNpcDuel(page,npc); } catch (error) { results.push(`${npc}: no duel (${String(error).slice(0,120)})`); continue; }
         duels++;

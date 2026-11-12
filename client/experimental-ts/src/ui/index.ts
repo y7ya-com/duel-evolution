@@ -377,7 +377,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // Then the reward pack pick (npc-pack.ts) and what the duel gave (npc-itemget.ts), each over everything.
   const npcTalkSpecs = (): WindowSpec[] => {
     const npc = state.npc; if (state.scene !== 'lobby' || !npcTalkStage(npc) || sceneVeilUp()) return [];
-    const parts = state.lobby?.avatars.find(a => a.npc && a.id === npc!.npc!.id)?.parts ?? state.lobby?.avatars.find(a => a.npc && a.name === npc!.npc!.name)?.parts ?? null;
+    const parts = state.lobby?.avatars.find(a => a.npc && Math.abs(a.id) === npc!.npc!.id)?.parts ?? state.lobby?.avatars.find(a => a.npc && a.name === npc!.npc!.name)?.parts ?? null;
     return npcTalkWindows(npc, { ids: htmlIds, busy: !!state.busy, parts, send: command => { if (controller.getState().npc === npc) send(command); } });
   };
   const npcEscape = (e: KeyboardEvent): boolean => {
@@ -840,9 +840,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const d = delta[e.key]; if (!d) return; e.preventDefault(); send({ type: 'move', x: Math.max(0, Math.min(worldW, self.x + d[0])), y: Math.max(0, Math.min(worldH, self.y + d[1])) });
     };
     for (const avatar of lobby.avatars) {
-      // an NPC standing on the map opens its card, as its row of the player list does (main's CNpcListMenu: Send Duel
-      // Request to it from there); a player's opens the player card
-      const b = button('', () => { if (avatar.npc) { lobbyUi.npc = -avatar.id; if (state.profileDetail?.selectedPid != null) send({ type: 'profileAction', action: { type: 'close' } }); showHtml(); return; } send({ type: 'interact', playerId: avatar.id }); }, !lobby.connected);
+      // an NPC standing on the map starts its talk at once, its card beside it (live: CNpcTalk, its record, deck and
+      // biography, and "Start Duel?" after its lines); a player's opens the player card
+      const b = button('', () => { if (avatar.npc && state.profileDetail?.selectedPid != null) send({ type: 'profileAction', action: { type: 'close' } }); send({ type: 'interact', playerId: avatar.id }); }, !lobby.connected);
       b.className = 'de-avatar' + (avatar.self ? ' self' : ''); b.style.left = `${avatar.x / worldW * 100}%`; b.style.top = `${avatar.y / worldH * 100}%`; b.setAttribute('aria-label', `${avatar.name}${avatar.npc ? ', NPC' : ''}`);
       const art = safeImageUrl(avatar.image);
       if (art) { const img = el('img', 'de-avatar-sprite'); img.src = art; img.alt = ''; b.append(img); } else b.append(el('span', 'de-avatar-placeholder'));

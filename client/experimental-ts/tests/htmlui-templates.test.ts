@@ -33,12 +33,10 @@ async function build(): Promise<string> {
   push(W.discordCard(ctx(), { pid: 9, name: 'Dis', lv: 7 } as Parameters<typeof W.discordCard>[1]));
   // the stock dialogs (dialog-yesno, dialog-ok, dialog-error)
   for (const kind of ['yesno', 'ok', 'error'] as const) push(W.stockDialog({ ids: new Ids() }, `d-${kind}`, kind, 'A message long enough to wrap onto a second line of the dialog box.', [{ from: kind === 'yesno' ? 'Yes' : 'OK', key: 'k', click: () => {} }]));
-  // the lobby's windows: the Duel menu, Auto Duel, Create Duel, Move (duelsetup-*), the search (findmenu), an NPC's card
-  // (lobby-npc), Join (dialog-input1), the cancel prompt (dialog-yesno)
+  // the lobby's windows: the Duel menu, Auto Duel, Create Duel, Move (duelsetup-*), the search (findmenu), Join
+  // (dialog-input1), the cancel prompt (dialog-yesno)
   for (const open of ['duel', 'find', 'wait', 'move'] as const) push(L.lobbyWindows(ctx(), { ui: { ...L.lobbyLocal(), open }, friends: [] }));
   push(L.lobbyWindows(ctx(), { ui: { ...L.lobbyLocal(), searching: true }, friends: [] }));
-  push(L.lobbyWindows(ctx(), { ui: { ...L.lobbyLocal(), npc: 51 }, friends: [] }));
-  push(L.lobbyWindows(ctx({ busy: true }), { ui: { ...L.lobbyLocal(), npc: 51 }, friends: [] }));
   push(L.lobbyWindows(ctx(), { ui: { ...L.lobbyLocal(), join: { roomId: 7, password: '' } }, friends: [] }));
   // the player list (duelsetup-plist): the lobby's and the plain one, and the windows of the lobby's HTML layer
   push(L.lobbyList(ctx(), { ui: L.lobbyLocal(), friends: [] }, () => {})); push(L.lobbyList(ctx(), { ui: { ...L.lobbyLocal(), search: 'all' }, friends: [] }, () => {}));

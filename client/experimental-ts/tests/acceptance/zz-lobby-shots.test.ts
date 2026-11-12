@@ -45,9 +45,9 @@ describe.skipIf(!enabled)('scratch shots', () => {
         await press(page, byKey('menubar-move')); await until(page, byKey('move-close'), 10000); await sleep(800); await shot(page, 'move');
         await press(page, byKey('move-close'));
         await press(page, byKey('plist-search')); await until(page, htmlText('Show all'), 10000); await sleep(800); await shot(page, 'findmenu');
-        await page.ev(`(${htmlText('Show all')}).closest('button').click()`); await until(page, htmlText('Yami Yugi'), 10000); await sleep(800); await shot(page, 'plist-all');
-        await page.ev(`(()=>{const e=${htmlText('Yami Yugi')};const r=e.getBoundingClientRect();for(const t of ['pointerdown','mousedown','pointerup','mouseup','click'])e.dispatchEvent(new MouseEvent(t,{bubbles:true,clientX:r.x+5,clientY:r.y+5}));})()`);
-        await until(page, `document.querySelector('[data-key^="npc-duel:"]')`, 10000); await sleep(800); await shot(page, 'npc-card');
+        await page.ev(`(${htmlText('Show all')}).closest('button').click()`); await sleep(800); await shot(page, 'plist-all');
+        const npc = await page.ev(`(window.__deApp?.getState().lobby?.avatars??[]).find(a=>a.npc)?.id`) as number | undefined;
+        if (npc !== undefined) { await page.ev(`document.querySelector('[data-key="avatar:${npc}"]')?.click()`); await until(page, `document.querySelector('button[data-key="npc-talk:next"],[data-key="npc-start:yes"]')`, 10000); await sleep(800); await shot(page, 'npc-card'); }
       }
     } finally { closeAll(); }
   }, 600000);
