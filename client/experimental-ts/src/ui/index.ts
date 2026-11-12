@@ -49,7 +49,7 @@ import { deckBackdrop } from '@htmlui/screens/deck.js';
 import { PictureArt } from './htmlui/art';
 import { setPictureResolver, disposePictures } from './htmlui/pictures';
 import { StartScene, PORTRAIT_AT } from './htmlui/start-scene';
-import { TitleScene, type TitleButton } from './htmlui/title-scene';
+import { TitleScene, TITLE_DIMMED, type TitleButton } from './htmlui/title-scene';
 import { BUST_AT } from './htmlui/windows';
 import { loginLocal, loginWindow } from './htmlui/login';
 import { duelDialog, duelDialogCovers, loadDuelSpeed } from './htmlui/duel-dialogs';
@@ -414,16 +414,18 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   let optionsUi: OptionsUi | null = null;
   let trackedActionsFor: string | null = null;
   const optionsSpecs = (): WindowSpec[] => {
-    if (!optionsUi) return [];
+    if (!optionsUi) return languageError([]);
     const display = browserDisplay.state, ui = optionsUi;
     const deps: OptionsDeps = { settings: state.settings, busy: !!state.busy, languageReady: !!state.languageStatus?.available && !state.languageStatus.loading,
       fullscreen: { active: display.active, supported: display.supported, pending: display.pending, toggle: () => { void browserDisplay.toggle(); } },
       text: id => gameTexts.get(id), rerender: showHtml,
       set: settings => send({ type: 'settings', settings }), close: () => { optionsUi = null; showHtml(); } };
     // DUEL OPTIONS (the Main Menu's) or the title's OPTIONS
-    const out = [ui.kind === 'title' ? titleOptionsWindow(htmlIds, ui, deps) : duelConfigWindow(htmlIds, ui, deps)];
-    // a language that could not load (CSystemConfigManager::applyLanguage refused): main's error dialog over DUEL
-    // OPTIONS; the previous language stays and < / > choose it again
+    return languageError([ui.kind === 'title' ? titleOptionsWindow(htmlIds, ui, deps) : duelConfigWindow(htmlIds, ui, deps)]);
+  };
+  // a language that could not load (CSystemConfigManager::applyLanguage refused, after the title's OPTIONS OK): main's
+  // error dialog over the title (and over an OPTIONS window); the previous language stays and its flag chooses it again
+  const languageError = (out: WindowSpec[]): WindowSpec[] => {
     const refused = state.languageStatus?.error;
     if (refused && refused !== languageErrorSeen) {
       const dialog = stockDialog({ ids: htmlIds }, 'language-error', 'error', refused, [{ from: 'OK', key: 'language-error-ok', click: () => { languageErrorSeen = refused; showHtml(); } }]);
@@ -506,7 +508,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (!deckDom && state.scene === 'deck' && typeof globalThis.document !== 'undefined') deckDom = new DeckDom(host, deckScene, { art: '/ui/', ...(controller.loadCardImage ? { card: (pc: number, signal: AbortSignal) => controller.loadCardImage!(pc, signal) } : {}), ...(controller.loadArchiveImage ? { archive: (path: string, signal: AbortSignal) => controller.loadArchiveImage!(path, signal) } : {}) });
     if (!htmlUi) { if (deckDom) { const d = deckScene.stageView(); deckDom.show(buildHtml(), d.detail, d.drag); } syncPortrait(); return; }
     const specs = buildHtml(), deck = deckScene.stageView();
-    htmlUi.show(specs, ['title', 'characters'].includes(state.scene), engineScene());
+    // the title under its OPTIONS window: the movie and the backdrop at kTitleDimmed, the movie's buttons inactive
+    const titleDialog = state.scene === 'title' && optionsUi?.kind === 'title';
+    titleScene?.setActive(!titleDialog);
+    htmlUi.show(specs, ['title', 'characters'].includes(state.scene), engineScene(), titleDialog ? TITLE_DIMMED : 1);
     deckDom?.show(specs, deck.detail, deck.drag);
     syncPortrait();
   };
@@ -1346,7 +1351,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (htmlUiState.menu) { e.preventDefault(); htmlUiState.menu = false; showHtml(); return; }
     if (npcEscape(e)) return;
     // DUEL OPTIONS / Audio (a modal over the scene): its language error first, then the window
-    if (optionsUi) { e.preventDefault(); const refused = state.languageStatus?.error; if (refused && refused !== languageErrorSeen) languageErrorSeen = refused; else optionsUi = null; showHtml(); return; }
+    if (optionsUi) { e.preventDefault(); const refused = state.languageStatus?.error; if (refused && refused !== languageErrorSeen) languageErrorSeen = refused; else { const before = optionsUi.kind === 'title' ? optionsUi.before?.sound : undefined; if (before !== undefined && before !== state.settings.sound) send({ type: 'settings', settings: { sound: before } }); optionsUi = null; } showHtml(); return; }
     if (state.duel?.prompt?.cancelable && state.scene === 'duel') { e.preventDefault(); respondToPrompt(state.duel.prompt.id, { cancel: true }); }
     else if (state.scene === 'lobby' && state.profileDetail?.selectedPid !== null && state.profileDetail?.selectedPid !== undefined) { e.preventDefault(); send({ type: 'profileAction', action: { type: 'close' } }); }
     else if (state.scene === 'deck' && (deckScene.ui.dialog || deckScene.ui.files)) { e.preventDefault(); deckScene.ui.dialog = null; deckScene.ui.files = null; showHtml(); }

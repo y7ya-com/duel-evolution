@@ -70,13 +70,13 @@ describe('the UI follows the chosen language through the original text tables', 
 describe('ui-text by context: a word the original table holds with another meaning', () => {
   it('translates the title OPTIONS window\'s words, and a control\'s own text id wins over the word', async () => {
     const { titleOptionsWindow } = await import('../src/ui/htmlui/options');
-    const english = ['', 'Full', 'Cancel', 'Volume', '', 'Full'], german = ['', 'Vollbild', 'Abbrechen', 'Lautstärke', '', 'Voll'];
+    const english = ['', 'Full', 'Cancel', '[Sound volume]', '', 'Full'], german = ['', 'Vollbild', 'Abbrechen', '[Lautstärke]', '', 'Voll'];
     const text = new UiText(); text.install(english, german, 'G');
     const spec = titleOptionsWindow(new Ids(), { kind: 'title' }, { settings: { sound: 1, music: 1, reducedMotion: false, showCardNames: true }, set: () => {}, close: () => {}, rerender: () => {} });
     localizeSpecs([spec], text);
     const control = (name: string) => spec.win.controls.find(c => c.name === name)!;
     expect(control('cancel').label).toBe('Abbrechen');
-    expect(control('l2').text).toBe('Lautstärke');
+    expect(control('COptionDlg::m_textVolume').text).toBe('[Lautstärke]');
     expect(text.t('Full')).toBe('Vollbild');
     const other = { win: { cls: 'CSomeDlg', title: 'x', controls: [{ cls: 'CWindowTaskText', text: 'Full', textId: 5 }, { cls: 'CWindowTaskText', text: 'Full', textId: false }] } };
     localizeSpecs([other as never], text);

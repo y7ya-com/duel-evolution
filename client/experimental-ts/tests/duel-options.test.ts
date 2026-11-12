@@ -3,7 +3,7 @@ import { autoAnswer } from '../src/duel/auto-answer';
 import { createDuelState } from '../src/duel/model';
 import type { DuelPrompt, DuelState } from '../src/duel/types';
 import { duelOptions } from '../src/ui/contracts';
-import { duelConfigWindow, titleOptionsWindow } from '../src/ui/htmlui/options';
+import { duelConfigWindow, titleOptionsWindow, type OptionsUi } from '../src/ui/htmlui/options';
 import { Ids } from '../src/ui/htmlui/snapshot';
 
 const playing = (prompt: Partial<DuelPrompt>): DuelState => {
@@ -68,18 +68,34 @@ describe('DUEL OPTIONS window (CWindowModelDuelConfig, main\'s capture)', () => 
 });
 
 describe('the title\'s OPTIONS window (COptionDlg)', () => {
-  it('turns fullscreen on and off from its Screen row and Cancel puts the screen mode and volume back', () => {
-    const set: unknown[] = []; let closed = 0, toggles = 0; const ui = { kind: 'title' as const };
+  it('is live\'s window: its picture, the flags, the monitors, the slider and OK / Cancel where the engine has them', () => {
+    const s = titleOptionsWindow(new Ids(), { kind: 'title' }, { settings: { sound: 8 / 15, music: 1, reducedMotion: false, showCardNames: true, language: 'E' }, languageReady: true, set: () => {}, close: () => {}, rerender: () => {} });
+    expect(s.win).toMatchObject({ cls: 'COptionDlg', x: 332, y: 198, w: 360, h: 372, back: 'data/title/option_dai_01_c01.png' });
+    const named = (n: string) => s.win.controls.find(c => c.name === n)!;
+    expect(named('COptionDlg::m_textLang').text).toBe('[Language]'); expect(named('COptionDlg::m_textSelectedLang').text).toBe('English');
+    expect(named('COptionDlg::m_textSelectedScreen').text).toBe('Window'); expect(named('COptionDlg::m_textVolume').text).toBe('[Sound volume]');
+    const uk = s.win.controls.find(c => s.handlers.get(c.id)?.key === 'opt-lang-E')!;
+    expect(uk).toMatchObject({ x: 112, y: 52, w: 48, h: 32, checked: true }); expect((uk.art as Record<string, { src: number[] }>).checked!.src).toEqual([96, 64, 48, 32]);
+    expect(named('COptionDlg::m_slider')).toMatchObject({ x: 40, y: 298, value: 8, max: 15 });
+    expect(named('ok')).toMatchObject({ x: 15, y: 339, w: 158, h: 24, label: 'OK' }); expect(named('cancel')).toMatchObject({ x: 187, y: 339, label: 'Cancel' });
+  });
+  it('a flag and a monitor choose, OK keeps them; the volume changes at once and Cancel puts it back', () => {
+    const set: unknown[] = []; let closed = 0, toggles = 0; const ui: OptionsUi = { kind: 'title' };
     const fs = { active: false, supported: true, pending: false, toggle: () => { toggles++; fs.active = !fs.active; } };
-    const settings = { sound: 0.5, music: 1, reducedMotion: false, showCardNames: true };
+    const settings = { sound: 0.6, music: 1, reducedMotion: false, showCardNames: true, language: 'E' as const };
     const spec = () => titleOptionsWindow(new Ids(), ui, { settings, fullscreen: fs, languageReady: true, set: s => set.push(s), close: () => { closed++; }, rerender: () => {} });
     let s = spec();
     const by = (key: string) => { const c = s.win.controls.find(c => s.handlers.get(c.id)?.key === key); if (!c) throw new Error(key); return { c, h: s.handlers.get(c.id)! }; };
-    expect(by('opt-windowed').c.checked).toBe(true); expect(by('opt-windowed').c.state).toBe('disabled');
-    by('opt-fullscreen').h.click!(); expect(toggles).toBe(1);
-    s = spec(); expect(by('opt-fullscreen').c.checked).toBe(true); expect(by('opt-fullscreen').c.state).toBe('disabled');
-    by('opt-sound-up').h.click!(); expect(set).toEqual([{ sound: 0.6 }]); settings.sound = 0.6;
+    expect(by('opt-windowed').c.checked).toBe(true);
+    by('opt-fullscreen').h.click!(); by('opt-lang-G').h.click!(); expect(toggles).toBe(0); expect(set).toEqual([]);
+    s = spec(); expect(by('opt-fullscreen').c.checked).toBe(true); expect(s.win.controls.find(c => c.name === 'COptionDlg::m_textSelectedLang')!.text).toBe('German');
+    by('opt-sound-up').h.click!(); expect(set).toEqual([{ sound: 10 / 15 }]); settings.sound = 10 / 15;
+    s = spec(); by('opt-sound-level').h.value!(3); expect(set).toEqual([{ sound: 10 / 15 }, { sound: 3 / 15 }]); settings.sound = 3 / 15;
     s = spec(); by('opt-cancel').h.click!();
-    expect(set).toEqual([{ sound: 0.6 }, { sound: 0.5 }]); expect(toggles).toBe(2); expect(fs.active).toBe(false); expect(closed).toBe(1);
+    expect(set).toEqual([{ sound: 10 / 15 }, { sound: 3 / 15 }, { sound: 0.6 }]); expect(toggles).toBe(0); expect(closed).toBe(1);
+    const ui2: OptionsUi = { kind: 'title' }; set.length = 0;
+    s = titleOptionsWindow(new Ids(), ui2, { settings, fullscreen: fs, languageReady: true, set: v => set.push(v), close: () => { closed++; }, rerender: () => {} });
+    by('opt-lang-G').h.click!(); by('opt-fullscreen').h.click!(); by('opt-ok').h.click!();
+    expect(set).toEqual([{ language: 'G' }]); expect(toggles).toBe(1); expect(closed).toBe(2);
   });
 });

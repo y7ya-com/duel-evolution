@@ -23,6 +23,7 @@ import result from '@htmlui/screens/result.js';
 import { chatBubblesFrame } from '@htmlui/chat-bubbles.js';
 import { pictures } from './pictures';
 import { npcBalloonScreen, npcInfoScreen } from './npc-talk';
+import { optionDlgScreen } from './option-dlg';
 import { syncWindow, covers } from '@htmlui/controls/basic.js';
 import { duelWindow } from '@htmlui/controls/skin.js';
 import { applyPointer, areaAt } from './snapshot';
@@ -36,8 +37,9 @@ const MODULES: HtmlUiScreen[] = [select, lobby, chat, social, deck, trade, packs
 // no screen runs in pass mode: the deck editor is owned, its cards and buttons DOM over main's windows (deck-dom.ts);
 // Change Avatar is owned, its plates, page arrows and Confirm / Back each take input on their own element
 const RELAID = new Set(['CWindowModelDuel', 'CWindowModelDuelFind', 'CWindowModelDuelWait']);   // duelsetup.js LAYOUT
-// what the engine draws on main around main's screens (the trade's pictures), the NPC talk's balloon and plate
-const EXTRA: Record<string, HtmlUiScreen> = { CEnginePictures: pictures, CNpcTalkBalloon: npcBalloonScreen, CNpcTalkInfo: npcInfoScreen };
+// what the engine draws on main around main's screens (the trade's pictures), the NPC talk's balloon and plate, the
+// title's OPTIONS window (COptionDlg)
+const EXTRA: Record<string, HtmlUiScreen> = { CEnginePictures: pictures, CNpcTalkBalloon: npcBalloonScreen, CNpcTalkInfo: npcInfoScreen, COptionDlg: optionDlgScreen };
 // the windows whose module rebuilds its buttons on every change (screens/trade.js; duel.js redraws a control
 // whose snapshot changes, so its hover and pressed looks replace the button under the pointer: janken, Yes / No, the
 // lists): clicked on release
@@ -98,7 +100,9 @@ export class HtmlUiLayer {
   private screens = new Map<string, HtmlUiScreen>();
   // an invisible box kept over the stage: the "canvas" main's page-level modules place themselves over
   private box: HTMLElement;
-  private bd: { frame(snap: { backdrop?: { shown: boolean } } | null): void } | null = null;
+  private bd: { frame(snap: { backdrop?: { shown: boolean }; fader?: { k: number[] } } | null): void } | null = null;
+  /** The backdrop's brightness (1: as drawn). */
+  private dim = 1;
   private wantBackdrop = false; private scene = 0; private last: HtmlSnapshot | null = null; private tick: ReturnType<typeof setInterval> | null = null;
   private observer: ResizeObserver | null = null;
   private readonly api: HtmlUiApi;
@@ -208,8 +212,8 @@ export class HtmlUiLayer {
   }
 
   /** The windows to show now (back to front) and whether the scene has the 2008 backdrop (backdrop.js). */
-  show(specs: WindowSpec[], withBackdrop: boolean, scene = 0): void {
-    this.scene = scene;
+  show(specs: WindowSpec[], withBackdrop: boolean, scene = 0, dim = 1): void {
+    this.scene = scene; this.dim = dim;
     this.specs = specs;
     this.handlers = new Map(specs.flatMap(s => [...s.handlers]));
     if (!this.handlers.has(this.hover)) this.hover = 0;
@@ -258,8 +262,10 @@ export class HtmlUiLayer {
     if (!this.bd) { this.bd = backdrop(this.box); this.place(); }
     const layer = document.getElementById('mu-titlebg');
     if (layer) layer.style.display = this.wantBackdrop ? '' : 'none';
-    if (this.wantBackdrop) this.bd.frame({ backdrop: { shown: true } });
+    if (this.wantBackdrop) this.bd.frame(this.backdropFrame());
   }
+  // the backdrop dimmed with the scene it stands for (backdrop.js reads the engine's fader: the title under OPTIONS)
+  private backdropFrame() { const k = this.dim; return { backdrop: { shown: true }, ...(k < 1 ? { fader: { k: [k, k, k] } } : {}) }; }
 
   /** Re-place over the stage now (a visual-viewport scroll moves the stage without resizing it: ui/phone.ts). */
   relayout(): void { this.place(); }
@@ -272,7 +278,7 @@ export class HtmlUiLayer {
     Object.assign(this.box.style, { position: 'fixed', zIndex: '-1', pointerEvents: 'none', visibility: 'hidden', left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.width * 0.75 + 'px' });
     // main's backdrop.js places itself over the box only in frame() (on live, bridge.js runs it every engine frame):
     // here the layer draws on a change, so a resize with nothing else changing left it at the size it first had
-    if (this.bd && this.wantBackdrop && !this.disposed) this.bd.frame({ backdrop: { shown: true } });
+    if (this.bd && this.wantBackdrop && !this.disposed) this.bd.frame(this.backdropFrame());
   };
 
   // The control an event's own element stands for (tag(): the button main's pass-mode screen drew for it), when that

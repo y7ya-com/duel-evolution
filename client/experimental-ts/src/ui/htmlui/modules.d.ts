@@ -107,6 +107,8 @@ declare module '@htmlui/controls/basic.js' {
   export function syncWindow(root: HTMLElement, win: unknown, st: Map<number, unknown>, api: HtmlUiApi): void;
   /** Whether a generic renderer draws this control's class. */
   export function covers(c: { cls: string }): boolean;
+  /** Text as the game draws it (Arial, its metrics and spacing) at x, y in parent, aligned in w (0 left, 1 centre, 2 right). */
+  export function textBox(parent: HTMLElement, s: string, o?: { x?: number; y?: number; w?: number; h?: number; align?: number; px?: number; gap?: number; color?: number[]; white?: boolean; wrap?: boolean }): HTMLElement;
 }
 declare module '@htmlui/controls/skin.js' {
   /** main's duel window frame (the grey FrameDuel panel and its well), appended to parent at the given size. */

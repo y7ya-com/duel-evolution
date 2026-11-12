@@ -15,6 +15,8 @@ export const TITLE_MOVIE = 'data/title/title_flash_01.txt';
 /** rt/debrand.cpp TITLE_DROP in free mode (live): KONAMI 21, copyright 23, QUIT 25 (CLEAR 29 and WEB 33 stay). */
 export const TITLE_DROP_DEPTHS: readonly number[] = [21, 23, 25];
 export type TitleButton = 'online' | 'options' | 'deck' | 'free';
+/** titleEntry.h kTitleDimmed: the title's colour while its OPTIONS window is up. */
+export const TITLE_DIMMED = 0.75;
 /** The movie's buttons, top to bottom: their depth and caption row (title_botton_<row>_<state>_?.png). */
 export const TITLE_BUTTONS: readonly { name: TitleButton; depth: number; row: number; label: string }[] = [
   { name: 'online', depth: 40, row: 1, label: 'ONLINE' }, { name: 'options', depth: 37, row: 2, label: 'OPTIONS' },
@@ -52,7 +54,7 @@ export class TitleScene {
   private readonly abort = new AbortController();
   private movie: SwfMovie | null = null; private loading = false; private instance: SwfInstance | null = null;
   private readonly images = new Map<string, PaintSource | null>();
-  private timer: ReturnType<typeof setInterval> | null = null; private disposed = false; private reducedMotion = false; private shown = false;
+  private timer: ReturnType<typeof setInterval> | null = null; private disposed = false; private reducedMotion = false; private shown = false; private active = true;
   constructor(private readonly load: ArchiveLoader) {
     // the movie starts once both it and Pixi are up, so its first frame is seen
     this.ctx = new PixiPainter({ width: 1024, height: 768, className: 'de-title-scene', ready: () => { if (this.movie && !this.instance && this.shown) this.start(); else this.draw(); } });
@@ -80,6 +82,16 @@ export class TitleScene {
   wire(press: (name: TitleButton) => void, enabled: (name: TitleButton) => boolean): void {
     this.press = press;
     for (const [name, el] of this.buttons) el.disabled = !enabled(name);
+  }
+  /** The title under a dialog (CTitleScene::onButton: the OPTIONS window): the base element's colour times
+   * kTitleDimmed (0.75: the movie darker) and swfEngineSetActive(false) (its buttons back to their normal frame and not
+   * pressable) until the dialog closes. */
+  setActive(active: boolean): void {
+    if (this.active === active) return;
+    this.active = active;
+    this.element.style.filter = active ? '' : `brightness(${TITLE_DIMMED})`;
+    if (!active) this.states.clear();
+    this.draw();
   }
   /** Shown: plays the movie once from its first frame (reduced motion: straight to its last), then holds it. */
   show(reducedMotion: boolean): void {
@@ -170,7 +182,7 @@ export class TitleScene {
     drawSwfItems(ctx, items, movie, file => this.images.get(titleImagePath(file)), { x: 0, y: 0 });
     ctx.end();
     // the buttons over their plates: where the movie has them now, pressable once it has played
-    const ready = instance.ended || instance.stopped;
+    const ready = (instance.ended || instance.stopped) && this.active;
     for (const el of this.buttons.values()) if (el.dataset.plain) { delete el.dataset.plain; Object.assign(el.style, { color: 'transparent', background: 'transparent', textShadow: 'none' }); }
     for (const b of TITLE_BUTTONS) {
       const el = this.buttons.get(b.name)!, p = instance.list.get(b.depth), c = p && movie.characters.get(p.character);
