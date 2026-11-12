@@ -135,7 +135,8 @@ export class DuelPresentation {
     board.append(this.info);
     board.addEventListener('pointerover', e => {
       const id = (e.target as Element | null)?.closest?.('[data-key^="field-card:"]')?.getAttribute('data-key')?.slice('field-card:'.length);
-      if (id && id !== this.hovered) { this.hovered = id; this.shown = id; this.pinned = null; this.renderInfo(); }
+      // (the card pointed at again after the box showed another - a question's card, a cue's - is shown again)
+      if (id && (id !== this.hovered || this.shown !== id || this.pinned)) { this.hovered = id; this.shown = id; this.pinned = null; this.renderInfo(); }
     });
     this.update(duel, reducedMotion);
   }
