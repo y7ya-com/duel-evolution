@@ -748,8 +748,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   let freeTarget: 'deck' | null = null;
   const titlePress = (name: TitleButton) => {
     if (state.busy) return;
+    // signed out, every way online starts at the sign-in window (free mode goes online too); an error from before it
+    // is not its own (it says only what happens in it)
+    if (!state.auth?.signedIn && state.auth && name !== 'options') { loginUi.open = true; loginUi.stale = state.error ?? null; requestRender(); return; }
     if (name === 'online') {
-      if (state.auth && !state.auth.signedIn) { loginUi.open = true; requestRender(); return; }
       if (state.connection === 'online' && state.mode !== 'free') open('characters'); else send({ type: 'connect', freeMode: false });
     } else if (name === 'options') { optionsUi = { kind: 'title' }; showHtml(); }
     else {
@@ -1304,7 +1306,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       // Select Player's bar is its strip alone too, also in the moment between picking a character (its profile in) and the lobby
       // main's message field starts past the Wardrobe / Missions slots (lobby.js fieldLeft): the message moves with it
       const reserve = barReserve(), fieldShift = reserve ? Math.max(0, Math.min(1016 - 64, reserve + 8) - 391) : 0;
-      menuView = state.scene === 'title' || state.scene === 'duel' ? null : { entries, fieldShift, keys: !!state.player && !['deck', 'shop', 'characters'].includes(state.scene),
+      // the sign-in window stands over the bar's empty strip, as live's CWindowLogin over CWindowModelMenu
+      menuView = state.scene === 'title' && !showsLogin() || state.scene === 'duel' ? null : { entries, fieldShift, keys: !!state.player && !['deck', 'shop', 'characters'].includes(state.scene),
         // live's bar message is blank but for a pending request's wait (no "Online in Duel Academy.")
         message: state.player ? (world && waitingMessage({ state, text: id => gameTexts.get(id) })) || '' : '',
         ...(world ? { duel: () => { duelKey(state, lobbyUi); showHtml(); }, move: () => { moveKey(lobbyUi); showHtml(); }, duelOpen: () => ['duel', 'find', 'wait'].includes(lobbyUi.open ?? ''), moveOpen: () => lobbyUi.open === 'move' } : {}) };
