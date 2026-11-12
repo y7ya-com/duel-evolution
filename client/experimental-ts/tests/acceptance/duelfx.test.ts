@@ -3,15 +3,17 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, until, sleep, screenshot, record, startNpcDuel, duelBot, surrender, claimNpcReward, byKey, lobbyShown } from './harness';
 import { resultShown } from './harness';
 
-/** In the page: while the effects layer reports an active effect, how many pixels of its canvas are painted
- * (every 16th pixel's alpha), per effect kind. Proves the original-art effects are drawn, not only scheduled. */
+/** In the page: while the effects layer reports an active effect, how many pixels of its PixiJS canvas are painted
+ * (every 16th pixel's alpha, read through a 2D copy: the layer keeps its drawing buffer), per effect kind. Proves the
+ * original-art effects are drawn, not only scheduled. */
 const SAMPLER = `(()=>{window.__fx={};window.__fxSeen=[];window.__fxShots={};setInterval(()=>{const fx=document.querySelector('.de-duel-fx');if(!fx)return;
-  const kinds=(fx.dataset.active||'').split(' ').filter(Boolean);if(!kinds.length)return;const c=fx.querySelector('canvas');
-  let d;try{d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;}catch(e){window.__fxError=String(e);return;}
+  const kinds=(fx.dataset.active||'').split(' ').filter(Boolean);if(!kinds.length)return;const c=fx.querySelector('canvas');if(!c)return;
+  let d;try{const t=document.createElement('canvas');t.width=c.width;t.height=c.height;const g=t.getContext('2d');g.drawImage(c,0,0);d=g.getImageData(0,0,c.width,c.height).data;}catch(e){window.__fxError=String(e);return;}
   let n=0;for(let i=3;i<d.length;i+=64)if(d[i]>16)n++;
   for(const k of kinds){if(!(k in window.__fx))window.__fxSeen.push(k);if(n>(window.__fx[k]||0)){window.__fxShots[k]=c.toDataURL();}window.__fx[k]=Math.max(window.__fx[k]||0,n);}},30);})()`;
 const painted = (page:Awaited<ReturnType<typeof openPage>>) => page.ev(`JSON.stringify(window.__fx||{})`).then(s => JSON.parse(s as string) as Record<string,number>);
-const portrait = (side:0|1) => `(()=>{const c=document.querySelector('.de-duel-portrait.side-${side}');if(!c||c.hidden)return 0;const d=c.getContext('2d').getImageData(0,0,768,768).data;let n=0;for(let i=3;i<d.length;i+=256)if(d[i]>16)n++;return n;})()`;
+/** A portrait's painted pixels: its shown eye frame (an <img> of the 768×768 composition) read through a 2D copy. */
+const portrait = (side:0|1) => `(()=>{const p=document.querySelector('.de-duel-portrait.side-${side}');const c=p&&!p.hidden&&[...p.querySelectorAll('img')].find(i=>i.style.visibility!=='hidden'&&i.complete&&i.naturalWidth);if(!c)return 0;const t=document.createElement('canvas');t.width=t.height=768;const g=t.getContext('2d');g.drawImage(c,0,0);const d=g.getImageData(0,0,768,768).data;let n=0;for(let i=3;i<d.length;i+=256)if(d[i]>16)n++;return n;})()`;
 
 describe.skipIf(!enabled)('duel presentation with original art',() => {
   it('draws portraits, the card box and the original effects during a live NPC duel',async () => {

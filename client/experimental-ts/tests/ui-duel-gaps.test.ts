@@ -125,10 +125,12 @@ describe('blinking portraits', () => {
     const timers: { cb: () => void; ms: number }[] = [];
     const scene = new DuelPresentation(null, { random: () => 0.5, setTimer: (cb, ms) => { timers.push({ cb, ms }); return timers.length; }, clearTimer: () => {} });
     const drawn: string[] = [];
-    const internals = scene as unknown as { portraits: TestNode[]; faces: { frames: Record<number, unknown> }[]; blink(side: 0 | 1): void; reduced: boolean };
-    const frames = { 1: 'open', 2: 'half', 3: 'shut' };
-    internals.portraits[1]!.getContext = (() => ({ clearRect() {}, drawImage: (img: string) => drawn.push(img) })) as never;
+    const internals = scene as unknown as { portraits: TestNode[]; faces: { frames: Record<number, TestNode> }[]; blink(side: 0 | 1): void; reduced: boolean; showEyes(side: 0 | 1, frame: number): void };
+    // one picture per eye frame; the one shown is the visible one
+    const names: Record<string, string> = { 1: 'open', 2: 'half', 3: 'shut' }, frames = { 1: document.createElement('img'), 2: document.createElement('img'), 3: document.createElement('img') };
     internals.faces[1]!.frames = frames;
+    const show = internals.showEyes.bind(scene);
+    internals.showEyes = (side, frame) => { show(side, frame); const visible = Object.entries(frames).filter(([, img]) => img.style.visibility !== 'hidden'); expect(visible).toHaveLength(1); drawn.push(names[visible[0]![0]]!); };
     internals.blink(1);
     expect(drawn).toEqual(['open', 'open']);
     expect(timers.at(-1)!.ms).toBe(BLINK.minOpen + 0.5 * (BLINK.maxOpen - BLINK.minOpen));

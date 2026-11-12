@@ -210,7 +210,7 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 /* the bar's own keys (a spectator's Leave Duel, Surrender with no deck left) between the ring and the help line, clear of
    the wrench, which now stands at the bar's left edge as live's */
 .de-duel-bar>.de-duel-actions { position:absolute; left:${300 / 1024 * 100}%; top:0; bottom:0; align-items:center; z-index:1; }
-.de-duel-bar>canvas.de-duel-ring { position:absolute; left:${232 / 1024 * 100}%; top:${-16 / 32 * 100}%; width:${64 / 1024 * 100}%; height:200%; pointer-events:none; }
+.de-duel-bar>.de-duel-ring { position:absolute; left:${232 / 1024 * 100}%; top:${-16 / 32 * 100}%; width:${64 / 1024 * 100}%; height:200%; pointer-events:none; }
 .de-duel-help-run { display:inline-block; padding-left:100%; animation:de-help-run 16s linear infinite; }
 @keyframes de-help-run { from { transform:translateX(0); } to { transform:translateX(-100%); } }
 @media (prefers-reduced-motion: reduce) { .de-duel-help-run { padding-left:8px; animation:none; } }

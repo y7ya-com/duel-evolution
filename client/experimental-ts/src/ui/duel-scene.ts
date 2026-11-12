@@ -1,6 +1,6 @@
 import type { CardView, DuelCardView, DuelView } from './contracts';
 import { DuelFx, type ArchiveLoader } from './duel-fx';
-import { WaistUpComposer, blinkSchedule, type EyeFrame } from './duel-portrait';
+import { WaistUpComposer, blinkSchedule, canvasUrl, type EyeFrame } from './duel-portrait';
 import { fieldCardPosition } from './helpers';
 
 /** The original duel screen's furniture around the field, with its art: the two waist-up portraits between the backdrop
@@ -22,10 +22,12 @@ const CSS = `
 /* the card box where live's duel screen has it: the bottom left beside the chat, over the bar (6 lines of the engine's
    16 px Arial: name, kind, 3 of text, the stats) */
 .de-duel-board>.de-duel-info { top:${614 / 768 * 100}%; height:${120 / 768 * 100}%; left:${4 / 1024 * 100}%; width:${248 / 1024 * 100}%; font:15px/16px Arial,'Segoe UI',sans-serif; letter-spacing:.03em; }
-.de-duel-board>canvas.de-duel-portrait { position:absolute; inset:auto; width:${768 * PORTRAIT_SCALE / 1024 * 100}%; height:${768 * PORTRAIT_SCALE / 768 * 100}%; pointer-events:none; z-index:0; }
+.de-duel-board>.de-duel-portrait { position:absolute; inset:auto; width:${768 * PORTRAIT_SCALE / 1024 * 100}%; height:${768 * PORTRAIT_SCALE / 768 * 100}%; pointer-events:none; z-index:0; }
+.de-duel-portrait>img { position:absolute; inset:0; width:100%; height:100%; display:block; }
 .de-duel-fx { position:absolute; inset:0; pointer-events:none; z-index:7; }
-.de-duel-fx canvas { width:100%; height:100%; display:block; }
-.de-duel-board>canvas.de-duel-stats { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:6; }
+.de-duel-fx>.de-duel-fx-layer { position:absolute; inset:0; }
+.de-duel-board>.de-duel-stats { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:6; }
+.de-duel-stats>i { position:absolute; width:${7 / 1024 * 100}%; height:${16 / 768 * 100}%; background-repeat:no-repeat; }
 .de-duel-info { position:absolute; left:${6 / 1024 * 100}%; top:${496 / 768 * 100}%; width:${240 / 1024 * 100}%; height:${122 / 768 * 100}%; z-index:8;
   box-sizing:border-box; padding:.35em .5em; overflow:hidden; pointer-events:none; font:13px/1.25 Arial,'Segoe UI',sans-serif; color:#2a2f38;
   background:linear-gradient(180deg,rgba(236,246,255,.9),rgba(214,232,250,.86)); border:1px solid #6fb3ea; border-radius:3px; box-shadow:inset 0 0 0 1px rgba(255,255,255,.7); }
@@ -64,21 +66,22 @@ export interface DuelPresentationOptions { random?: () => number; setTimer?: (cb
 
 export class DuelPresentation {
   readonly fx: DuelFx;
-  /** Each side's portrait frames (eyes open, half shut, shut) and its blink timer. */
-  private readonly faces: [{ frames: Partial<Record<EyeFrame, HTMLCanvasElement>>; timer: unknown }, { frames: Partial<Record<EyeFrame, HTMLCanvasElement>>; timer: unknown }] = [{ frames: {}, timer: null }, { frames: {}, timer: null }];
+  /** Each side's portrait frames (eyes open, half shut, shut: one <img> each, the shown one visible) and its blink timer. */
+  private readonly faces: [{ frames: Partial<Record<EyeFrame, HTMLImageElement>>; timer: unknown }, { frames: Partial<Record<EyeFrame, HTMLImageElement>>; timer: unknown }] = [{ frames: {}, timer: null }, { frames: {}, timer: null }];
   private reduced = false;
   private readonly random: () => number;
   private readonly setTimer: (cb: () => void, ms: number) => unknown;
   private readonly clearTimer: (id: unknown) => void;
-  private readonly portraits: [HTMLCanvasElement, HTMLCanvasElement];
+  private readonly portraits: [HTMLElement, HTMLElement];
   private readonly portraitKeys: [string, string] = ['', ''];
   private readonly composer: WaistUpComposer | null;
   private readonly abort = new AbortController();
   private readonly info: HTMLElement;
-  /** ATK/DEF under face-up monsters in the original's duel_fontm digits (7×16, "0123456789/"). */
-  private readonly statsLayer: HTMLCanvasElement;
+  /** ATK/DEF under face-up monsters in the original's duel_fontm digits (7×16, "0123456789/"): one element per glyph,
+   * the sheet its background. */
+  private readonly statsLayer: HTMLElement;
   private statsKey = '';
-  private statsFont: HTMLImageElement | null = null;
+  private statsFont: { url: string; width: number; height: number; release(): void } | null = null;
   private readonly style: HTMLStyleElement;
   private duel: DuelView | null = null;
   private shown: string | null = null;
@@ -91,18 +94,21 @@ export class DuelPresentation {
     this.clearTimer = options.clearTimer ?? (id => clearTimeout(id as ReturnType<typeof setTimeout>));
     this.fx = new DuelFx(load);
     this.composer = load ? new WaistUpComposer(load) : null;
-    this.portraits = [0, 1].map(side => {
-      const c = document.createElement('canvas'); c.width = 768; c.height = 768; c.className = `de-duel-portrait side-${side}`; c.setAttribute('aria-hidden', 'true');
+    this.portraits = [0, 1].map((side): HTMLElement => {
+      const c = document.createElement('div'); c.className = `de-duel-portrait side-${side}`; c.setAttribute('aria-hidden', 'true');
       const at = PORTRAIT_PLACE[side as 0 | 1]; c.style.left = `${at.x / 1024 * 100}%`; c.style.top = `${at.y / 768 * 100}%`; c.hidden = true;
       // The art faces left: the player's portrait is the mirrored composition of the other pose.
       if (side === 0) c.style.transform = 'scaleX(-1)';
       return c;
-    }) as [HTMLCanvasElement, HTMLCanvasElement];
+    }) as [HTMLElement, HTMLElement];
     this.info = document.createElement('aside'); this.info.className = 'de-duel-info'; this.info.setAttribute('aria-label', 'Card information'); this.info.hidden = true;
     this.style = document.createElement('style'); this.style.textContent = CSS;
-    this.statsLayer = document.createElement('canvas'); this.statsLayer.width = 1024; this.statsLayer.height = 768; this.statsLayer.className = 'de-duel-stats'; this.statsLayer.setAttribute('aria-hidden', 'true');
+    this.statsLayer = document.createElement('div'); this.statsLayer.className = 'de-duel-stats'; this.statsLayer.setAttribute('aria-hidden', 'true');
+    // the sheet's lease is kept while the layer may show it (its URL is the glyphs' background)
     load?.('data/y/duel/font/duel_fontm.png', this.abort.signal).then(lease => {
-      const img = new Image(); img.onload = () => { this.statsFont = img; this.statsKey = ''; if (this.duel) this.drawStats(); lease.release(); }; img.onerror = () => lease.release(); img.src = lease.url;
+      const img = new Image();
+      img.onload = () => { if (this.abort.signal.aborted) { lease.release(); return; } this.statsFont = { url: lease.url, width: img.naturalWidth, height: img.naturalHeight, release: () => lease.release() }; this.statsKey = ''; if (this.duel) this.drawStats(); };
+      img.onerror = () => lease.release(); img.src = lease.url;
     }, () => {});
   }
 
@@ -139,41 +145,69 @@ export class DuelPresentation {
     this.renderInfo(); this.drawStats();
   }
   private lastCue: number | null = null;
-  dispose(): void { for (const face of this.faces) { if (face.timer !== null) this.clearTimer(face.timer); face.timer = null; face.frames = {}; } this.abort.abort(); this.statsLayer.remove(); this.fx.dispose(); this.info.remove(); for (const p of this.portraits) p.remove(); }
+  dispose(): void {
+    for (const side of [0, 1] as const) { const face = this.faces[side]; if (face.timer !== null) this.clearTimer(face.timer); face.timer = null; this.dropFrames(side); }
+    this.abort.abort(); this.statsLayer.remove(); this.statsLayer.replaceChildren(); this.statsFont?.release(); this.statsFont = null; this.fx.dispose(); this.info.remove(); for (const p of this.portraits) p.remove();
+  }
 
   private drawStats(): void {
-    const font = this.statsFont, ctx = this.statsLayer.getContext('2d'); if (!font || !ctx || !this.duel) return;
+    const font = this.statsFont; if (!font || !this.duel) return;
     const shown = this.duel.cards.filter(c => c.zone === 'monster' && c.faceUp && c.attack !== undefined && c.attack !== null);
     const key = shown.map(c => `${c.id}:${c.attack}:${c.defense}:${Math.round(c.motion?.x ?? -1)}:${Math.round(c.motion?.y ?? -1)}:${c.controller}:${c.index}`).join('|');
     if (key === this.statsKey) return;
-    this.statsKey = key; ctx.clearRect(0, 0, 1024, 768);
+    this.statsKey = key;
+    const glyphs: HTMLElement[] = [], url = `url("${font.url}")`, size = `${font.width / 7 * 100}% ${font.height / 16 * 100}%`;
     for (const card of shown) {
       const p = fieldCardPosition(card, 0), x = card.motion?.x ?? p.x, y = (card.motion?.y ?? p.y) + 42;
       // "1800 / 1600": the slash with a few pixels of space each side, centred under the card.
       const atk = String(card.attack), def = card.defense === undefined || card.defense === null ? '?' : String(card.defense);
       const width = (atk.length + def.length + 1) * 7 + 8;
       let at = x - width / 2;
-      const glyph = (ch: string) => { const g = '0123456789/'.indexOf(ch); if (g >= 0) ctx.drawImage(font, g * 7, 0, 7, 16, at, y - 8, 7, 16); at += 7; };
+      const glyph = (ch: string) => {
+        const g = '0123456789/'.indexOf(ch);
+        if (g >= 0) {
+          const i = document.createElement('i');
+          Object.assign(i.style, { left: `${at / 1024 * 100}%`, top: `${(y - 8) / 768 * 100}%`, backgroundImage: url, backgroundSize: size, backgroundPosition: `${font.width > 7 ? g * 7 / (font.width - 7) * 100 : 0}% 0%` });
+          glyphs.push(i);
+        }
+        at += 7;
+      };
       for (const ch of atk) glyph(ch); at += 4; glyph('/'); at += 4; for (const ch of def) glyph(ch);
     }
+    this.statsLayer.replaceChildren(...glyphs);
+  }
+  /** A side's eye frames go (a new look, or the duel screen's end): their pictures with them. */
+  private dropFrames(side: 0 | 1): void {
+    const face = this.faces[side];
+    for (const img of Object.values(face.frames)) { if (img.src?.startsWith('blob:')) URL.revokeObjectURL(img.src); img.remove(); }
+    face.frames = {};
   }
   private portrait(side: 0 | 1, parts: Uint8Array | undefined): void {
-    const canvas = this.portraits[side], key = parts ? Array.from(parts).join('.') : '';
+    const box = this.portraits[side], key = parts ? Array.from(parts).join('.') : '';
     if (key === this.portraitKeys[side]) return;
     this.portraitKeys[side] = key;
-    const face = this.faces[side]; face.frames = {}; if (face.timer !== null) this.clearTimer(face.timer); face.timer = null;
-    if (!parts || !this.composer) { canvas.hidden = true; return; }
-    void this.composer.composeFrames(parts, side === 0 ? 1 : 0, this.abort.signal).then(frames => {
-      if (this.portraitKeys[side] !== key || !frames[1]) return;
-      face.frames = frames; canvas.dataset.parts = key;
-      this.showEyes(side, 1); canvas.hidden = false;
+    const face = this.faces[side]; if (face.timer !== null) this.clearTimer(face.timer); face.timer = null;
+    if (!parts || !this.composer) { this.dropFrames(side); box.hidden = true; return; }
+    void this.composer.composeFrames(parts, side === 0 ? 1 : 0, this.abort.signal).then(async composed => {
+      if (this.portraitKeys[side] !== key || !composed[1]) return;
+      // each frame a picture of its own, decoded before it can show, so a blink never waits on one
+      const frames: Partial<Record<EyeFrame, HTMLImageElement>> = {};
+      await Promise.all(([1, 2, 3] as const).map(async f => {
+        const c = composed[f]; if (!c) return;
+        const img = document.createElement('img'); img.alt = ''; img.draggable = false; img.style.visibility = 'hidden'; img.src = await canvasUrl(c);
+        await img.decode().catch(() => {}); frames[f] = img;
+      }));
+      if (this.portraitKeys[side] !== key || this.abort.signal.aborted || !frames[1]) { for (const img of Object.values(frames)) URL.revokeObjectURL(img.src); return; }
+      this.dropFrames(side); face.frames = frames; box.append(...Object.values(frames)); box.dataset.parts = key;
+      this.showEyes(side, 1); box.hidden = false;
       this.blink(side);
-    }).catch(() => { canvas.hidden = true; });
+    }).catch(() => { box.hidden = true; });
   }
   private showEyes(side: 0 | 1, frame: EyeFrame): void {
-    const canvas = this.portraits[side], image = this.faces[side].frames[frame] ?? this.faces[side].frames[1];
-    const ctx = canvas.getContext('2d'); if (!ctx || !image) return;
-    ctx.clearRect(0, 0, 768, 768); ctx.drawImage(image, 0, 0); canvas.dataset.eyes = String(frame);
+    const box = this.portraits[side], frames = this.faces[side].frames, shown = frames[frame] ? frame : 1;
+    if (!frames[shown]) return;
+    for (const [f, img] of Object.entries(frames)) img.style.visibility = Number(f) === shown ? '' : 'hidden';
+    box.dataset.eyes = String(frame);
   }
   /** The portrait blinks as the original's does (duel-portrait.ts blinkSchedule); with reduced motion its eyes stay open. */
   private blink(side: 0 | 1): void {

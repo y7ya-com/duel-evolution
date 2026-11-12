@@ -1,10 +1,12 @@
 import type { DuelCue, DuelCuePlace, DuelView } from './contracts';
 import { fieldCardPosition } from './helpers';
 import { parseSwfText, SwfInstance, type SwfColor, type SwfMovie } from '../duel/swf-text';
+import { PixiPainter } from './pixi-painter';
 
 /** The duel's effects layer with the original art: summon / set / flip / activation / attack / destruction / tribute
  * movies and sprites, LP damage digits, phase-name and turn banners, chain-link plaques, coin and die tosses and the
- * field-spell title. Everything is drawn on one 1024×768 canvas over the board (the original screen's coordinates).
+ * field-spell title. Everything is drawn with PixiJS on one 1024×768 layer over the board (the original screen's
+ * coordinates; pixi-painter.ts: each image a sprite, in drawing order).
  * Cues come from the duel view (src/duel/cues.ts); each id plays once. With reduced motion nothing moves: banners,
  * digits, plaques and toss results are shown still for a moment and the movies are not played.
  * Original sources: data/y/duel/effect (SWF text movies and sheet lists), data/y/duel/phase_name, data/y/duel/font
@@ -34,7 +36,7 @@ const FRAME = 1000 / 60;
 export const ATTACK = { aim: 8 * FRAME, hit: 16 * FRAME, movie: 700 };
 const BANNERS = new Set<DuelCue['kind']>(['phase', 'turn', 'field']);
 
-interface Anim { cue: DuelCue; start: number; duration: number; draw(ctx: CanvasRenderingContext2D, t: number): void }
+interface Anim { cue: DuelCue; start: number; duration: number; draw(ctx: PixiPainter, t: number): void }
 interface Art { image: HTMLImageElement | null; failed: boolean; lease: { release(): void } | null }
 type Point = { x: number; y: number; w: number; h: number };
 
@@ -43,12 +45,11 @@ const ease = (t: number) => 1 - (1 - t) * (1 - t);
 
 export class DuelFx {
   readonly element: HTMLDivElement;
-  /** The bar's ring (RING), its own 64×64 canvas: the bar stands above the effects layer. */
-  readonly ringCanvas: HTMLCanvasElement;
-  private readonly ringCtx: CanvasRenderingContext2D | null;
+  /** The bar's ring (RING), its own 64×64 layer: the bar stands above the effects layer. */
+  readonly ringElement: HTMLElement;
+  private readonly ringCtx: PixiPainter;
   private ringFrom = 0;
-  private readonly canvas: HTMLCanvasElement;
-  private readonly ctx: CanvasRenderingContext2D | null;
+  private readonly ctx: PixiPainter;
   private readonly abort = new AbortController();
   private readonly art = new Map<string, Art>();
   private readonly movies = new Map<string, SwfMovie | null>();
@@ -74,10 +75,9 @@ export class DuelFx {
 
   constructor(private readonly load: ArchiveLoader | null, options: DuelFxOptions = {}) {
     this.element = document.createElement('div'); this.element.className = 'de-duel-fx'; this.element.setAttribute('aria-hidden', 'true');
-    this.canvas = document.createElement('canvas'); this.canvas.width = 1024; this.canvas.height = 768; this.element.append(this.canvas);
-    this.ctx = this.canvas.getContext?.('2d') ?? null;
-    this.ringCanvas = document.createElement('canvas'); this.ringCanvas.width = 64; this.ringCanvas.height = 64; this.ringCanvas.className = 'de-duel-ring'; this.ringCanvas.setAttribute('aria-hidden', 'true');
-    this.ringCtx = this.ringCanvas.getContext?.('2d') ?? null;
+    const ready = () => this.schedule();
+    this.ctx = new PixiPainter({ width: 1024, height: 768, className: 'de-duel-fx-layer', ready }); this.element.append(this.ctx.element);
+    this.ringCtx = new PixiPainter({ width: 64, height: 64, className: 'de-duel-ring', ready }); this.ringElement = this.ringCtx.element;
     this.clock = options.now ?? (() => performance.now()); this.base = this.virt = this.clock();
     this.requestFrame = options.requestFrame ?? (cb => requestAnimationFrame(cb));
     this.cancelFrame = options.cancelFrame ?? (id => cancelAnimationFrame(id));
@@ -98,6 +98,7 @@ export class DuelFx {
   clear(): void { this.anims = []; this.chain.clear(); this.bannerFree = 0; this.schedule(); }
   dispose(): void {
     this.disposed = true; this.abort.abort(); if (this.frame) this.cancelFrame(this.frame); this.frame = 0;
+    this.ctx.destroy(); this.ringCtx.destroy();
     for (const a of this.art.values()) { a.lease?.release(); if (a.image) a.image.removeAttribute('src'); }
     this.art.clear(); this.tints.clear(); this.movies.clear(); this.anims = []; this.chain.clear();
   }
@@ -282,7 +283,8 @@ export class DuelFx {
 
   // ---- drawing ----
   private schedule(): void {
-    if (this.disposed || this.frame || !this.ctx) return;
+    // nothing can show until Pixi is up (its ready callback schedules the first frame)
+    if (this.disposed || this.frame || !this.ctx.ready) return;
     this.frame = this.requestFrame(() => { this.frame = 0; this.draw(); });
   }
   /** Whose "Now Thinking" plate shows (data/y/duel/field/duel_thinkicon_a01_c0{1,2}_j.txt, a 30-frame loop at 30 fps):
@@ -298,16 +300,17 @@ export class DuelFx {
   }
   get thinking(): 0 | 1 | null { return this.thinkingSide; }
   private draw(): void {
-    const ctx = this.ctx; if (!ctx || this.disposed) return;
+    const ctx = this.ctx; if (this.disposed) return;
     const now = this.now();
-    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, 1024, 768);
+    ctx.begin();
     this.anims = this.anims.filter(a => now - a.start < a.duration);
     let animating = this.anims.length > 0;
-    if (this.ringCtx) {
+    {
       const movie = this.movie(RING), loop = movie ? movie.frameCount * 1000 / movie.frameRate : 1000;
       if (!this.ringFrom) this.ringFrom = this.clock();
-      this.ringCtx.setTransform(1, 0, 0, 1, 0, 0); this.ringCtx.clearRect(0, 0, 64, 64);
+      this.ringCtx.begin();
       try { this.playMovie(this.ringCtx, RING, this.reduced ? 0 : (this.clock() - this.ringFrom) % loop, 0, 0, 1); } catch { /* a broken asset never stops the duel */ }
+      this.ringCtx.end();
       animating = animating || !this.reduced || !movie;
     }
     if (this.thinkingSide !== null) {
@@ -327,13 +330,14 @@ export class DuelFx {
       try { a.draw(ctx, now - a.start); } catch { /* a broken asset never stops the duel */ }
       ctx.restore();
     }
+    ctx.end();
     const active = [...new Set([...this.anims.filter(a => now >= a.start).map(a => a.cue.kind), ...this.chain.size ? ['chain'] : []])].join(' ');
     if (this.element.dataset.active !== active) this.element.dataset.active = active;
     if (animating) this.schedule();
   }
   /** A banner (phase name, next turn, field title): slides in from the left with two after-images, holds, fades. Its
    * frames (battle sparkle, turn shine) play over the hold. */
-  private banner(ctx: CanvasRenderingContext2D, path: string, frames: string[], t: number, duration: number, y: number): void {
+  private banner(ctx: PixiPainter, path: string, frames: string[], t: number, duration: number, y: number): void {
     const img = this.image(path); if (!img) return;
     const inT = 220, outT = 260, x = 512 - img.width / 2;
     if (this.reduced) { ctx.globalAlpha = 1 - clamp((t - duration + 200) / 200); ctx.drawImage(img, x, y - img.height / 2); return; }
@@ -351,7 +355,7 @@ export class DuelFx {
     }
   }
   /** Glyph-strip digits (damage00/01, chain_font), centred on x. */
-  private digits(ctx: CanvasRenderingContext2D, path: string, text: string, x: number, y: number, scale: number, w: number, h: number, glyphs: string): void {
+  private digits(ctx: PixiPainter, path: string, text: string, x: number, y: number, scale: number, w: number, h: number, glyphs: string): void {
     const img = this.image(path); if (!img) return;
     const total = text.length * w * scale;
     [...text].forEach((ch, i) => {
@@ -360,7 +364,7 @@ export class DuelFx {
     });
   }
   /** The chain-link plaque on its card: cha_ani grows it in (15 frames), cha_hyou shimmers, chain_font the number. */
-  private plaque(ctx: CanvasRenderingContext2D, link: number, c: { at: DuelCuePlace; start: number; leaving: number | null }, now: number): boolean {
+  private plaque(ctx: PixiPainter, link: number, c: { at: DuelCuePlace; start: number; leaving: number | null }, now: number): boolean {
     const at = this.where(c.at), t = now - c.start;
     const appear = this.reduced ? 14 : Math.min(14, Math.floor(t / 33));
     const path = appear < 14 ? `data/y/duel/chain/cha_ani_e${String(appear + 1).padStart(2, '0')}.png` : `data/y/duel/chain/cha_hyou_e${this.reduced ? 1 : Math.floor(t / 80) % 9 + 1}.png`;
@@ -373,7 +377,7 @@ export class DuelFx {
     return !this.reduced || c.leaving !== null;
   }
   /** summon.txt / set.txt: the rainbow (or set ring) over the card, stars bursting out of it. */
-  private sparkle(ctx: CanvasRenderingContext2D, at: Point, t: number, duration: number, ring: string, stars: string[]): void {
+  private sparkle(ctx: PixiPainter, at: Point, t: number, duration: number, ring: string, stars: string[]): void {
     const k = clamp(t / duration), img = this.image(ring);
     ctx.globalCompositeOperation = 'lighter';
     if (img) {
@@ -389,17 +393,17 @@ export class DuelFx {
       ctx.drawImage(star, at.x + Math.cos(angle) * r - star.width / 2, at.y + Math.sin(angle) * r * 1.2 - star.height / 2);
     }
   }
-  private ring(ctx: CanvasRenderingContext2D, at: Point, k: number, color: string): void {
+  private ring(ctx: PixiPainter, at: Point, k: number, color: string): void {
     ctx.globalAlpha = 1 - clamp(k); ctx.strokeStyle = color; ctx.lineWidth = 4;
     ctx.strokeRect(at.x - (at.w || 60) / 2 - 3, at.y - (at.h || 84) / 2 - 3, (at.w || 60) + 6, (at.h || 84) + 6);
   }
   /** A sprite centred on (x, y), turned `rot` radians (0 points up) at `alpha`. */
-  private sprite(ctx: CanvasRenderingContext2D, path: string, x: number, y: number, rot: number, alpha: number): void {
+  private sprite(ctx: PixiPainter, path: string, x: number, y: number, rot: number, alpha: number): void {
     const img = this.image(path); if (!img || alpha <= 0) return;
     ctx.save(); ctx.globalAlpha = clamp(alpha); ctx.translate(x, y); ctx.rotate(rot); ctx.drawImage(img, -img.width / 2, -img.height / 2); ctx.restore();
   }
   /** coin_new.txt: duel_ef_coin is 14 frames of 50×50 (0 the puzzle face = heads, 7 the eye = tails). */
-  private coins(ctx: CanvasRenderingContext2D, sheet: string, faces: number[], at: Point, t: number): void {
+  private coins(ctx: PixiPainter, sheet: string, faces: number[], at: Point, t: number): void {
     const img = this.image(sheet), shadow = this.image(sheet.replace('duel_ef_coin', 'duel_ef_coin_kage')); if (!img) return;
     const spin = this.reduced ? 0 : 1300, spacing = 60;
     faces.forEach((face, i) => {
@@ -412,7 +416,7 @@ export class DuelFx {
     });
   }
   /** dice.txt: dice_random's 6 tumbling frames, then dice_decide<n> (the face). */
-  private die(ctx: CanvasRenderingContext2D, spin: string, face: string, at: Point, t: number): void {
+  private die(ctx: PixiPainter, spin: string, face: string, at: Point, t: number): void {
     const rolling = this.reduced ? 0 : 1000, fade = 1 - clamp((t - (this.reduced ? 1200 : 1800)) / 200);
     ctx.globalAlpha = fade;
     if (t < rolling) {
@@ -425,7 +429,7 @@ export class DuelFx {
     }
   }
   /** One original SWF movie at its frame rate around (x, y). Missing pieces draw nothing. */
-  private playMovie(ctx: CanvasRenderingContext2D, path: string, t: number, x: number, y: number, scale: number, rot = 0): void {
+  private playMovie(ctx: PixiPainter, path: string, t: number, x: number, y: number, scale: number, rot = 0): void {
     const movie = this.movie(path); if (!movie || t < 0) return;
     const frame = Math.floor(t * movie.frameRate / 1000);
     if (frame >= movie.frameCount) return;
@@ -443,7 +447,7 @@ export class DuelFx {
       const cos = Math.cos(rot) * scale / 20, sin = Math.sin(rot) * scale / 20;
       ctx.setTransform(cos, sin, -sin, cos, x, y);
       const m = item.clipMatrix, b = item.clip;
-      ctx.transform(m.a, m.b, m.c, m.d, m.tx, m.ty); ctx.beginPath(); ctx.rect(b[0], b[1], b[2] - b[0], b[3] - b[1]); ctx.clip();
+      ctx.transform(m.a, m.b, m.c, m.d, m.tx, m.ty); ctx.clipRect(b[0], b[1], b[2] - b[0], b[3] - b[1]);
       ctx.setTransform(cos, sin, -sin, cos, x, y);
       const f = item.matrix; ctx.transform(f.a, f.b, f.c, f.d, f.tx, f.ty);
       ctx.globalAlpha = clamp(item.color.mult[3] + item.color.add[3] / 255);
@@ -451,8 +455,9 @@ export class DuelFx {
       ctx.restore();
     }
   }
-  /** SWF colour transforms on RGB (canvas has no per-channel multiply/add): a cached recoloured copy. */
-  private tinted(img: HTMLImageElement, key: string, color: SwfColor): CanvasImageSource {
+  /** SWF colour transforms on RGB (multiply and add per channel; a sprite's tint only multiplies): a cached recoloured
+   * copy, made off screen. */
+  private tinted(img: HTMLImageElement, key: string, color: SwfColor): HTMLImageElement | HTMLCanvasElement {
     const [mr, mg, mb] = color.mult, [ar, ag, ab] = color.add;
     if (Math.abs(mr - 1) < 0.02 && Math.abs(mg - 1) < 0.02 && Math.abs(mb - 1) < 0.02 && ar < 3 && ag < 3 && ab < 3) return img;
     const q = (v: number) => Math.round(v * 16) / 16, id = `${key}|${q(mr)},${q(mg)},${q(mb)},${Math.round(ar / 8)},${Math.round(ag / 8)},${Math.round(ab / 8)}`;
@@ -468,7 +473,7 @@ export class DuelFx {
       g.putImageData(data, 0, 0);
     } catch { return img; }
     this.tints.set(id, c);
-    if (this.tints.size > MAX_TINTS) this.tints.delete(this.tints.keys().next().value!);
+    if (this.tints.size > MAX_TINTS) { const [old, copy] = this.tints.entries().next().value!; this.tints.delete(old); this.ctx.forget(copy); this.ringCtx.forget(copy); }
     return c;
   }
 }
