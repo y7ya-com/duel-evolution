@@ -219,6 +219,7 @@ export class HeuristicBot {
   #deckList: number[] = [];
   /** My monsters (zones) that declared an attack this turn, and my attack under way (its zone, its target's). */
   #attackedThisTurn = new Set<number>();
+  #oppAttackedThisTurn = new Set<number>();
   #myAttack: { sequence: number; target: number | null } | null = null;
   /** The chain length once our last answer in this window is on it (a later opponent link may be answered again). */
   #answeredAt = 0;
@@ -269,7 +270,7 @@ export class HeuristicBot {
           for (const c of (Array.isArray(ev.cards) ? ev.cards : []) as Json[]) if (top && Number(c.controller) === this.seat) top.targets.push(`${Number(c.location)}:${Number(c.sequence)}`);
         }
         break;
-      case "NEW_PHASE": case "NEW_TURN": this.#attack = null; this.#myAttack = null; this.#oppSummonAtk = 0; if (ev.type === "NEW_TURN") this.#attackedThisTurn.clear(); if (ev.type === "NEW_TURN") { this.#normalSummoned = false; this.#oppNormalSummoned = false; } break;
+      case "NEW_PHASE": case "NEW_TURN": this.#attack = null; this.#myAttack = null; this.#oppSummonAtk = 0; if (ev.type === "NEW_TURN") { this.#attackedThisTurn.clear(); this.#oppAttackedThisTurn.clear(); } if (ev.type === "NEW_TURN") { this.#normalSummoned = false; this.#oppNormalSummoned = false; } break;
       case "SUMMONING": case "SPSUMMONING": case "FLIPSUMMONING":
         if (ev.type === "SUMMONING") { if (Number(ev.controller) === this.seat) this.#normalSummoned = true; else this.#oppNormalSummoned = true; }
         this.#oppSummonAtk = Number(ev.controller) !== this.seat && Number(ev.code) ? Math.max(1, this.#stat(Number(ev.code)).atk) : 0;
@@ -280,7 +281,10 @@ export class HeuristicBot {
         break;
       case "ATTACK": {
         const a = ev.card as Json | undefined, t = ev.target as Json | null | undefined;
-        if (a && Number(a.controller) !== this.seat) this.#attack = { sequence: Number(a.sequence), direct: !t, target: t && Number(t.controller) === this.seat ? Number(t.sequence) : null };
+        if (a && Number(a.controller) !== this.seat) {
+          this.#attack = { sequence: Number(a.sequence), direct: !t, target: t && Number(t.controller) === this.seat ? Number(t.sequence) : null };
+          this.#oppAttackedThisTurn.add(Number(a.sequence));
+        }
         else {
           this.#attackSeen = true;
           if (a) { this.#attackedThisTurn.add(Number(a.sequence)); this.#myAttack = { sequence: Number(a.sequence), target: t ? Number(t.sequence) : null }; }
@@ -489,8 +493,9 @@ export class HeuristicBot {
     let quick = -1;
     for (let i = 0; i < ev.spellSet.length; i++) {
       const t = this.#cards.brain.get(ev.spellSet[i]!.code)?.type ?? 0;
-      // not into a face-up Royal Decree / Jinzo (a port choice: Master Duel's set routine has no lock check)
-      if (this.#locked(ev.spellSet[i]!.code)) continue;
+      // not into a face-up Royal Decree / Jinzo (a port choice: Master Duel's set routine has no lock check), and never a
+      // card dead in hand (the Spirit Messages, the Sarcophagi: Master Duel never sets them on their own)
+      if (this.#locked(ev.spellSet[i]!.code) || discardBenefit(ev.spellSet[i]!.code) === 1) continue;
       if (t & TYPE_TRAP) return i;
       if (quick < 0 && (t & TYPE_QUICKPLAY)) quick = i;
     }
@@ -660,7 +665,7 @@ export class HeuristicBot {
       lethalOnEmpty: myTurn && swinging >= opp.lp,
       attackTargetLoses: !!guard && attackAtk > guardValue,
       attackHurts: incoming > 0 || (!!guard && attackAtk > guardValue && !(guard.code && BATTLE_PROOF.has(guard.code))),
-      attackerIsStrongest: !!oppAttack && oppMon.every((m) => m.seq === this.#attack!.sequence || !m.attackPos || m.atk <= attackAtk),
+      attackerIsStrongest: !!oppAttack && oppMon.every((m) => m.seq === this.#attack!.sequence || !m.attackPos || m.atk <= attackAtk || this.#oppAttackedThisTurn.has(m.seq)),
       oppPlanLethal: !myTurn && replyPosition(this.#boardPosition()).myLp <= 0,
       trapLock: this.#trapLock(),
       oppCanNormalSummon: !myTurn && !this.#oppNormalSummoned && phase <= PHASE.MAIN1,
@@ -1892,6 +1897,9 @@ export class HeuristicBot {
     // A card's optional effect once per turn (yes again on a re-trigger would loop).
     const key = `eff:${ev.card.code}:${ev.description}`;
     if (this.#activatedThisTurn.has(key)) return respEffectYN(false);
+    // a card rule's own answer (yesNo), else yes
+    const rule = this.#ruleFor(ev.card.code);
+    if (rule?.yesNo && !rule.yesNo(this.#withSelf(this.#ctx(), ev.card.code, ev.card))) return respEffectYN(false);
     this.#activatedThisTurn.add(key);
     this.#activated(ev.card.code);
     return respEffectYN(true);
