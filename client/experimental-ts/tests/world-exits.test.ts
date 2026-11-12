@@ -1,9 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { arrivalEntries, chooseArrival, crossingAt, detectExit } from '../src/world/exits';
+import { arrivalEntries, chooseArrival, crossingAt, detectExit, MY_ROOM_DOORS } from '../src/world/exits';
 import { EXIT_HIT_PIXELS } from '../src/world/collision';
 const entry = (from: number, x = 10, direction = 0) => ({from,x,y:20,direction});
 const map = {id:2,entries:[entry(0),entry(8),entry(11),entry(8,30),entry(12),entry(8,99)]};
 describe('source-backed exit/entrance helpers', () => {
+  it('lets both of My Room\'s doors out (exit 0 blue: Domino City\'s room, 1 red: Duel Academy\'s), its arrival table having only the room', () => {
+    const room = { id: 8, entries: [entry(8)] };
+    expect(detectExit(room, EXIT_HIT_PIXELS[0], { x: 0, y: 0 })).toMatchObject({ index: 0, destination: 8 });
+    expect(detectExit(room, EXIT_HIT_PIXELS[1], { x: 0, y: 0 })).toMatchObject({ index: 1, destination: 8 });
+    expect(detectExit(room, EXIT_HIT_PIXELS[2], { x: 0, y: 0 })).toBeNull();
+    expect([MY_ROOM_DOORS[0], MY_ROOM_DOORS[1]]).toEqual([13, 14]);
+  });
   it('maps all four colors to entry index, the shop door (11) kept, END and missing destinations rejected', () => {
     expect(detectExit(map,EXIT_HIT_PIXELS[0],{x:0,y:0})).toMatchObject({index:0,destination:0,source:'mask'});
     expect(detectExit(map,EXIT_HIT_PIXELS[1],{x:0,y:0})?.destination).toBe(8);
