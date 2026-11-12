@@ -108,6 +108,7 @@ export class WorldRenderer {
   private readonly motions = new Map<number, ActorMotion>();
   private readonly lastAvatars = new Map<number, LobbyAvatar>();
   private hitNodes: ReadonlyMap<number, HTMLElement> = new Map();
+  private hitShift = '';
   private readonly poses: PoseCache | null;
   private flagAtlas: WorldTexture | null = null;
   private flagLoading: AbortController | null = null;
@@ -333,13 +334,16 @@ export class WorldRenderer {
     const motion = this.motions.get(actor.id)!;
     if (a.parts?.length === 16 && (motion.walking !== actor.poseWalking || motion.direction !== actor.poseDirection)) this.pose(actor, a, true, t);
   }
-  /** The DOM hit targets: left / top (the stage's percent, as the DOM view had them), written only when changed. */
+  /** The DOM hit targets: left / top in map space (percent of the view), written only when that avatar moved; the
+   * camera is one transform on their layer, so a pan does not rewrite every avatar's target. */
   private layoutHits(force: boolean): void {
     if (!this.camera) return;
     const v = this.camera.viewport;
+    const shift = v.x || v.y ? `translate(${-v.x / WORLD_VIEW_WIDTH * 100}%,${-v.y / WORLD_VIEW_HEIGHT * 100}%)` : '';
+    if (force || shift !== this.hitShift) { this.avatars.style.transform = shift; this.hitShift = shift; }
     for (const [id, el] of this.hitNodes) {
       const actor = this.actors.get(id), motion = this.motions.get(id); if (!actor || !motion) continue;
-      const left = `${(motion.x - v.x) / WORLD_VIEW_WIDTH * 100}%`, top = `${(motion.y - v.y) / WORLD_VIEW_HEIGHT * 100}%`;
+      const left = `${motion.x / WORLD_VIEW_WIDTH * 100}%`, top = `${motion.y / WORLD_VIEW_HEIGHT * 100}%`;
       if (force || left !== actor.hitLeft) { el.style.left = left; actor.hitLeft = left; }
       if (force || top !== actor.hitTop) { el.style.top = top; actor.hitTop = top; }
       const z = String(avatarDepth(motion.y)); if (el.style.zIndex !== z) el.style.zIndex = z;
