@@ -57,8 +57,9 @@ export const htmlUiLocal = (): HtmlUiLocal => ({ dialog: null, chatTab: 0, chatD
 export interface MenuEntry { label: string; key: string; disabled?: boolean; run(): void }
 /** The menu bar the scene shows: its keys (the Main Menu's, and the lobby's Duel and Move) and its message. */
 export interface MenuView { entries: MenuEntry[]; message: string; duel?: () => void; move?: () => void; keys: boolean;
-  /** The Duel / Move key's menu open: the key is drawn checked (pink), as live's. */
-  duelOpen?: () => boolean; moveOpen?: () => boolean;
+  /** The Duel / Move key's menu open: the key is drawn checked (pink), as live's; the Main Menu key too while a window
+   * opened from the Main Menu is up (My Profile, Create Comment, DUEL OPTIONS, ...). */
+  duelOpen?: () => boolean; moveOpen?: () => boolean; mainOpen?: () => boolean;
   /** How far main's message field moved right for the page's own bar buttons (lobby.js fieldLeft - 391: the Wardrobe and
    * Missions slots, lobby_icons.js reserveBar): the message's x follows, so main's bar redraws it at the field's start. */
   fieldShift?: number }
@@ -359,7 +360,7 @@ export function menuBar(ctx: BuildContext, menu: MenuView): WindowSpec {
   if (menu.keys) {
     const key = (name: string, x: number, v: number, run: (() => void) | undefined, dataKey: string, label: string, checked = false) =>
       b.add('CWindowTaskPictureSwitch', name, { x, y: 0, w: 80, h: 32 }, { state: run ? 'normal' : 'disabled', checked, art: pictureArt(v) }, { key: dataKey, label, click: () => run?.() });
-    key('MENUBAR_MENU_MAIN', 0, 0, () => { ctx.ui.menu = !ctx.ui.menu; ctx.rerender(); }, 'main-menu', 'Main Menu', ctx.ui.menu);
+    key('MENUBAR_MENU_MAIN', 0, 0, () => { ctx.ui.menu = !ctx.ui.menu; ctx.rerender(); }, 'main-menu', 'Main Menu', ctx.ui.menu || !!menu.mainOpen?.());
     key('MENUBAR_MENU_DUEL', 80, 32, menu.duel, 'menubar-duel', 'Duel', !!menu.duelOpen?.());
     key('MENUBAR_MENU_MOVE', 160, 96, menu.move, 'menubar-move', 'Move', !!menu.moveOpen?.());
   }
@@ -422,7 +423,8 @@ export function profileWindow(ctx: BuildContext): WindowSpec | null {
     ['Tournament Points', d ? String(d.tp) : ''], ['Wins', String(wins)], ['Losses', String(losses)], ['Score', d ? String(d.score) : ''],
     ['Win%', played ? `${(wins * 100 / played).toFixed(2)}%` : '---.--%'],
     ...(ctx.state.cardsCollected !== undefined ? [['% of Cards Collected', `${ctx.state.cardsCollected.toFixed(2)}%`] as [string, string]] : []),
-    ['Miles', d ? String(d.mp) : ''],
+    // Miles: the account's MP (live: 5040 for a new character); the avatar info's own field reads 0 on this server
+    ['Miles', d ? String(d.mp || ctx.state.player?.mp || ctx.state.shop?.mp || 0) : ''],
     ...(p.comments[0] ? [['Comment', p.comments[0]] as [string, string]] : []),
   ];
   const b = new WindowBuilder(ctx.ids, 'profile', 'CWindowModelProfile', { x: 212, y: 186, w: 600, h: 396 }, { z: 51453, modal: true });
@@ -713,6 +715,11 @@ function settleIgnore(ctx: BuildContext, lists: SocialLists): void {
   else ctx.ui.dialog = { kind: 'ok', text: `No player called "${look.name}" was found.` };
 }
 
+/** D-Mail's (and Write Mail's) title: white over the engine's heavy black shadow, 2 px down and right (live). */
+function mailTitle(b: WindowBuilder): void {
+  const title = b.add('CWindowTaskShadowText', 'title', { x: 0, y: 4, w: 512, h: 32 }, { text: 'D-Mail', align: 1, fontSize: 16, color: [1, 1, 1, 1] });
+  b.add('CWindowTaskText', 'titleShadow', { x: 2, y: 6, w: 512, h: 32 }, { parent: title.id, text: title.text, align: 1, fontSize: 16, color: [0, 0, 0, 1] });
+}
 /** D-Mail's content (the rewrite's mail) and what its buttons do. */
 export interface MailBox { mail: { from: string; fromPid: number; subject: string; body: string }[]; send(toPid: number, subject: string, body: string): void;
   /** Delete: the mail leaves the character's own mailbox (the original's mail\\rdm.dat; the server has no request for it). */
@@ -726,7 +733,7 @@ export function mailWindow(ctx: BuildContext, box: MailBox): WindowSpec | null {
   const open = ctx.ui.mail; if (!open) return null;
   const b = new WindowBuilder(ctx.ids, 'dmail', 'CWindowModelDMail', { x: 256, y: 128, w: 512, h: 512 }, { z: 51453, modal: true });
   const mail = box.mail.slice(open.top, open.top + 5), chosen = box.mail[open.selected];
-  b.add('CWindowTaskShadowText', 'title', { x: 0, y: 4, w: 512, h: 32 }, { text: 'D-Mail', align: 1, fontSize: 16, color: [1, 1, 1, 1] });
+  mailTitle(b);
   const button = (name: string, x: number, y: number, label: string, key: string, run: (() => void) | null) =>
     b.add('CWindowTaskTextSwitch', name, { x, y, w: 100, h: 24 }, { label, align: 1, state: run ? 'normal' : 'disabled', checked: false, color: [0, 0, 0, 1] }, { key, click: () => run?.() });
   const write = (to?: { pid: number; name: string }) => { ctx.ui.compose = { toPid: to?.pid ?? null, toName: to?.name ?? '', subject: '', body: '' }; ctx.rerender(); };
@@ -751,7 +758,7 @@ export function composeWindow(ctx: BuildContext, send: (toPid: number, subject: 
   const c = ctx.ui.compose; if (!c) return null;
   const b = new WindowBuilder(ctx.ids, 'dmailsend', 'CWindowModelDMailSend', { x: 256, y: 128, w: 512, h: 512 }, { z: 51503, modal: true });
   const text = (name: string, x: number, y: number, t: string, color = [0, 0, 0, 1]) => b.add('CWindowTaskShadowText', name, { x, y, w: 512, h: 32 }, { text: t, align: 0, fontSize: 16, color });
-  b.add('CWindowTaskShadowText', 'title', { x: 0, y: 4, w: 512, h: 32 }, { text: 'D-Mail', align: 1, fontSize: 16, color: [1, 1, 1, 1] });
+  mailTitle(b);
   text('to', 40, 48, c.toName); text('toLabel', 16, 48, 'To:'); text('subjectLabel', 16, 72, 'Subject:');
   const ready = c.toPid !== null && c.subject.trim() !== '' && c.body.trim() !== '';
   const button = (name: string, x: number, y: number, w: number, label: string, key: string, run: () => void, enabled = true, color = [0, 0, 0, 1]) =>
