@@ -26,5 +26,5 @@ export default {
     // main's Legacy HTML UI (its screens, controls and ui.js) is imported in place, so its commits flow in
     fs: { strict:true,allow:[resolve(import.meta.dirname),resolve(import.meta.dirname,'../web-shell/htmlui'),resolve(import.meta.dirname,'../html-ui/ui.js'),resolve(import.meta.dirname,'../web-shell/starter.js'),resolve(import.meta.dirname,'../recomp/web/audiopage.js')] },
   },
-  build: { target:'es2022',outDir:'dist',sourcemap:true },
+  build: { target:'es2022',outDir:'dist',sourcemap:process.env.DE_SOURCEMAP === '1' },
 };
