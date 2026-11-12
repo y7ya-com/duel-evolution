@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, byKey, byText, sleep, screenshot, record, prepareDuel, stack, type Page, cardButton, closeCard, lobbyShown, openDeckEditor, exitDeckEditor, deckSide } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, byKey, byText, sleep, screenshot, record, prepareDuel, stack, type Page, cardButton, closeCard, lobbyShown, openDeckEditor, exitDeckEditor, deckSide, pointerAway } from './harness';
 import { resultShown, resultLeave } from './harness';
 
 /** Duel cases ordinary play rarely reaches (control changes, tokens, counters, shuffles, declarations, ritual and
@@ -30,7 +30,7 @@ const VIEW = `(()=>{const ok=b=>!b.disabled&&b.getClientRects().length;const p=d
   prompt:p?{kind:p.dataset.kind,id:p.dataset.prompt,text:p.innerText,buttons:[...p.querySelectorAll('button,input')].map(x=>(x.dataset.key||x.tagName)+'|'+(x.textContent||x.value)+(x.disabled?'|disabled':''))}
     :(()=>{const s=window.__deApp?.getState()?.duel?.prompt,pb=[...document.querySelectorAll('#htmlui-host [data-key^="prompt-"]')].filter(b=>b.getClientRects().length);
       return s&&pb.length?{kind:s.kind,id:s.id,text:pb[0].closest('.win')?.innerText??'',buttons:pb.map(x=>x.dataset.key+'|'+(x.getAttribute('aria-label')||x.textContent.trim())+(x.disabled?'|disabled':''))}:null;})(),
-  actions:[...document.querySelectorAll('.de-duel-actions button,.de-phase-bar button')].filter(ok).map(b=>b.textContent),zones:[...document.querySelectorAll('.de-zone-target,.de-card-target')].filter(ok).map(b=>b.getAttribute('aria-label')),
+  actions:[...document.querySelectorAll('.de-phase-bar button')].filter(ok).map(b=>b.textContent),zones:[...document.querySelectorAll('.de-zone-target,.de-card-target')].filter(ok).map(b=>b.getAttribute('aria-label')),
   waiting:[...document.querySelectorAll('.de-duel-prompt:not([role])')].map(n=>n.textContent).join(' ')||null,errors:[...document.querySelectorAll('.de-error')].map(n=>n.textContent),
   log:[...document.querySelectorAll('.de-duel-log div')].map(d=>d.textContent),ended:window.__duelEnd()??null,
   instruction:document.querySelector('.de-duel-instruction')?.textContent??null,
@@ -40,8 +40,9 @@ const view = (page:Page) => page.ev(VIEW) as Promise<View>;
 const promptButton = (label:string) => `([...document.querySelectorAll('#htmlui-host [data-key^="prompt-"]')].find(b=>(b.getAttribute('aria-label')===${JSON.stringify(label)}||b.textContent.trim()===${JSON.stringify(label)})&&!b.disabled&&b.getClientRects().length)??[...document.querySelectorAll('.de-duel-prompt[role=dialog] button')].find(b=>b.textContent===${JSON.stringify(label)}&&!b.disabled))`;
 async function opt(page:Page,label:string) { await until(page,promptButton(label),20000); await press(page,promptButton(label)); }
 const cardSel = (name:string,where:string) => `[...document.querySelectorAll('.de-field-card')].find(b=>{const l=b.getAttribute('aria-label')??'';return l.startsWith(${JSON.stringify(`${name}, ${where}`)})||l.startsWith(${JSON.stringify(`${name} (set face-down), ${where}`)})})`;
-const inspectorButton = (prefix:string) => `[...document.querySelectorAll('.de-duel-inspector button')].find(b=>b.textContent.startsWith(${JSON.stringify(prefix)})&&!b.disabled)`;
-const closeInspector = `[...document.querySelectorAll('.de-duel-inspector button')].find(b=>b.textContent==='Close')`;
+/** A row of the card's command menu (live's CUSummonDialogSp: its rows' labels 'Summon: <card>'). */
+const inspectorButton = (prefix:string) => `[...document.querySelectorAll('#htmlui-host [data-key^="duel-cmd:"]')].find(b=>(b.getAttribute('aria-label')??'').startsWith(${JSON.stringify(prefix)})&&b.getAttribute('aria-disabled')!=='true')`;
+const cmdMenu = `document.querySelector('#htmlui-host .win[data-window-class="CUSummonDialogSp"]')`;
 const fieldCount = (page:Page,side:'your'|'opponent',zone:string) => page.ev(`Number([...document.querySelectorAll('.de-field-card[data-side=${side}][data-zone=${zone}]')].map(b=>b.querySelector('.de-card-count')?.textContent)[0]??0)`) as Promise<number>;
 const monsters = (page:Page) => page.ev(`[...document.querySelectorAll('.de-field-card[data-zone=monster]')].map(b=>({label:b.getAttribute('aria-label'),side:b.dataset.side,position:b.dataset.position,back:b.classList.contains('de-card-back')}))`) as Promise<{ label:string; side:string; position:string; back:boolean }[]>;
 
@@ -108,17 +109,18 @@ async function act(page:Page,other:Page,name:string,where:string,action:string) 
     if (v.prompt || v.zones.length) return;
   }
 }
+/** A card's commands: its command menu's rows (none: the card has no menu, a click shows it in the information box). */
 async function inspectActions(page:Page,name:string,where:string):Promise<string[]> {
-  await press(page,cardSel(name,where)); await until(page,`document.querySelector('.de-duel-inspector')`,10000); await sleep(300);
-  const actions = await page.ev(`[...document.querySelectorAll('.de-duel-inspector button')].map(b=>b.textContent).filter(t=>t!=='Close')`) as string[];
-  await press(page,closeInspector);
+  await press(page,cardSel(name,where)); await sleep(400);
+  const actions = await page.ev(`[...(${cmdMenu}?.querySelectorAll('[data-key^="duel-"]')??[])].map(b=>b.getAttribute('aria-label')??'')`) as string[];
+  await pointerAway(page);
   return actions;
 }
+/** A card's ATK / DEF as live's card information box shows it (the pointer over the card). */
 async function inspectStats(page:Page,name:string,where:string):Promise<string> {
-  await press(page,cardSel(name,where)); await until(page,`document.querySelector('.de-duel-inspector')`,10000);
-  const stats = await page.ev(`document.querySelector('.de-duel-inspector').innerText.match(/ATK.*$/m)?.[0]??''`) as string;
-  await press(page,closeInspector);
-  return stats;
+  await page.ev(`(${cardSel(name,where)}).dispatchEvent(new PointerEvent('pointerover',{bubbles:true}))`);
+  await until(page,`document.querySelector('.de-duel-info:not([hidden]) .de-duel-info-stats')`,10000);
+  return await page.ev(`document.querySelector('.de-duel-info .de-duel-info-stats').innerText.match(/ATK.*$/m)?.[0]??''`) as string;
 }
 /** Decline chain questions on both pages until the duel ends; returns both result banners. */
 async function finish(a:Page,b:Page) {
@@ -197,12 +199,14 @@ async function seed(pages:[Page,string][]) {
 }
 const putDeck = (page:Page,name:string,main:number[]) => page.ev(`fetch('/api/de/decks',{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(${JSON.stringify({ name,main,side:[],extra:[] })})}).then(r=>r.status)`) as Promise<number>;
 const piles = (page:Page) => page.ev(`Object.fromEntries([...document.querySelectorAll('.de-field-card')].filter(b=>['deck','graveyard','banished'].includes(b.dataset.zone)).map(b=>[b.dataset.side+' '+b.dataset.zone,Number(b.querySelector('.de-card-count')?.textContent??0)]))`) as Promise<Record<string,number>>;
-const attribute = (value:number) => `document.querySelector('[data-key^="prompt-attribute:"][data-key$=":answer:${value}"]')`;
-const candidate = (index:number) => `document.querySelector('[data-key^="prompt-candidate:"][data-key$=":${index}"]')`;
-const confirmSel = `document.querySelector('.de-duel-prompt[role=dialog] [data-key^="prompt-confirm:"]')`;
-const pressed = (page:Page) => page.ev(`[...document.querySelectorAll('.de-duel-prompt[role=dialog] [data-key^="prompt-candidate:"]')].filter(x=>x.getAttribute('aria-pressed')==='true').map(x=>x.querySelector('span')?.textContent)`) as Promise<string[]>;
+/** main's duel dialogs (htmlui/duel-dialogs.ts): an attribute row, a card list's row, its OK. */
+const attribute = (value:number) => `document.querySelector('#htmlui-host [data-key^="prompt-option:"][data-key$=":answer:${value}"]')`;
+const candidate = (index:number) => `document.querySelector('#htmlui-host [data-key^="prompt-candidate:"][data-key$=":${index}"]')`;
+const confirmSel = `document.querySelector('#htmlui-host [data-key^="prompt-confirm:"]')`;
+/** The card list's picked rows (their labels say ', picked n'), their names. */
+const pressed = (page:Page) => page.ev(`[...document.querySelectorAll('#htmlui-host [data-key^="prompt-candidate:"]')].filter(x=>/, picked \\d+$/.test(x.getAttribute('aria-label')??'')).map(x=>(x.getAttribute('aria-label')??'').replace(/, picked \\d+$/,''))`) as Promise<string[]>;
 const confirmDisabled = (page:Page) => page.ev(`${confirmSel}.disabled`) as Promise<boolean>;
-const promptId = (page:Page) => page.ev(`document.querySelector('.de-duel-prompt[role=dialog]')?.dataset.prompt??null`) as Promise<string|null>;
+const promptId = (page:Page) => page.ev(`/^prompt-[a-z]+:([^:]+)/.exec(document.querySelector('#htmlui-host [data-key^="prompt-"]')?.dataset.key??'')?.[1]??null`) as Promise<string|null>;
 const first = (text:string) => text.split('\n')[0]!;
 
 describe.skipIf(!scenario)('scenario duels: declarations, selections and visibility cases',() => {
