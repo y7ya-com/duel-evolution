@@ -71,10 +71,10 @@ describe('navigator with streamed source foot physics', () => {
     expect(count).toBe(1); expect(nav.position).toEqual(spawn); expect(nav.moving).toBe(false);
     nav.dispose(); await tick(nav, 100); expect(count).toBe(1); runtime.dispose();
   });
-  it('rejects out-of-scene targets and bounds background-frame travel with physics enabled', async () => {
+  it('walks toward an out-of-scene target (to the edge), rejects a non-number one, and bounds background-frame travel with physics enabled', async () => {
     const runtime = physics(); await runtime.load(map, spawn);
     const nav = new WorldNavigator({ send() {}, physics: runtime }); nav.reset(map, spawn);
-    expect(nav.moveTo({ x: 600, y: 64 })).toBe(false); expect(nav.moveTo({ x: NaN, y: 64 })).toBe(false);
+    expect(nav.moveTo({ x: 600, y: 64 })).toBe(true); expect(nav.moveTo({ x: NaN, y: 64 })).toBe(false);
     nav.moveTo({ x: 480, y: 64 }); nav.update(1e9); expect(nav.position!.x).toBeLessThan(110);
     nav.dispose(); runtime.dispose();
   });

@@ -139,7 +139,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const extraCss = el('style'); extraCss.textContent = CARD_GET_CSS + COSMETICS_CSS;
   host.append(css, extraCss, header, stage, nav); root.append(host);
   // phones and tablets: live's stage.js (the frame fitted to the visible viewport, the rotate prompt, first-tap fullscreen)
-  // a finger held on the world (or the right button) walks toward it, steered by moving (live: the held right button);
+  // a mouse button (or a finger) held on the world walks toward it, steered by moving, as live
   // on the stage, which outlives the lobby's redraws, so a long walk survives them
   const walkTo = (x: number, y: number): void => {
     const current = controller.getState(), lobby = current.lobby, canvas = stage.querySelector('canvas[data-key="lobby-map"]') as HTMLCanvasElement | null;

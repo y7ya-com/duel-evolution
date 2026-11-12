@@ -1,5 +1,5 @@
 import type { Point, WorldMap, WorldPosition } from './maps';
-import { PATH_STEP_REACHED, directionFromVector, findPath, findRoute, segmentWalkable } from './pathfinding';
+import { PATH_STEP_REACHED, directionFromVector, findPath, segmentWalkable } from './pathfinding';
 import type { ExitTrigger } from './exits';
 import type { WorldPhysics } from './runtime';
 export const WORLD_TICK_MS = 1000 / 30;
@@ -22,6 +22,7 @@ export class WorldNavigator {
   private sent: WorldPosition | null = null;
   private waitingForPixels = false;
   private actuallyWalking = false;
+  private stillTicks = 0;
   private issue: string | null = null;
   private routeGeneration = 0;
   private readonly send: (position: WorldPosition) => void;
@@ -38,14 +39,19 @@ export class WorldNavigator {
   }
   moveTo(target: Point): boolean {
     if (this.disposed) return false;
+    // a new target while walking (the button held, steered by the cursor) keeps the walk's momentum
+    const momentum = this.moving && this.options.physics ? this.step : null, walking = this.actuallyWalking;
     this.cancel();
     if (!this.current || !this.map) return false;
     if (this.options.physics) {
       const width = this.options.physics.definition?.width ?? this.map.width ?? 65535, height = this.options.physics.definition?.height ?? this.map.height ?? 65535;
-      if (!Number.isFinite(target.x) || !Number.isFinite(target.y) || target.x < 0 || target.y < 0 || target.x >= width || target.y >= height) return false;
-      // The original's click route (A* 0x00a04a30 over the source walk grid); exact streamed pixels own collision,
-      // so its diagonal steps past a wall corner slide on the foot probes as they do live.
-      this.route = this.map.grid ? findRoute(this.map.grid, this.current, target) ?? [{ ...target }] : [{ ...target }];
+      if (!Number.isFinite(target.x) || !Number.isFinite(target.y)) return false;
+      // a point off the map (the cursor held past its edge) is walked toward, to the edge
+      target = { x: Math.max(0, Math.min(width - 1, target.x)), y: Math.max(0, Math.min(height - 1, target.y)) };
+      // The player walks straight at the target (CPlChibiAvatar has no path follower, passWaypoint below); a wall
+      // in the way is slid along by the radial wall solver, as live.
+      this.route = [{ ...target }];
+      if (momentum) { this.step = momentum; this.actuallyWalking = walking; this.stillTicks = walking ? 0 : 3; }
       const generation = this.routeGeneration;
       void this.options.physics.prepare(this.current).catch(error => { if (generation === this.routeGeneration) this.report(error); });
       return true;
@@ -55,7 +61,7 @@ export class WorldNavigator {
     if (!path) return false;
     this.route = path; return true;
   }
-  cancel(): void { this.routeGeneration++; this.route = []; this.routeIndex = 0; this.step = { x: 0, y: 0 }; this.elapsed = 0; this.waitingForPixels = false; this.actuallyWalking = false; this.issue = null; }
+  cancel(): void { this.routeGeneration++; this.route = []; this.routeIndex = 0; this.step = { x: 0, y: 0 }; this.elapsed = 0; this.waitingForPixels = false; this.actuallyWalking = false; this.stillTicks = 3; this.issue = null; }
   dispose(): void { if (this.disposed) return; this.cancel(); this.disposed = true; this.map = null; this.current = null; this.sent = null; }
   /** Clamp long background frames to 250 ms. Never accumulate a later catch-up burst. */
   update(deltaMs: number): void {
@@ -103,7 +109,8 @@ export class WorldNavigator {
     const target = this.route[this.routeIndex], generation = this.routeGeneration;
     const input = { x: target.x - p.x, y: target.y - p.y }, length = Math.hypot(input.x, input.y);
     const result = physics.step(p, input, this.step, { snap: length < 6 });
-    this.waitingForPixels = result.waiting; this.actuallyWalking = result.moved;
+    // a tick or two without a step (one under 1.2 px dropped while turning) keeps the walk pose: no stand/walk flicker
+    this.waitingForPixels = result.waiting; this.stillTicks = result.moved ? 0 : this.stillTicks + 1; this.actuallyWalking = this.stillTicks < 3;
     if (result.waiting) return; // Preserve target, route, position and smoothing across streaming waits.
     this.step = result.step; this.current = result.position;
     if (length < 6 && Math.hypot(target.x - result.position.x, target.y - result.position.y) < 1e-6) { this.routeIndex++; this.step = { x: 0, y: 0 }; }
