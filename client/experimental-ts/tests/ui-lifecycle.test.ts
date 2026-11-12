@@ -22,6 +22,10 @@ function fixture(loadCardImage?: ClientController['loadCardImage'], configureDoc
 }
 afterEach(() => { vi.unstubAllGlobals(); });
 // main's HTML lobby windows (src/ui/htmlui/lobby.ts, windows.ts) by their controls' data-keys
+const handler = (f: { mounted: { htmlUi: { windows(): import('../src/ui/htmlui/snapshot').WindowSpec[] } } }, key: string) => {
+  for (const spec of f.mounted.htmlUi.windows()) for (const h of spec.handlers.values()) if (h.key === key) return h;
+  return undefined;
+};
 const control = (f: { mounted: { htmlUi: { windows(): import('../src/ui/htmlui/snapshot').WindowSpec[] } } }, key: string) => {
   for (const spec of f.mounted.htmlUi.windows()) for (const [id, h] of spec.handlers) if (h.key === key) return spec.win.controls.find(c => c.id === id);
   return undefined;
@@ -81,9 +85,10 @@ describe('UI ownership and semantic interaction', () => {
     const f = fixture();
     const duel: NonNullable<ClientView['duel']> = { players: [{ name: 'A', lp: 8000 }, { name: 'B', lp: 8000 }], cards: [], turn: 1, turnPlayer: 0, phase: 'Main', log: [], prompt: { id: 'old', kind: 'yes-no', text: 'Activate?', options: [{ id: 'yes', label: 'Yes' }] } };
     f.update({ scene: 'duel', duel }); await Promise.resolve();
-    const old = findButton(f.root, 'Yes');
+    // main's duel dialog (CUYesNoDialog): its Yes as rendered for the old prompt
+    const old = handler(f, 'prompt-option:old:yes')!;
     f.update({ duel: { ...duel, prompt: { ...duel.prompt!, id: 'new' } } });
-    old.onclick?.({});
+    old.click?.();
     expect(f.commands).toHaveLength(0); await Promise.resolve(); expect(f.root.textContent).toContain('expired'); f.mounted.dispose();
   });
   it('shows unavailable features as unavailable and never renders their controls', async () => {
@@ -99,7 +104,7 @@ describe('UI ownership and semantic interaction', () => {
   });
   it('accepts a server-issued card prompt with a legal empty selection', async () => {
     const f = fixture(); f.update({ scene: 'duel', duel: { players: [{ name: 'A', lp: 8000 }, { name: 'B', lp: 8000 }], cards: [], turn: 1, turnPlayer: 0, phase: 'Main', log: [], prompt: { id: 'zero', kind: 'cards', text: 'Choose zero', min: 0, max: 0, candidates: [], options: [] } } }); await Promise.resolve();
-    findButton(f.root, 'Confirm Selection').onclick?.({});
+    expect(f.mounted.htmlUi.press('prompt-confirm:zero')).toBe(true);
     expect(f.commands).toEqual([{ type: 'duelRespond', promptId: 'zero', response: { cardIds: [] } }]); f.mounted.dispose();
   });
   it('uses current-state validation and busy gating for Escape cancellation', async () => {
@@ -109,20 +114,22 @@ describe('UI ownership and semantic interaction', () => {
     expect(f.commands).toHaveLength(0); await Promise.resolve();
     f.update({ duel, busy: true }); await Promise.resolve(); host.onkeydown?.({ key: 'Escape', preventDefault() {} }); expect(f.commands).toHaveLength(0); f.mounted.dispose();
   });
-  it('preserves candidate button focus and isolates number drafts by prompt identity', async () => {
+  it('keeps a card list pick and isolates number drafts by prompt identity', async () => {
     const f = fixture(); const duel: NonNullable<ClientView['duel']> = { players: [{ name: 'A', lp: 8000 }, { name: 'B', lp: 8000 }], cards: [], turn: 1, turnPlayer: 0, phase: 'Main', log: [], prompt: { id: 'cards', kind: 'cards', text: 'Choose', options: [], candidates: [{ id: 'a', label: 'Choice A' }], min: 0, max: 1 } };
-    f.update({ scene: 'duel', duel }); await Promise.resolve(); const candidate = findButton(f.root, 'Choice A'); candidate.focus(); candidate.onclick?.({}); await Promise.resolve();
-    expect(f.root.contains(f.document.activeElement)).toBe(true); expect(f.document.activeElement?.getAttribute('aria-pressed')).toBe('true');
+    f.update({ scene: 'duel', duel }); await Promise.resolve();
+    // main's duel dialogs (CUSelectDialog's look): the picked row is marked
+    expect(f.mounted.htmlUi.press('prompt-candidate:cards:a')).toBe(true); expect(control(f, 'prompt-candidate:cards:a')?.state).toBe('pressed');
     f.update({ duel: { ...duel, prompt: { id: 'number-one', kind: 'number', text: 'Number one', options: [], numberMin: 0, numberMax: 100 } } }); await Promise.resolve();
-    const number = f.root.querySelectorAll('input').find(i => i.dataset.key === 'prompt-number:number-one')!; number.focus(); number.value = '73';
+    expect(f.mounted.htmlUi.type('prompt-number:number-one', '73')).toBe(true); expect(control(f, 'prompt-number:number-one')?.value).toBe('73');
     f.update({ duel: { ...duel, prompt: { id: 'number-two', kind: 'number', text: 'Number two', options: [], numberMin: 1, numberMax: 100 } } }); await Promise.resolve();
-    expect(f.root.querySelectorAll('input').find(i => i.dataset.key === 'prompt-number:number-two')?.value).toBe('1'); f.mounted.dispose();
+    expect(control(f, 'prompt-number:number-two')?.value).toBe('1'); f.mounted.dispose();
   });
   it('submits attribute checklists as one semantic set and supports board target clicks', async () => {
     const f = fixture(); const duel: NonNullable<ClientView['duel']> = { players: [{ name: 'A', lp: 8000 }, { name: 'B', lp: 8000 }], cards: [], turn: 1, turnPlayer: 0, phase: 'Main', log: [], prompt: { id: 'attrs', kind: 'attributes', text: 'Choose two attributes', min: 2, max: 2, options: [{ id: 'light', label: 'LIGHT' }, { id: 'dark', label: 'DARK' }] } };
     f.update({ scene: 'duel', duel }); await Promise.resolve();
-    for (const key of ['light', 'dark']) { const check = f.root.querySelectorAll('input').find(n => n.dataset.key === `prompt-attribute:attrs:${key}`)!; check.checked = true; check.onchange?.({}); await Promise.resolve(); }
-    findButton(f.root, 'Confirm Attributes').onclick?.({}); expect(f.commands).toEqual([{ type: 'duelRespond', promptId: 'attrs', response: { optionIds: ['light', 'dark'] } }]);
+    // main's CUSelectAttributeDialog: the rows mark, OK answers once the count is right
+    for (const key of ['light', 'dark']) expect(f.mounted.htmlUi.press(`prompt-option:attrs:${key}`)).toBe(true);
+    expect(f.mounted.htmlUi.press('prompt-confirm:attrs')).toBe(true); expect(f.commands).toEqual([{ type: 'duelRespond', promptId: 'attrs', response: { optionIds: ['light', 'dark'] } }]);
     f.update({ duel: { ...duel, cards: [{ id: 'target1', name: 'Target', controller: 1, zone: 'monster', index: 0, faceUp: true }], prompt: { id: 'target', kind: 'place', text: 'Choose a target', options: [{ id: 'server-target', label: 'Target monster', cardId: 'target1' }] } } }); await Promise.resolve();
     f.root.querySelectorAll('button').find(n => n.dataset.key === 'field-card:target1')!.onclick?.({});
     expect(f.commands.at(-1)).toEqual({ type: 'duelRespond', promptId: 'target', response: { optionId: 'server-target' } }); f.mounted.dispose();
@@ -141,6 +148,16 @@ describe('UI ownership and semantic interaction', () => {
     // a spectator has no Surrender: the deck's command list (live's CUSummonDialogSp) leaves the duel
     f.root.querySelectorAll('button').find(n => n.dataset.key === 'field-deck:0')!.onclick?.({}); await Promise.resolve();
     expect(control(f, 'duel-surrender')).toBeUndefined(); expect(f.mounted.htmlUi.press('duel-leave')).toBe(true); expect(f.commands.at(-1)).toEqual({ type: 'leaveDuel' }); f.mounted.dispose();
+  });
+  it('takes a field choice on the zone itself under the help strip, the right button backing out', async () => {
+    const f = fixture(); f.update({ scene: 'duel', duel: { players: [{ name: 'A', lp: 8000 }, { name: 'B', lp: 8000 }], cards: [], turn: 1, turnPlayer: 0, phase: 'Main', log: [],
+      prompt: { id: 'zone', kind: 'place', text: 'Select a zone.', cancelable: true, options: [{ id: 'z2', label: 'Your monster zone 3', place: { controller: 0, zone: 'monster', index: 2 } }] } } }); await Promise.resolve();
+    expect(f.mounted.htmlUi.windows().map(w => w.win.cls)).toEqual(['CWindowModelHelp']); expect(f.mounted.htmlUi.text()).toContain('Select a zone.');
+    expect(f.root.querySelectorAll('section').some(n => n.getAttribute('role') === 'dialog')).toBe(false);
+    f.root.querySelectorAll('button').find(n => n.dataset.key === 'zone:z2')!.onclick?.({});
+    expect(f.commands.at(-1)).toEqual({ type: 'duelRespond', promptId: 'zone', response: { optionId: 'z2' } });
+    f.root.querySelectorAll('div').find(n => n.className === 'de-duel-board')!.oncontextmenu?.({ target: { closest: () => null }, preventDefault() {} });
+    expect(f.commands.at(-1)).toEqual({ type: 'duelRespond', promptId: 'zone', response: { cancel: true } }); f.mounted.dispose();
   });
   it("shows the duel's information box as live's OK dialog until OK", async () => {
     const f = fixture(), duel: NonNullable<ClientView['duel']> = { players: [{ name: 'A', lp: 8000 }, { name: 'B', lp: 8000 }], cards: [], prompt: null, turn: 1, turnPlayer: 0, phase: 'Main', log: [], notice: { id: 1, text: 'You cannot surrender before the 10th turn.' } };

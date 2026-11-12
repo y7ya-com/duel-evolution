@@ -32,13 +32,13 @@ export interface DuelDialogContext {
 }
 
 const LH = 16, ROW = 20;
-/** Whether main's duel dialogs show this prompt (else the duel screen's own panel does). */
+/** Whether main's duel dialogs show this prompt. A board choice (a zone, a card on the field: 'place') is made on the
+ * field itself under the help strip, as live (CULockOnDialog / CHelpDialog): no dialog. An option question that lists
+ * the cards it is about is the question's dialog (CUYesNoDialog / CUSelectDialog); its card shows in the duel screen's
+ * card information box. */
 export function duelDialogCovers(p: DuelPromptView): boolean {
-  if (p.kind === 'cards') return !!p.candidates?.length;
-  if (p.kind === 'announce') return !p.candidates?.length;
-  // an option prompt that lists the cards it is about keeps the duel screen's panel (its cards are for reading)
-  if (p.candidates?.length || p.declarable?.length) return false;
   if (p.kind === 'place') return false;
+  if (p.kind === 'cards' || p.kind === 'announce') return true;
   if (p.kind === 'number' && !p.options.length) return true;
   return p.options.length > 0 || p.kind === 'acknowledge';
 }
@@ -158,7 +158,8 @@ const z = 51180;
 
 export function duelDialog(ctx: DuelDialogContext, p: DuelPromptView): WindowSpec | null {
   if (!duelDialogCovers(p)) return null;
-  if (p.kind === 'cards') return cardListDialog(ctx, p);
+  // a declaration from a list of cards (the server's own candidates) is a pick from that list
+  if (p.kind === 'cards' || p.kind === 'announce' && p.candidates?.length) return cardListDialog(ctx, p);
   if (p.kind === 'announce') return announceDialog(ctx, p);
   if (p.kind === 'number' && !p.options.length) return numberDialog(ctx, p);
   const opts = p.options, cancel = p.cancelable ? [{ id: '\0cancel', label: 'Cancel' }] : [];

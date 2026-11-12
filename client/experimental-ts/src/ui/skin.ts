@@ -73,7 +73,7 @@ export const SKIN_CSS = `
 .de-client :is(.de-account-details,.de-audio-details,.de-deck-tools,.de-deck-filters,.de-shop-cosmetics) { background:#effcffd9; border:1px solid #6299bd; border-radius:2px; box-shadow:inset 0 1px 3px #164c7738; }
 
 /* Inset wells and list rows. */
-.de-client :is(.de-social-card,.de-profile-comments,.de-npc-dialogue,.de-prompt-inspector) { background:#effcff; border:1px solid #6299bd; border-radius:2px; box-shadow:inset 0 1px 3px #164c7738,0 1px 0 #e3ffff; }
+.de-client :is(.de-social-card,.de-profile-comments,.de-npc-dialogue) { background:#effcff; border:1px solid #6299bd; border-radius:2px; box-shadow:inset 0 1px 3px #164c7738,0 1px 0 #e3ffff; }
 .de-client .de-social-card h3 { margin:-8px -10px 4px; padding:3px 10px; color:#fff; ${OUTLINE}; font-size:13px; background:linear-gradient(180deg,#d8faff,#79d6fc 12%,#2189e4 70%,#145ec9); border-bottom:1px solid #104eaa; }
 .de-client .de-social-row { border-bottom:1px solid #b3d9ec; padding:3px 4px; }
 .de-client .de-social-row:nth-child(even) { background:#d8eff966; }

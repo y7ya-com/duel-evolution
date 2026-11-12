@@ -141,9 +141,11 @@ export function projectDuel(state: DuelState, catalog: CardCatalog, names: [stri
       prompt.candidates = prompt.candidates?.map(candidate => ({ ...candidate, disabled: true }));
     }
     if (['field-selection', 'discard', 'ritual'].includes(p.kind)) {
+      // a choice is a card (picked on the card) or an empty zone (picked on the zone itself, as the original)
       prompt.options = p.actions.filter(a => a.command === 11 || a.command === 0).map(a => {
         const uid = uidFor(state, a);
-        return { id: actionId(a), label: actionLabel(state, catalog, a), ...(uid === null ? {} : { cardId: String(uid) }) };
+        const place = uid === null && a.zone <= 10 ? { controller: (a.player === 0 ? 0 : 1) as 0 | 1, zone: (a.zone <= 4 ? 'monster' : 'spell') as 'monster' | 'spell', index: a.zone <= 4 ? a.zone : a.zone - 5 } : null;
+        return { id: actionId(a), label: actionLabel(state, catalog, a), ...(uid === null ? {} : { cardId: String(uid) }), ...(place ? { place } : {}) };
       });
       // These are one-at-a-time authoritative board choices, not a client-owned list selection.
       delete prompt.candidates;

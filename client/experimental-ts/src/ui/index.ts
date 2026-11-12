@@ -3,7 +3,6 @@ import { duelOptions } from './contracts';
 import { sideboardDifference } from './deck';
 import { FIELD_LAYOUT, fieldCardPosition, filterCollection, sortCollection, gamePoint, safeImageUrl, validatePromptResponse } from './helpers';
 import { DuelPresentation } from './duel-scene';
-import { AnnouncePanel, ANNOUNCE_CSS } from './duel-announce';
 import { cardBadges, BADGE_CSS } from './duel-counters';
 import { lpPlate, LP_PLATE_CSS, type LpPlate } from './duel-plate';
 import type { WorldRenderer } from './world';
@@ -165,7 +164,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   let state = controller.getState();
   const local: LocalState = { message: '', inspected: null, inspectedFrom: 'collection', promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, noticeSeen: 0, tradeSearch: '', logScroll: null, duelCmd: null, helpText: '', helpFrom: 0 };
   const host = el('section', 'de-client'); host.setAttribute('aria-label', 'Duel Evolution');
-  const css = el('style'); css.textContent = CLIENT_CSS + TAG_CSS + SKIN_CSS + ANNOUNCE_CSS + BADGE_CSS + LP_PLATE_CSS;
+  const css = el('style'); css.textContent = CLIENT_CSS + TAG_CSS + SKIN_CSS + BADGE_CSS + LP_PLATE_CSS;
   const header = el('header', 'de-top'), stage = el('main', 'de-stage'), nav = el('nav', 'de-nav'); nav.setAttribute('aria-label', 'Game menu');
   const extraCss = el('style'); extraCss.textContent = CARD_GET_CSS + COSMETICS_CSS;
   host.append(css, extraCss, header, stage, nav); root.append(host);
@@ -442,7 +441,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // live's duel speed button (main's duelspeed.js) is the page's, in its top right corner beside the game, not a window
   const duelSpeedButton = new DuelSpeedButton({ stage: () => stage, changed: speed => { duelScene.fx.speed = speed; } });
   let duelHover: { selected: Set<string>; hover?: string | null; draft?: string; page?: number } = { selected: new Set(), hover: null };
-  const htmlDuelPrompt = (prompt: DuelPromptView | null | undefined): boolean => !!htmlUi && !!prompt && duelDialogCovers(prompt) && !state.preparation;
+  const htmlDuelPrompt = (prompt: DuelPromptView | null | undefined): boolean => !!prompt && duelDialogCovers(prompt) && !state.preparation;
   // Janken, who goes first, Start Duel: main's duel.js dialog look (htmlui/duel-result.ts preparationDialog)
   const prepChoice = (): PrepChoice | null => {
     const prep = state.preparation; if (!prep || state.sideboarding) return null;
@@ -478,6 +477,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     closeCmd();
   };
   globalThis.addEventListener?.('pointermove', cmdPointer, true); globalThis.addEventListener?.('pointerdown', cmdPress, true);
+  let referenceShown: string | null = null;
   const prepSpecs = (): WindowSpec[] => { const c = prepChoice(); return c ? [preparationDialog(htmlIds, !!state.busy, c)] : []; };
   const duelSpecs = (): WindowSpec[] => {
     const duel = state.duel; if (state.scene !== 'duel' || !duel) return [];
@@ -500,10 +500,13 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const spec = duelDialog({ ids: htmlIds, busy: !!state.busy, local: duelHover, respond: response => respondToPrompt(prompt.id, response), rerender: showHtml,
         inspect: id => { const card = prompt.candidates?.find(c => c.id === id)?.card; if (card) inspect(card, 'duel'); } }, prompt);
       if (spec) out.push(spec);
-    } else if (prompt && htmlUi && !state.preparation) {
-      // the help strip (CWindowModelHelp) over the field while the duel screen's own panel asks (cards, places, declarations)
+    } else if (prompt && !state.preparation) {
+      // a choice on the field (a zone, a card): the help strip (CWindowModelHelp) says what to choose, the field's zones
+      // and cards take it, the right button cancels (when the server allows)
       const help = duelHelpStrip(htmlIds, prompt.text); if (help) out.push(help);
     }
+    // the card a question is about shows in the card information box, as it opens
+    if (prompt && prompt.id !== referenceShown) { referenceShown = prompt.id; const card = prompt.kind !== 'cards' && prompt.kind !== 'announce' ? prompt.candidates?.find(c => c.card)?.card : undefined; if (card) duelScene.showCard(card); }
     return out;
   };
   const shopSpecs = (): WindowSpec[] => {
@@ -608,7 +611,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   }
   interface ArtEntry { code: string; load: (signal: AbortSignal) => Promise<{ url: string; release(): void }>; abort: AbortController; images: Set<HTMLImageElement>; used: boolean; pending: boolean; failed: boolean; lease: { url: string; release(): void } | null; }
   const fieldNodes = new Map<string, HTMLElement>();
-  const announce = new AnnouncePanel();
   const duelScene = new DuelPresentation(controller.loadArchiveImage?.bind(controller) ?? null);
   duelScene.fx.speed = loadDuelSpeed();
   const avatarNodes = new Map<number, HTMLElement>();
@@ -1070,6 +1072,17 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const at = !a.cardId ? ownDeckTop ?? DECK_ZONE : pile ? topOf.get(pile) ?? a.cardId : a.cardId;
       commands.set(at, [...commands.get(at) ?? [], a]);
     }
+    // A choice on the field the server asks for (a 'place' prompt: a zone, a card on either side, a card to discard or
+    // tribute) is made on the zone or the card itself, as live; a card under a pile's top on that pile's list
+    const fieldPrompt = duel.prompt?.kind === 'place' ? duel.prompt : null, promptChoices = new Set<string>();
+    for (const o of fieldPrompt?.options ?? []) {
+      if (o.place && !o.cardId) continue;
+      const pile = o.cardId ? pileOf.get(o.cardId) : undefined;
+      if (o.cardId && (!pile || topOf.get(pile) === o.cardId)) continue;
+      const at = !o.cardId ? ownDeckTop ?? DECK_ZONE : topOf.get(pile!) ?? o.cardId;
+      commands.set(at, [...commands.get(at) ?? [], o]); promptChoices.add(o.id);
+    }
+    const choose = (id: string) => { if (fieldPrompt) respondToPrompt(fieldPrompt.id, { optionId: id }); };
     const surrenderNow = () => { local.duelCmd = null; confirmAction('Surrender this duel?', () => send({ type: 'surrender' }), 'surrender'); };
     for (const c of duel.cards) {
       if (['deck', 'graveyard', 'banished', 'extra'].includes(c.zone) && c.index !== pileTop.get(`${c.controller}/${c.zone}`)) continue;
@@ -1087,7 +1100,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (c.faceUp || ownSet) b.title = c.name;
       if (listOn) b.setAttribute('aria-haspopup', 'menu');
       b.dataset.key = `field-card:${c.id}`; b.dataset.side = c.controller ? 'opponent' : 'your'; b.dataset.zone = c.zone; b.dataset.index = String(c.index); if (c.zone === 'monster') b.dataset.position = c.position ?? 'attack';
-      b.className = `de-card de-field-card${c.faceUp ? '' : ' de-card-back'}${p.rotate ? ' defense' : ''}${selection ? ' de-card-target' : ''}`; b.append(...Array.from(tile.childNodes)); if (selection) b.title = selection.label;
+      const choice = fieldPrompt?.options.find(o => o.cardId === c.id && !o.disabled), target = selection ?? choice;
+      b.className = `de-card de-field-card${c.faceUp ? '' : ' de-card-back'}${p.rotate ? ' defense' : ''}${target ? ' de-card-target' : ''}`; b.append(...Array.from(tile.childNodes)); if (target) b.title = target.label;
       placeFieldCard(b, c, handCount); fieldNodes.set(c.id, b);
       const counters = c.faceUp ? (c.counters ?? []).filter(counter => counter.count > 0) : [], turnCounter = c.faceUp ? c.turnCounter ?? 0 : 0;
       const counterText = counters.map(counter => `${counter.kind === 0 ? 'Spell counters' : `Counter ${counter.kind}`}: ${counter.count}`).join(', ');
@@ -1102,10 +1116,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (pileTop.has(`${c.controller}/${c.zone}`)) b.append(el('span', 'de-card-count', String(duel.cards.filter(x => x.controller === c.controller && x.zone === c.zone).length)));
       cards.append(b);
     }
-    // Zone selections (where to summon or set): the empty zones themselves are the controls, as in the original.
-    for (const action of (duel.actions ?? []).filter(a => a.place && !a.cardId)) {
+    // Zone selections (where to summon or set, a zone the server asks for): the empty zones themselves are the controls, as in the original.
+    for (const action of [...(duel.actions ?? []), ...fieldPrompt?.options ?? []].filter(a => a.place && !a.cardId)) {
       const p = fieldCardPosition({ id: action.id, name: '', controller: action.place!.controller, zone: action.place!.zone, index: action.place!.index, faceUp: false }, 0);
-      const zone = button('', () => sendAction(duel, action.id), !!action.disabled || !!state.busy); zone.className = 'de-zone-target'; zone.dataset.key = `zone:${action.id}`; zone.setAttribute('aria-label', action.label); zone.title = action.label;
+      const zone = button('', () => { if (fieldPrompt?.options.includes(action)) choose(action.id); else sendAction(duel, action.id); }, !!action.disabled || !!state.busy); zone.className = 'de-zone-target'; zone.dataset.key = `zone:${action.id}`; zone.setAttribute('aria-label', action.label); zone.title = action.label;
       zone.style.left = `${p.x / 1024 * 100}%`; zone.style.top = `${p.y / 768 * 100}%`; zone.style.width = `${76 / 1024 * 100}%`; zone.style.height = `${104 / 768 * 100}%`;
       cards.append(zone);
     }
@@ -1126,7 +1140,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const cmdAt = cmdCard ? { card: cmdCard, at: fieldCardPosition(cmdCard, handCounts[cmdCard.controller]) } : local.duelCmd === DECK_ZONE && deckZoneOn ? { card: null, at: ownDeckAt } : null;
     const cmdRows = cmdAt ? commands.get(cmdAt.card?.id ?? DECK_ZONE) ?? [] : [];
     const onDeck = !!cmdAt && (cmdAt.card ? cmdAt.card.id === ownDeckTop || !!duel.spectating && cmdAt.card.zone === 'deck' : true);
-    const rows: DuelCmdRow[] = cmdRows.map(a => ({ cmd: menuCommand(a.id), text: a.label.replace(/:.*$/, ''), key: `duel-cmd:${a.id}`, label: a.label, disabled: !!a.disabled || !!state.busy, pick: () => { closeCmd(); sendAction(duel, a.id); } }));
+    const rows: DuelCmdRow[] = cmdRows.map(a => ({ cmd: menuCommand(a.id), text: a.label.replace(/:.*$/, ''), key: `duel-cmd:${a.id}`, label: a.label, disabled: !!a.disabled || !!state.busy, pick: () => { closeCmd(); if (promptChoices.has(a.id)) choose(a.id); else sendAction(duel, a.id); } }));
     if (onDeck && canSurrender) rows.push({ cmd: SURRENDER_COMMAND, key: 'duel-surrender', label: 'Surrender', disabled: !!state.busy || state.relay?.canAct === false, pick: surrenderNow });
     if (onDeck && duel.spectating) rows.push({ cmd: SURRENDER_COMMAND, key: 'duel-leave', label: 'Leave Duel', disabled: !!state.busy, pick: () => { closeCmd(); send({ type: 'leaveDuel' }); } });
     if (!cmdAt || !rows.length) { local.duelCmd = null; duelCmdView = null; }
@@ -1135,6 +1149,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       duelCmdView = { at: { x: cmdAt.at.x, top: cmdAt.at.y - cmdAt.at.height / 2, hand: cmdAt.card?.zone === 'hand' }, rows, name: `${readable ? cmdAt.card!.name : cmdAt.card ? 'Card' : 'Deck'}: commands`, owner: cmdAt.card?.id ?? DECK_ZONE };
     }
     if ((duel.actions ?? []).some(a => a.id === 'cancel')) board.oncontextmenu = event => { if ((event.target as HTMLElement).closest('.de-field-card')) return; event.preventDefault(); sendAction(duel, 'cancel'); };
+    // a field choice the server lets the player back out of (or finish: a discard, tributes): the right button, as live
+    else if (fieldPrompt?.cancelable) board.oncontextmenu = event => { event.preventDefault(); respondToPrompt(fieldPrompt.id, { cancel: true }); };
     // live's bottom bar (the engine's duel menu strip): the wrench (Options) at its left and the help line, which runs
     // across its box from the right as live's does. Live shows no duel log on the duel screen (main's chat.js hides the
     // Duel Log tab): the log is kept for assistive technology only, never drawn
@@ -1151,7 +1167,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     board.append(el('div', 'de-duel-bar', wrench, duelScene.fx.ringElement, help));
     const log = el('div', 'de-duel-log de-sr'); log.setAttribute('role', 'log'); log.setAttribute('aria-label', 'Duel log');
     for (const line of duel.log.slice(-80)) log.append(el('div', '', line)); board.append(log);
-    if (duel.prompt && !htmlDuelPrompt(duel.prompt)) renderPrompt(duel.prompt);
     // A spectator is neither side: the result names the winner instead of Victory/Defeat.
     const endedText = duel.ended && (duel.spectating && (duel.ended === 'Victory' || duel.ended === 'Defeat') ? `${duel.players[duel.ended === 'Victory' ? 0 : 1].name} wins` : duel.ended);
     if (endedText && htmlUi) {
@@ -1168,8 +1183,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       }
       stage.append(banner);
     }
-    else if (duel.waiting) stage.append(el('div', 'de-panel de-duel-prompt', el('p', '', duel.waiting)));
-    if (duel.issue && (duel.prompt || duel.ended)) { const issue = el('div', 'de-error de-notice de-duel-issue', duel.issue); issue.setAttribute('role', 'alert'); stage.append(issue); }
+    if (duel.issue) { const issue = el('div', 'de-error de-notice de-duel-issue', duel.issue); issue.setAttribute('role', 'alert'); stage.append(issue); }
   }
   /** Server actions are bound to the prompt they were rendered for (a press can land after a newer prompt arrived). */
   function sendAction(duel: DuelView, actionId: string): void { send({ type: 'duelAction', actionId, ...(duel.actionsFor ? { promptId: duel.actionsFor } : {}) }); }
@@ -1179,48 +1193,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (currentState.busy) return;
     const error = validatePromptResponse(current, response); if (error) { local.message = error; requestRender(); return; }
     send({ type: 'duelRespond', promptId, response });
-  }
-  function renderPrompt(prompt: DuelPromptView): void {
-    if (local.promptId !== prompt.id) { local.promptId = prompt.id; local.selected.clear(); local.promptInspection = null; }
-    for (const id of local.selected) if (!(prompt.kind === 'attributes' ? prompt.options.some(o => o.id === id && !o.disabled) : prompt.candidates?.some(c => c.id === id && !c.disabled))) local.selected.delete(id);
-    const panel = el('section', 'de-panel de-duel-prompt'); if (prompt.kind === 'place' || prompt.options.some(o => o.cardId)) panel.className += ' de-target-prompt'; panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', prompt.text); panel.dataset.kind = prompt.kind; panel.dataset.prompt = prompt.id; panel.append(title(prompt.text));
-    const respond = (response: DuelResponse) => respondToPrompt(prompt.id, response);
-    if (prompt.kind === 'attributes') {
-      const options = el('div', 'de-prompt-options');
-      for (const option of prompt.options) {
-        const input = el('input'); input.type = 'checkbox'; input.checked = local.selected.has(option.id); input.disabled = !!option.disabled || !!state.busy; input.dataset.key = `prompt-attribute:${prompt.id}:${option.id}`;
-        input.onchange = () => { if (input.checked) { if (local.selected.size < (prompt.max ?? 1)) local.selected.add(option.id); } else local.selected.delete(option.id); requestRender(); };
-        options.append(labelled(option.label, input));
-      }
-      const confirm = button('Confirm Attributes', () => respond({ optionIds: [...local.selected] }), local.selected.size < (prompt.min ?? 1) || local.selected.size > (prompt.max ?? 1) || !!state.busy, true); confirm.dataset.key = `prompt-confirm:${prompt.id}`;
-      panel.append(note(prompt.min === prompt.max ? `Choose ${prompt.min ?? 1} attribute${prompt.min === 1 ? '' : 's'}.` : `Choose ${prompt.min ?? 1}–${prompt.max ?? 1} attributes.`), options, confirm);
-    } else if (prompt.options.length) {
-      const options = el('div', 'de-prompt-options');
-      for (const option of prompt.options) { const b = button(option.label, () => respond({ optionId: option.id }), !!option.disabled || !!state.busy, true); b.dataset.key = `prompt-option:${prompt.id}:${option.id}`; options.append(b); }
-      panel.append(options);
-    }
-    if (prompt.kind === 'cards' || prompt.candidates?.length) {
-      // Option prompts (yes/no, effect choice) may list the cards they refer to: those are for reading only.
-      const reference = !prompt.readOnly && !['cards', 'announce'].includes(prompt.kind), inspectOnly = prompt.readOnly || reference;
-      const choices = el('div', 'de-prompt-candidates');
-      for (const candidate of prompt.candidates ?? []) {
-        const selected = local.selected.has(candidate.id), b = button('', () => { if (inspectOnly) { local.promptInspection = candidate.card ?? null; requestRender(); return; } if (selected) local.selected.delete(candidate.id); else if (local.selected.size < (prompt.max ?? prompt.candidates?.length ?? 0)) local.selected.add(candidate.id); requestRender(); }, (inspectOnly ? !candidate.card : !!candidate.disabled) || !!state.busy);
-        b.dataset.key = `prompt-${reference ? 'reference' : 'candidate'}:${prompt.id}:${candidate.id}`; if (!inspectOnly) b.setAttribute('aria-pressed', String(selected)); if (candidate.card) b.append(drawCard(candidate.card)); b.append(el('span', '', candidate.label)); choices.append(b);
-      }
-      const confirm = button(prompt.readOnly ? 'Close Card List' : 'Confirm Selection', () => respond({ cardIds: [...local.selected] }), local.selected.size < (prompt.min ?? 0) || !!state.busy, true); confirm.dataset.key = `prompt-confirm:${prompt.id}`;
-      if (reference) panel.append(choices);
-      else { if (prompt.readOnly) panel.append(note('Select a visible card to read its details.')); else panel.append(note(`Choose ${prompt.min ?? 0}–${prompt.max ?? prompt.candidates?.length ?? 0}. Selected: ${local.selected.size}`)); panel.append(choices, confirm); }
-      if (inspectOnly && local.promptInspection) panel.append(el('aside', 'de-prompt-inspector', drawCard(local.promptInspection), el('h3', '', local.promptInspection.name), el('p', '', local.promptInspection.description ?? 'Card description unavailable.')));
-    }
-    // The server lists every number it accepts as a choice (scaled labels such as LP); free entry is for a bare range.
-    if (prompt.kind === 'number' && !prompt.options.length) {
-      const form = el('form', 'de-row'), input = textField(`prompt-number:${prompt.id}`, String(prompt.numberMin ?? 0)); input.type = 'number'; input.min = String(prompt.numberMin ?? 0); input.max = String(prompt.numberMax ?? 0x7fffffff); input.setAttribute('aria-label', prompt.text);
-      const b = el('button', 'gold', 'Confirm'); b.type = 'submit'; b.disabled = !!state.busy; form.append(input, b); form.onsubmit = e => { e.preventDefault(); respond({ number: Number(input.value) }); }; panel.append(form);
-    }
-    if (prompt.kind === 'announce' && !prompt.candidates?.length) panel.append(announce.render(prompt, { busy: !!state.busy, declare: text => respond({ text }) }));
-    if (prompt.cancelable) panel.append(button(['place', 'choice', 'cards'].includes(prompt.kind) ? 'Finish / cancel' : 'Cancel', () => respond({ cancel: true }), !!state.busy));
-    if (!prompt.options.length && !prompt.candidates?.length && !['number', 'announce', 'cards'].includes(prompt.kind)) panel.append(note('Waiting for supported choices from the server.'));
-    stage.append(panel);
   }
   function renderPreparation(): void {
     const prep = state.preparation; if (!prep) return;

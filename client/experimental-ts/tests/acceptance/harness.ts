@@ -341,18 +341,6 @@ export async function duelBot(page:Page,options:{ attack?:boolean; summon?:boole
     const turn=/Turn (\\d+)/.exec(document.querySelector('.de-phase-bar')?.getAttribute('aria-label')??'')?.[1]??'0';
     if(window.__botTurn!==turn){window.__botTurn=turn;window.__tried=new Set();window.__battled=false;}
     const notice=document.querySelector('[data-key="duel-notice-ok"]');if(ok(notice))return {kind:'press',sel:'[data-key="duel-notice-ok"]'};
-    const prompt=document.querySelector('.de-duel-prompt[role=dialog]');
-    if(prompt){
-      const opts=[...prompt.querySelectorAll('button')].filter(ok);
-      const no=opts.find(b=>b.dataset.key?.startsWith('prompt-option:')&&b.textContent==='No');if(no)return {kind:'key',key:no.dataset.key};
-      const cands=opts.filter(b=>b.dataset.key?.startsWith('prompt-candidate:')),sel=cands.filter(b=>b.getAttribute('aria-pressed')==='true');
-      const close=opts.find(b=>b.textContent==='Close Card List');if(close)return {kind:'key',key:close.dataset.key};
-      const conf=opts.find(b=>b.textContent==='Confirm Selection');if(conf&&sel.length)return {kind:'key',key:conf.dataset.key};
-      if(cands.length&&!sel.length)return {kind:'key',key:cands[0].dataset.key};
-      const opt=opts.find(b=>b.dataset.key?.startsWith('prompt-option:'));if(opt)return {kind:'key',key:opt.dataset.key};
-      const target=all.find(b=>b.dataset.key?.startsWith('prompt-option:'));if(target)return {kind:'key',key:target.dataset.key};
-      const confirm=opts.find(b=>b.dataset.key?.startsWith('prompt-confirm:'));if(confirm)return {kind:'key',key:confirm.dataset.key};
-    }
     // main's duel dialogs (htmlui/duel-dialogs.ts over duel.js: yes / no, options, card lists, numbers, announcements)
     const hp=[...document.querySelectorAll('#htmlui-host button[data-key^="prompt-"]')].filter(b=>ok(b)&&b.dataset.state!=='disabled'&&b.getAttribute('aria-disabled')!=='true');
     if(hp.length){
@@ -377,7 +365,8 @@ export async function duelBot(page:Page,options:{ attack?:boolean; summon?:boole
     if(cmd){
       const rows=[...cmd.querySelectorAll('[data-key^="duel-cmd:"]')].filter(b=>b.getClientRects().length&&b.getAttribute('aria-disabled')!=='true');
       const want=${JSON.stringify([...(options.set ? ['Set monster','Set spell/trap'] : []),...(options.activate ? ['Activate'] : []),...(options.summon === false ? [] : ['Summon','Set monster']),...(options.attack === false ? [] : ['Attack'])])};
-      const pick=want.map(w=>rows.find(b=>(b.getAttribute('aria-label')??'').startsWith(w+':'))).find(Boolean);
+      // a field choice under a pile's top (a card in the Graveyard to pick) is a row of the pile's menu
+      const pick=rows.find(b=>/^Select/.test(b.getAttribute('aria-label')??''))??want.map(w=>rows.find(b=>(b.getAttribute('aria-label')??'').startsWith(w+':'))).find(Boolean);
       return pick?{kind:'key',key:pick.dataset.key}:{kind:'away'};
     }
     const ins=document.querySelector('.de-duel-inspector');
@@ -527,7 +516,7 @@ export async function surrender(page:Page) {
   for (const start = Date.now(); Date.now() - start < 180000;) {
     if (await page.ev(`Boolean(${byText('End Turn')})||${resultShown}`)) break;
     // Answer whatever the server asks meanwhile (chains, targets), without playing anything.
-    if (await page.ev(`Boolean(document.querySelector('.de-duel-prompt[role=dialog],.de-zone-target,[data-key="duel-notice-ok"]'))`)) await duelBot(page,{ summon:false,attack:false });
+    if (await page.ev(`Boolean(document.querySelector('#htmlui-host [data-key^="prompt-"],.de-zone-target,.de-card-target,[data-key="duel-notice-ok"]'))`)) await duelBot(page,{ summon:false,attack:false });
     await sleep(200);
   }
   if (await page.ev(resultShown)) return;

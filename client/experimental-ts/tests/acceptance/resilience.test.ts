@@ -133,7 +133,7 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       await startNpcDuel(page,'Yami Yugi');
       let mine = false;
       for (let i = 0; i < 400 && !mine; i++) {
-        mine = await page.ev(`Boolean(${byText('End Turn')})&&!document.querySelector('.de-duel-prompt')`) as boolean;
+        mine = await page.ev(`Boolean(${byText('End Turn')})&&!document.querySelector('#htmlui-host [data-key^="prompt-"]')`) as boolean;
         if (!mine && await duelBot(page,{ attack:false,summon:false }) === 'finished') break;
         if (!mine) await sleep(150);
       }
@@ -146,7 +146,7 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       const heldWhile = await connection(page);
       await resumed(page);
       // The server may ask chain questions on the way to the end of the turn: decline them; End Turn is never pressed again.
-      const no = `[...document.querySelectorAll('.de-duel-prompt button')].find(b=>b.dataset.key?.startsWith('prompt-option:')&&b.textContent==='No'&&!b.disabled)`;
+      const no = `[...document.querySelectorAll('#htmlui-host button')].find(b=>b.dataset.key?.startsWith('prompt-option:')&&b.textContent.trim()==='No'&&!b.disabled)`;
       let declined = 0;
       for (let i = 0; i < 400 && await turn(page) <= t0; i++) { if (await page.ev(`Boolean(${no})`)) { await press(page,no).catch(() => {}); declined++; } await sleep(150); }
       const t1 = await turn(page);
@@ -316,7 +316,7 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       for (let i = 0; i < 400 && !shown; i++) {
         if (!(await page.ev(`window.__net.tampered`))) boardBefore = await board(page);
         else if (!boardAfter) boardAfter = await board(page);
-        shown = await page.ev(`[...document.querySelectorAll('.de-duel-issue, .de-duel-prompt p')].map(n=>n.textContent).find(t=>/could not be used|Unsupported gameplay/.test(t))??''`) as string;
+        shown = await page.ev(`[...document.querySelectorAll('.de-duel-issue')].map(n=>n.textContent).find(t=>/could not be used|Unsupported gameplay/.test(t))??''`) as string;
         if (!shown) { await duelBot(page,{ attack:false,summon:false }); await sleep(120); }
       }
       const tamperedDuel = await page.ev(`JSON.stringify(window.__net.tampered)`);

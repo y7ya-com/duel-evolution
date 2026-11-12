@@ -26,8 +26,10 @@ describe("main's duel dialogs from the prompt model", () => {
     run(p, local).press('prompt-option:p3:dark');
     const { sent, press } = run(p, local); press('prompt-confirm:p3'); expect(sent).toEqual([{ optionIds: ['dark'] }]);
   });
-  it('an option prompt listing the cards it is about, and board places, stay the duel screen panel', () => {
-    expect(duelDialogCovers({ id: 'x', text: '', kind: 'choice', options: [{ id: 'a', label: 'A' }], candidates: [{ id: 'c', label: 'C' }] })).toBe(false);
+  it('an option prompt listing the cards it is about is its dialog; a board place stays on the field', () => {
+    expect(duelDialogCovers({ id: 'x', text: '', kind: 'choice', options: [{ id: 'a', label: 'A' }], candidates: [{ id: 'c', label: 'C' }] })).toBe(true);
+    expect(duelDialogCovers({ id: 'x', text: '', kind: 'announce', options: [], candidates: [{ id: 'c', label: 'C' }] })).toBe(true);
+    expect(duelDialogCovers({ id: 'x', text: '', kind: 'cards', options: [], candidates: [] })).toBe(true);
     expect(duelDialogCovers({ id: 'x', text: '', kind: 'place', options: [] })).toBe(false);
     expect(duelDialogCovers({ id: 'x', text: '', kind: 'cards', options: [], candidates: [{ id: 'c', label: 'C' }] })).toBe(true);
     expect(duelDialogCovers({ id: 'x', text: '', kind: 'number', options: [] })).toBe(true);

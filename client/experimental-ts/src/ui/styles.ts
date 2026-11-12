@@ -214,14 +214,7 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 .de-phase-bar>button.de-phase:hover img { filter:brightness(1.2); }
 .de-phase-bar>button.de-phase:disabled { cursor:default; }
 .de-duel-prompt { position:absolute; left:20%; right:20%; top:35%; max-height:52%; z-index:10; display:flex; flex-direction:column; gap:10px; }
-.de-target-prompt { top:65px; max-height:110px; }
-.de-prompt-inspector { overflow:auto; max-height:160px; background:#effcff; padding:7px; }
-.de-prompt-inspector>.de-card { float:left; width:67px; height:95px; margin-right:10px; }
-.de-prompt-options { display:flex; gap:6px; flex-wrap:wrap; }
-.de-prompt-candidates { display:grid; grid-template-columns:repeat(auto-fill,minmax(90px,1fr)); gap:6px; overflow:auto; }
-.de-prompt-candidates button[aria-pressed=true] { background:linear-gradient(#fffbd0,#f2cd51); outline:2px solid #a36a18; }
 .de-language-flags button[aria-pressed=true] { background:linear-gradient(#fffbd0,#f2cd51); box-shadow:0 0 0 3px #f4ce46,0 0 0 4px #a36a18; font-weight:700; }
-.de-prompt-candidates .de-card { height:95px; width:67px; margin:auto; }
 .de-social-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; min-height:0; flex:1; }
 .de-shop-cosmetics { flex:none; max-height:40%; overflow:auto; background:#effcff; border:1px solid #75a8c5; padding:7px; }
 .de-shop-cosmetics>summary { font-weight:bold; cursor:pointer; }
