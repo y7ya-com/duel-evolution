@@ -113,7 +113,18 @@ export class TitleScene {
         for (const file of movie.files) if (!FREE_CAPTION.test(file)) this.image(titleImagePath(file));
         this.movie = movie; if (!this.disposed) this.start();
       } finally { lease.release(); }
-    }).catch(e => { this.loading = false; console.warn('title movie', e); });
+    }).catch(e => { this.loading = false; console.warn('title movie', e); this.plainButtons(); });
+  }
+  /** The movie could not load (the art unreachable): its buttons stand as plain labelled plates where the movie's
+   * column of plates ends, so the title still leads online (the next show tries the movie again). */
+  private plainButtons(): void {
+    if (this.disposed || this.movie) return;
+    TITLE_BUTTONS.forEach((b, i) => {
+      const el = this.buttons.get(b.name)!; el.dataset.plain = 'true';
+      Object.assign(el.style, { left: '33%', top: `${52 + i * 8.5}%`, width: '34%', height: '6.25%', visibility: 'visible', pointerEvents: 'auto', color: '#fff',
+        background: 'linear-gradient(#a1def9,#2585dc 49%,#1761bf)', textShadow: '0 1px #114d91' });
+      el.tabIndex = 0;
+    });
   }
   private image(path: string): void {
     if (this.images.has(path)) return;
@@ -158,6 +169,7 @@ export class TitleScene {
     drawSwfItems(ctx, items, movie, file => this.images.get(titleImagePath(file)), { x: 0, y: 0 });
     // the buttons over their plates: where the movie has them now, pressable once it has played
     const ready = instance.ended || instance.stopped;
+    for (const el of this.buttons.values()) if (el.dataset.plain) { delete el.dataset.plain; Object.assign(el.style, { color: 'transparent', background: 'transparent', textShadow: 'none' }); }
     for (const b of TITLE_BUTTONS) {
       const el = this.buttons.get(b.name)!, p = instance.list.get(b.depth), c = p && movie.characters.get(p.character);
       const shape = c?.kind === 'button' ? c.records.map(r => movie.characters.get(r.character)).find(s => s?.kind === 'shape') : undefined;
