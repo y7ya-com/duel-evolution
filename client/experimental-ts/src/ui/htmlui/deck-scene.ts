@@ -7,7 +7,6 @@
 // elements over main's windows, each calling one of the actions below).
 import type { CardView, ClientCommand, ClientView, DeckView, DeckZone } from '../contracts';
 import { deckPlacementReason } from '../helpers';
-import { parseDeckImport, MAX_DECK_IMPORT_BYTES } from '../deck';
 import { deckProblems } from '../extra/deck-check';
 import { Ids, WindowBuilder } from './snapshot';
 import { wrapDialogText } from './dialog-text';
@@ -29,8 +28,6 @@ export interface DeckSceneOptions {
   /** A refusal for the player (the rewrite's notice; the scene shows it in main's OK dialog too). */
   notice(message: string): void;
   leave(): void;
-  /** A file the player picked to import (the rewrite's file input). */
-  pickFile(accept: string, then: (file: File) => void): void;
   /** The crafting view (main's crafting/api.js: Shards, per card owned / craftable / rarity), null before it answers. */
   craftView?(): CraftView | null;
   /** Listen for crafting view changes (a Craft or a Dismantle in main's crafting bar). -> unsubscribe */
@@ -239,18 +236,14 @@ export class DeckScene {
       return fileListWindow(this.ids, 'STRUCTURE DECK', recipes.map(x => ({ label: x.name })), f.selected, 0, pick,
         [null, null, btn('OK', 'deck-files-ok', apply && (() => editor.dirty ? confirm('Replace the deck being edited with this structure deck?', apply) : apply())), btn('Cancel', 'deck-files-cancel', close)]);
     }
-    if (f.mode === 'export') {
-      const formats = [['ydc', 'YDC (the original deck file)'], ['ydk', 'YDK'], ['json', 'JSON']] as const, chosen = formats[f.selected];
-      return fileListWindow(this.ids, 'EXPORT DECK', formats.map(([, label]) => ({ label })), f.selected, 0, pick,
-        [null, null, btn('OK', 'deck-files-ok', chosen && current ? () => { close(); this.o.send({ type: 'exportDeck', format: chosen[0] }); } : null), btn('Cancel', 'deck-files-cancel', close)]);
-    }
     const decks = editor.decks, rows = decks.map(d => ({ label: d.name })), chosen = decks[f.selected];
     if (current && !decks.some(d => d.name === current.name)) rows.push({ label: `${current.name} (not saved)` });
     const del = chosen ? () => confirm(`Delete the deck “${chosen.name}”?`, () => { this.ui.files = null; this.o.send({ type: 'deleteDeck', name: chosen.name }); }) : null;
     if (f.mode === 'load') {
       const load = chosen ? () => { close(); this.o.send({ type: 'selectDeck', name: chosen.name }); } : null;
+      // live's LOAD DECK (CWindowModelFileList FILELIST_DECKS): Delete / OK / Cancel, no "new"
       return fileListWindow(this.ids, 'LOAD DECK', rows, f.selected, Math.max(0, f.selected - 7), pick, [
-        btn('Import', 'deck-files-import', () => this.importFile()), btn('Export', 'deck-files-export', current ? () => { this.ui.files = { mode: 'export', selected: 1 }; this.o.rerender(); } : null),
+        null, btn('Delete', 'deck-files-delete', del),
         btn('OK', 'deck-files-ok', load && (() => editor.dirty && chosen!.name !== current?.name ? confirm('Load this deck? The changes to the deck being edited are not saved.', load) : load())),
         btn('Cancel', 'deck-files-cancel', close)]);
     }
@@ -278,21 +271,6 @@ export class DeckScene {
     const problems = deckProblems(deck, pc => this.card(pc));
     if (problems.length) this.ui.dialog = { kind: 'ok', text: `This deck can't be used in a duel yet. ${problems.slice(0, 3).map(p => p.message).join(' ')}${problems.length > 3 ? ` …and ${problems.length - 3} more.` : ''}` };
   }
-  // the rewrite's deck files (YDC / YDK / JSON), as its editor imported them
-  private importFile(): void {
-    this.o.pickFile('.ydc,.ydk,.json,.txt', file => {
-      const view = this.o.state(), editor = view.deckEditor; if (!editor || view.scene !== 'deck') return;
-      const fail = (e: unknown) => { this.ui.dialog = { kind: 'ok', text: e instanceof Error ? e.message : 'Could not read the deck file.' }; this.o.rerender(); };
-      const legacy = /\.ydc$/i.test(file.name);
-      if (legacy && file.size !== 250) return fail(new Error('A native YDC deck must contain exactly 250 bytes.'));
-      if (file.size > MAX_DECK_IMPORT_BYTES) return fail(new Error('Deck file exceeds 64 KiB.'));
-      const hint = [...file.name.replace(/\.[^.]+$/, '').replace(/[\\/:*?"<>|\u0000-\u001f\u007f]/g, '')].slice(0, 40).join('') || 'Imported Deck';
-      const go = (send: () => void) => { this.ui.files = null; if (editor.dirty) { this.ui.dialog = { kind: 'confirm', text: 'Replace the deck being edited with the imported deck?', yes: send }; this.o.rerender(); } else { send(); this.o.rerender(); } };
-      if (legacy) void file.arrayBuffer().then(buffer => { if (buffer.byteLength !== 250) throw new Error('A native YDC deck must contain exactly 250 bytes.'); go(() => this.o.send({ type: 'importLegacyDeck', bytes: new Uint8Array(buffer), name: hint })); }).catch(fail);
-      else void file.text().then(text => { const deck = parseDeckImport(text, hint); go(() => this.o.send({ type: 'replaceDeck', deck, source: 'import' })); }).catch(fail);
-    });
-  }
-
   // ---------------------------------------------------------------- the dialogs (main's dialog.js: its captured windows)
   private dialogWindow(): WindowSpec | null {
     const d = this.ui.dialog; if (!d) return null;

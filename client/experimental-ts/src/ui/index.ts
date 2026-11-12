@@ -268,15 +268,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       delete: index => send({ type: 'socialAction', action: { type: 'deleteMail', index } }) };
   };
   // the deck editor: main's deck screen (src/ui/htmlui/deck-scene.ts), its engine side on the layer (deck-stage.ts)
-  let deckDom: DeckDom | null = null, deckFile: HTMLInputElement | null = null;
+  let deckDom: DeckDom | null = null;
   const deckScene = new DeckScene({ state: () => state, send: command => send(command), rerender: () => showHtml(), leave: () => open('lobby'),
-    notice: message => { local.message = message; requestRender(); },
-    pickFile: (accept, then) => {
-      deckFile ??= Object.assign(el('input'), { type: 'file' }); deckFile.accept = accept; deckFile.setAttribute('aria-label', 'Import YDC, YDK or JSON deck');
-      deckFile.hidden = true; if (!deckFile.isConnected) host.append(deckFile);
-      deckFile.onchange = () => { const file = deckFile?.files?.[0]; if (deckFile) deckFile.value = ''; if (file) then(file); };
-      deckFile.click();
-    } });
+    notice: message => { local.message = message; requestRender(); } });
   // the shop is main's card shop (htmlui/card-shop.ts: shop/index.js mountCardShop, which calls the server's /api/de/shop
   // itself; its packs' reveal and its Cosmetic Boxes tab are its own); free mode has no shop (the scene is unavailable).
   // Back on the card shop leaves at once; while the app is still busy (opening the shop refreshes the catalogue, the wallet

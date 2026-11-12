@@ -20,8 +20,8 @@ export const emptyKabanFilter = (): KabanFilter => ({ cat: 6, text: '', attr: []
 export type DeckFrom = 'trunk' | DeckZone;
 /** A card picked up (CDeckScene's drag, DeckWindow.h DeckDragState): where from, and where the pointer has it. */
 export interface DeckDrag { passcode: number; from: DeckFrom; index: number; at: [number, number]; start: [number, number]; moved: boolean }
-/** The Load / Save / Structure Deck list (CWindowModelFileList) and the rewrite's export format list in the same window. */
-export interface DeckFiles { mode: 'load' | 'save' | 'recipe' | 'export'; selected: number }
+/** The Load / Save / Structure Deck list (CWindowModelFileList). */
+export interface DeckFiles { mode: 'load' | 'save' | 'recipe'; selected: number }
 export type DeckDialog =
   | { kind: 'name'; name: string }
   | { kind: 'confirm'; text: string; yes(): void }
