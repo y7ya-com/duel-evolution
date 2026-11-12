@@ -28,7 +28,11 @@ export interface TradeDeps {
   status: string;
   /** The server's explanation of a refused exchange (a "Trade cancelled: ..." chat line). */
   reason?: string;
+  /** The thinking lamp's frame (trade_icon101_0..3: its bubble's dots, none to three), the page's clock's. */
+  thinking?: number;
 }
+/** The thinking lamp's frames (trade_icon101_0..3) and how long each shows: its bubble fills with dots, none to three. */
+export const THINKING_FRAMES = 4, THINKING_FRAME_MS = 400;
 
 /** The trade scene is up: offers open, or a trade that opened has ended (its result over the scene). */
 export const tradeScene = (t: SocialTrade): boolean => t.phase === 'open' || (t.phase === 'finished' || t.phase === 'closing') && (t.ownOffer.length > 0 || t.view.otherOffer.length > 0 || t.view.trunk.length > 0);
@@ -98,7 +102,7 @@ function scene(d: TradeDeps, partner: string): WindowSpec[] {
   const frames = { partner: side(false), mine: side(true) }, frame = [...frames.partner, ...frames.mine];
   const lampX = w === 776 ? 579 : 437;
   const lamps = [
-    sprite(ids, 'trade/lamp:thinking', 'data/deck/trade_icon101_0_?.png', [0, 0, 136, 150], lampX, 191, 51123, 1, 1, { a: 0.8, shown: !t.view.otherReady }),
+    sprite(ids, 'trade/lamp:thinking', `data/deck/trade_icon101_${(d.thinking ?? 0) % THINKING_FRAMES}_?.png`, [0, 0, 136, 150], lampX, 191, 51123, 1, 1, { a: 0.8, shown: !t.view.otherReady }),
     sprite(ids, 'trade/lamp:other', 'data/deck/trade_icon102_0_?.png', [0, 0, 136, 150], lampX, 191, 51123, 1, 1, { a: 0.8, shown: t.view.otherReady }),
     sprite(ids, 'trade/lamp:own', 'data/deck/trade_icon202_0_?.png', [0, 0, 136, 150], 543, 267, 51123, 1, 1, { a: 0.8, shown: ready }),
   ];

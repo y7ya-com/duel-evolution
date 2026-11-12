@@ -19,7 +19,11 @@ async function matchRooms(page:Page,owner:string) {
   // (choosing the same search twice clears it, as the original's list: Show all first on a retry)
   for (let i = 0; ; i++) { if (i) await searchPlayers(page,'Show all'); await searchPlayers(page,'Search for Match Duels'); try { await until(page,listRow(owner),5000); return; } catch (e) { if (i >= 5) throw e; } }
 }
-const sideboard = `document.querySelector('[data-key^="sideboard:"]')`;
+/** Card Swap between the games (live's CCardSwapScene: htmlui/side-swap.ts): its menu window with EXIT. */
+const sideboard = `document.querySelector('#htmlui-host .win[data-window-class="CCardSwapMenu"]')`;
+/** A card of Card Swap's Deck window (its card layer: data-zone / data-index), double-clicked: main <-> side. */
+const swapCard = (zone:'main'|'side',which:'first'|'last') => `[...document.querySelectorAll('.htmlui-deck-cards [data-zone="${zone}"][data-passcode]')].${which === 'first' ? 'at(0)' : 'at(-1)'}`;
+const page_dbl = (p:Page,sel:string) => p.ev(`(${sel}).dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))`);
 const resultOf = (page:Page) => page.ev(`window.__duelEnd() ?? ''`) as Promise<string>;
 async function surrenderAt10(a:Page,b:Page,loser:Page) {
   // Before turn 10 the server refuses with its information box; the duel goes on.
@@ -78,20 +82,16 @@ describe.skipIf(!enabled)('hosted duel rooms and best-of-three matches on the re
         observed:`room listed for B and C; the request asked A, who accepted; clock shown (${ha.clock.filter(Boolean).join(' ')}); C offered no Watch (menu: ${cActions.join(', ')}); surrender refused before turn 10 ("${g1.refusal}") and accepted at turn ${g1.turn}` });
       // pvp.match: the round result, score and sideboarding.
       for (const p of [a,b]) await until(p,sideboard,90000);
-      const score = { a:await a.ev(`document.body.innerText.match(/Match score: [^\\n]+/)?.[0]`) as string, b:await b.ev(`document.body.innerText.match(/Match score: [^\\n]+/)?.[0]`) as string };
-      expect(score.a).toBe('Match score: 1 wins · 0 losses · 0 draws'); expect(score.b).toBe('Match score: 0 wins · 1 losses · 0 draws');
       await screenshot(a,'pvp-match-sideboard');
-      // An illegal sideboard (Main short of its size) cannot be submitted; restoring it can.
-      const submit = `[...document.querySelectorAll('button')].find(b=>b.textContent==='Submit Sideboard')`;
-      await press(b,`document.querySelector('[data-key^="sideboard:"][data-key$=":main:0"]')`);
-      await press(b,`[...document.querySelectorAll('button')].find(b=>b.textContent==='Main → Side')`);
-      await until(b,`${submit}?.disabled===true`,10000);
-      const illegal = await b.ev(`[...document.querySelectorAll('.de-error')].map(e=>e.textContent).join(' ')`) as string;
-      const sideCard = `[...document.querySelectorAll('[data-key^="sideboard:"][data-key*=":side:"]')].at(-1)`;
-      await press(b,sideCard);
-      await press(b,`[...document.querySelectorAll('button')].find(b=>b.textContent==='Side → Main')`);
-      await until(b,`${submit}&&!${submit}.disabled`,10000);
-      for (const p of [a,b]) await press(p,submit);
+      // An illegal deck (Main short of its size) is refused at EXIT (the deck screen's OK dialog); restoring it goes on.
+      await page_dbl(b,swapCard('main','first'));
+      await press(b,byKey('swap-exit'));
+      await until(b,byKey('swap-notice-ok'),10000);
+      const illegal = await b.ev(`document.querySelector('[data-key="swap-notice-ok"]').closest('.win').innerText`) as string;
+      await press(b,byKey('swap-notice-ok'));
+      await page_dbl(b,swapCard('side','last'));
+      await sleep(500);
+      for (const p of [a,b]) await press(p,byKey('swap-exit'));
       await startBoth(a,b);
       const hud = await a.ev(`[...document.querySelectorAll('.de-duel-clock')].map(n=>n.textContent).find(t=>t.startsWith('Match'))`) as string;
       expect(hud).toMatch(/^Match 2 · 1–0/);
@@ -103,7 +103,7 @@ describe.skipIf(!enabled)('hosted duel rooms and best-of-three matches on the re
       await screenshot(a,'pvp-match-end-a'); await screenshot(b,'pvp-match-end-b');
       record('pvp.match',{ actions:'Match room: game 1 (B surrenders at turn 10), sideboarding (illegal Main → Side refused, restored, submitted), game 2 (B surrenders), result',
         expected:'Preserve match score, permit legal sideboarding, continue rounds and resolve the overall result',
-        observed:`after game 1: A "${score.a}", B "${score.b}"; B's short Main disabled Submit ("${illegal.trim().slice(0,100)}") until restored; game 2 HUD "${hud}"; game 2 surrendered at turn ${g2.turn}; overall A ${overall.a} / B ${overall.b} (${overall.hudA ?? ''})` });
+        observed:`after game 1 both in Card Swap; B's short Main refused at EXIT ("${illegal.trim().slice(0,100)}") until restored; game 2 HUD "${hud}"; game 2 surrendered at turn ${g2.turn}; overall A ${overall.a} / B ${overall.b} (${overall.hudA ?? ''})` });
       for (const p of [a,b]) await backToLobby(p);
       record('pvp.end',{ actions:'Surrender before and from turn 10 in a hosted room; return to lobby',
         expected:'Resolve each termination path and return both players to a usable lobby',

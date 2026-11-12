@@ -257,6 +257,7 @@ export class HtmlUiLayer {
     applyPointer(this.specs, this.hover, this.pressed, w => this.declared.get(w.cls) !== 'owned');
     const windows: HtmlWindow[] = this.specs.map(s => s.win);
     const snap: HtmlSnapshot = { v: 1, frame: ++this.frame, scene: this.scene, mouse: null, focus: this.focus, windows, tasks: [], cursor: null, chatAvatars: this.options.chatAvatars?.() ?? [] };
+    for (const s of this.specs) if (s.snap) Object.assign(snap, s.snap);
     this.last = snap;
     this.render(snap, new Set(windows.map(w => w.id)), this.api);
     // a modal window (the deck screen's file lists and questions) stands at its depth over the deck's card layer

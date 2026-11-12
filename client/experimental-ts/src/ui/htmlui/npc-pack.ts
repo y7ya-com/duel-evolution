@@ -22,6 +22,25 @@ export interface NpcPackDeps {
   busy?: boolean;
   /** What a pack holds (main's screens/pack-contents.js), opened from the picker's Contents key. */
   contents?(id: number, name: string): void;
+  /** A pack's cover (data/cardpack/<file>, the original tables' art), for the scene's pack in the middle. */
+  packImage?(id: number): string | undefined;
+}
+
+/** The card get scenes' backdrop (CCardPackCheckScene's cardget_bg movie, in its loop a02) as main's read/packselect.js
+ * reports the engine's sprites, each piece at its rest place: main's packselect.js draws it (and scrolls the squares)
+ * from these. The twelve strips, the grid top and bottom (the bottom flipped), the band of squares at half alpha. */
+export function cardGetBackdrop(): { id: number; movie: string; shown: boolean; sprites: Record<string, unknown>[] } {
+  const sprites: Record<string, unknown>[] = [], at = (tex: string, flip: boolean, wy: number, a = 1) => sprites.push({ tex: `data/card_get/${tex}.png`, wsy: flip ? -1 : 1, wx: 0, wy, a, shown: true });
+  for (let k = 1; k <= 6; k++) { at(`cardget_bg_01_0${k}`, false, 64 * (k - 1)); at(`cardget_bg_01_0${k}`, true, 768 - 64 * (k - 1)); }
+  at('cardget_bg_03_01', false, 0); at('cardget_bg_03_01', true, 768);
+  at('cardget_bg_02_01', false, 0, 0.5); at('cardget_bg_02_01', true, 768, 0.5);
+  return { id: 1, movie: 'cardget_bg_a02', shown: true, sprites };
+}
+/** The pack scene's covers (CCardGetPackScene's sprites: 200 x 400, 270 apart, the picked one at 412, 160) and the
+ * picked one's frame (pack_select_01_c01, 16 px round it), for main's packselect.js. */
+export function packSprites(files: readonly (string | undefined)[], selected: number): { packs: Record<string, unknown>[]; frame: Record<string, unknown> | null } {
+  const packs = files.flatMap((tex, i) => tex ? [{ id: 2 + i, tex, wx: 412 + 270 * (i - selected), wy: 160, a: 1, shown: true }] : []);
+  return { packs, frame: files[selected] ? { id: 1000, tex: 'data/etc/pack_select_01_c01.png', wx: 396, wy: 144, a: 1, shown: true } : null };
 }
 
 const ROWS = 6, ROW_H = 16;
@@ -60,7 +79,10 @@ export function npcPackSelect(npc: Readonly<NpcState> | null | undefined, deps: 
   // what the chosen pack holds (main's pack-contents.js details sheet), beside OK
   if (deps.contents) b.add('CWindowTaskButtonDuel', 'contents', { x: 456, y: 112, w: 120, h: 24 }, { label: 'Contents', state: 'normal', enabled: true },
     { key: 'npc-pack:contents', label: `What ${names[ui.selected]} holds`, click: () => deps.contents!(packs[ui.selected]!, names[ui.selected]!) });
-  return b.spec();
+  const spec = b.spec();
+  // live's pack scene (CCardGetPackScene): the checker backdrop and the packs' covers, the picked one framed in the middle
+  spec.snap = { packScene: { backdrop: cardGetBackdrop(), ...packSprites(packs.map(id => deps.packImage?.(id) || undefined), ui.selected) } };
+  return spec;
 }
 
 /** A pack's completion in percent from the server's shop pack view (its `collected`: different cards owned of the

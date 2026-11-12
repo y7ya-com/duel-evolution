@@ -31,11 +31,17 @@ describe('Discord lines keep their mark', async () => {
   });
 });
 
-describe('the duel scene\'s chat (live: the lobby\'s tabs, no duel tab)', async () => {
-  const { CHAT_TABS } = await import('../src/ui/htmlui/windows');
+describe('the duel scene\'s chat (live: an NPC duel the lobby\'s tabs, a duel between players "Duel (n.)" too)', async () => {
+  const { CHAT_TABS, chatTabsFor } = await import('../src/ui/htmlui/windows');
   it('keeps All Chat / TRADE / Team / Duels; the Duel Log lines stay off All Chat', () => {
     expect(CHAT_TABS.map(t => t.key)).toEqual(['all', 'trade', 'team', 'duels']);
     expect(CHAT_TABS[0]!.shows('duel-log')).toBe(false);
+  });
+  it('adds "Duel (n.)" between Trade and Team for a duel between players, the two duelists\' own lines', () => {
+    const tabs = chatTabsFor(null, ['Ann', 'Bob']);
+    expect([...tabs].sort((a, b) => a.x - b.x).map(t => t.label.trim())).toEqual(['All Chat', 'TRADE', 'Duel (n.)', 'Team', 'Duels']);
+    const duel = tabs.find(t => t.key === 'duel')!;
+    expect(duel.shows('global', 'Ann')).toBe(true); expect(duel.shows('global', 'Cid')).toBe(false); expect(duel.shows('trade', 'Ann')).toBe(false);
   });
 });
 

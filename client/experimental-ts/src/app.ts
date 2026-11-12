@@ -267,7 +267,7 @@ export class ClientApp implements ClientController {
       this.view = { ...this.view, settings, languageStatus:{ loading:null, available:true, ...(localized?.missing ? { missing:localized.missing } : {}) } };
       if (this.game) this.updateSession(this.game.state);
       if (this.settledDuel) this.syncDuel();
-      if (this.view.packNames) { this.view = { ...this.view, packNames:undefined }; this.loadPackNames(); }
+      if (this.view.packNames) { this.view = { ...this.view, packNames:undefined, packInfo:undefined }; this.loadPackNames(); }
       const shop = this.lastShop;
       if (shop && this.view.shop) void this.shopView(shop).then(view => { if (token === this.languageToken && !this.disposed && this.view.shop) this.patch({ shop:{ ...this.view.shop, ...view } }); }).catch(() => {});
       this.emit();
@@ -355,7 +355,7 @@ export class ClientApp implements ClientController {
   /** Reward packs are named from the same original tables as the shop. */
   private loadPackNames(): void {
     if (this.view.packNames) return;
-    void this.loadPackCatalog()?.then(packs => { if (!this.disposed) this.patch({ packNames: Object.fromEntries([...packs].map(([id, pack]) => [id, pack.name])) }); }).catch(() => {});
+    void this.loadPackCatalog()?.then(packs => { if (!this.disposed) this.patch({ packNames: Object.fromEntries([...packs].map(([id, pack]) => [id, pack.name])), packInfo: Object.fromEntries([...packs].map(([id, pack]) => [id, { image: packImagePath(pack.image) ?? '', description: pack.description }])) }); }).catch(() => {});
   }
   /** Names, descriptions and art from the original pack tables and card catalogue; the server only sends ids. */
   private async shopView(shop: ShopCatalog): Promise<ClientView['shop'] & object> {
@@ -556,11 +556,10 @@ export class ClientApp implements ClientController {
         chat: this.project('chat', state.chat, chat => chat.map((m, i) => ({ id: String(i), sender: m.name, text: m.text, channel: channelName(m.channel) }))),
         channels: ['global', 'trade', 'whisper', 'team'],
       } : null,
-      // the opponent's hand once both have chosen (the server only sends it then): while the hands are asked it is a
-      // draw's, which the janken scene reads as the tie that offers the hands again (and hides until the next pick);
-      // the session forgets it as the next hand goes out
+      // the opponent's hand only once this player's own is in (after a draw the hands are asked again: the last round's
+      // hand is not shown then); live never prints it, its janken scene turns the cards over once both have chosen
       preparation: duelPreparing && !state.duelCalledOff ? { role:state.duelRole, phase: state.duelFirst !== null ? 'ready' : state.phase === 'rock-paper-scissors' && state.rpsLost ? 'waiting-for-first' : state.phase,
-        opponentHand: state.opponentHand } : undefined,
+        opponentHand: state.phase === 'rock-paper-scissors' && !state.rpsLost ? null : state.opponentHand, hands: state.rpsLast } : undefined,
       duelCalledOff: this.calledOffView(state),
       relay: this.project('relay',state.relay,relay => relay ? { active:[...relay.active] as [0|1,0|1], self:relay.self, players:relay.players.map(p => ({pid:p.pid,name:p.name})),canAct:relay.canAct } : undefined),
       matchmaking:this.project('matchmaking',state.matchmaking,matchmaking=>({...matchmaking,opponent:matchmaking.opponent ? {pid:matchmaking.opponent.pid,name:matchmaking.opponent.name,level:matchmaking.opponent.level} : null})),

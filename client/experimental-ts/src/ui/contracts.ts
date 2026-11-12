@@ -140,6 +140,8 @@ export interface ClientView {
   npcGiftRecipes?: Readonly<Record<number, string>>;
   /** Original pack names by pack id, once the pack tables are read. */
   packNames?: Readonly<Record<number, string>>;
+  /** The reward packs' art (data/cardpack/<file>) and description (the original tables), for the pack scene. */
+  packInfo?: Readonly<Record<number, { image: string; description: string }>>;
   dataStatus?: { loading: boolean; issues: string[] };
   /** Options → Language: a switch in progress, its failure (the previous language stays), cards left in English. */
   languageStatus?: { loading: GameLanguage | null; available: boolean; error?: string; missing?: number };
@@ -169,7 +171,9 @@ export interface ClientView {
   replay?: { names: [string, string]; when: number; index: number; total: number; playing: boolean };
   auth?: { signedIn: boolean; name?: string };
   relay?: { active: [0 | 1, 0 | 1]; self: 0 | 1 | 255; players: { pid: number; name: string }[]; canAct: boolean };
-  preparation?: { role?: 'player' | 'partner' | 'spectator'; phase: string; opponentHand?: number | null };
+  preparation?: { role?: 'player' | 'partner' | 'spectator'; phase: string; opponentHand?: number | null;
+    /** The last round's two hands (live's janken scene shows them meet, a tie's too), counted. */
+    hands?: { mine: number; theirs: number; round: number } | null };
   /** A duel the server called off before it began: live's box (its OK: leaveDuel, back to the lobby). */
   duelCalledOff?: { id: number; text: string };
   starter?: { claimable: boolean; decks: StarterDeckChoice[] };

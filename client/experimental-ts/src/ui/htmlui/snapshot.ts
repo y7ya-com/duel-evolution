@@ -16,7 +16,7 @@ export interface HtmlWindow {
   modal: boolean; topmost: boolean; active: boolean; controls: HtmlControl[]; extras: { id: number; cls: string }[];
   [field: string]: unknown;
 }
-export interface HtmlSnapshot { v: 1; frame: number; scene: number; mouse: null; focus: number; windows: HtmlWindow[]; tasks: HtmlWindow[]; cursor: null; backdrop?: { shown: boolean; ids: number[] }; /** main's read/chat.js: the avatars All Chat's bubbles stand over. */ chatAvatars?: { pid: number; name: string; x: number; y: number }[] }
+export interface HtmlSnapshot { v: 1; frame: number; scene: number; mouse: null; focus: number; windows: HtmlWindow[]; tasks: HtmlWindow[]; cursor: null; backdrop?: { shown: boolean; ids: number[] }; /** main's read/chat.js: the avatars All Chat's bubbles stand over. */ chatAvatars?: { pid: number; name: string; x: number; y: number }[]; [extra: string]: unknown }
 
 /** What a control does in the rewrite: the api calls main's screens make, mapped to ClientApp commands. */
 export interface ControlHandlers {
@@ -42,7 +42,8 @@ export interface ControlHandlers {
    * pointer through to the engine's canvas (the shop's pack art: a picture the engine draws over the price plate). */
   area?: boolean;
 }
-export interface WindowSpec { win: HtmlWindow; handlers: Map<number, ControlHandlers>; /** after each draw: what the rewrite adds in the window's own root */ after?: (root: HTMLElement) => void }
+export interface WindowSpec { win: HtmlWindow; handlers: Map<number, ControlHandlers>; /** after each draw: what the rewrite adds in the window's own root */ after?: (root: HTMLElement) => void;
+  /** what the window's scene adds to the frame's snapshot outside any window (main's read/*.js: packselect's `packScene`) */ snap?: Record<string, unknown> }
 /** The topmost control flagged `area` whose rect (game px) holds the point, shown and with a pointer handler. */
 export function areaAt(specs: readonly WindowSpec[], x: number, y: number): number {
   for (let i = specs.length - 1; i >= 0; i--) {

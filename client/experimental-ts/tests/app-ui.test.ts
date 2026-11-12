@@ -132,14 +132,10 @@ describe('actual ClientApp mounted through semantic UI', () => {
     await flush(); expect(f.game.beginDuel).toHaveBeenCalledTimes(1); expect(f.root.textContent).not.toContain('Start Duel');
     expect(f.app.getState().preparation).toBeUndefined(); f.dispose();
   });
-  it('offers the hands again after a draw, without the opponent\'s last hand', async () => {
+  it('hides the opponent\'s last hand while the hands are asked again after a draw', async () => {
     const f = harness(); await f.enter(); await f.startNpc();
-    // a draw: the server answers the pick with the opponent's same hand and the hands are asked again
-    f.game.chooseHand.mockImplementationOnce(async () => { f.session.opponentHand = 0; f.emit(); return 'draw' as const; });
-    findButton(f.root, 'Rock').onclick?.({}); await flush(); expect(f.game.chooseHand).toHaveBeenCalledWith(0);
-    expect(f.app.getState().preparation?.opponentHand).toBe(0);
-    expect(findButton(f.root, 'Rock').disabled).toBe(false); expect(f.mounted.htmlUi.text() + f.root.textContent).not.toContain('Opponent chose');
-    findButton(f.root, 'Scissors').onclick?.({}); await flush(); expect(f.game.chooseHand).toHaveBeenLastCalledWith(1);
+    f.session.opponentHand = 0; f.emit(); await flush();
+    expect(f.app.getState().preparation?.opponentHand).toBeNull(); expect(f.mounted.htmlUi.text() + f.root.textContent).not.toContain('Opponent chose');
     f.dispose();
   });
   it('shows live\'s box for a duel called off before it began and goes back to the lobby on its OK', async () => {

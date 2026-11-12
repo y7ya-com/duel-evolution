@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, text, sleep, screenshot, record, startNpcDuel, playDuel, ownedCopies, surrender, byKey, byText, resultShown, resultNext, claimNpcReward, lobbyShown, npcNames, openNpcCard } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, text, sleep, screenshot, record, startNpcDuel, playDuel, ownedCopies, surrender, byKey, byText, resultShown, resultNext, claimNpcReward, lobbyShown, npcNames, openNpcCard, closeUnlocks } from './harness';
 import { resultLeave } from './harness';
 
 const fieldCount = (side:'your'|'opponent',zone:string) => `[...document.querySelectorAll('.de-field-card')].filter(b=>(b.getAttribute('aria-label')??'').includes(', ${side} ${zone}')).length`;
@@ -10,6 +10,8 @@ describe.skipIf(!enabled)('NPC duels in the real world with the real duel engine
     try {
       const page = await openPage(); await openClient(page,await signIn(`TestNp${RUN}`));
       await enterWorld(page,`Npc ${RUN}`);
+      // a new character's unlock picture(s) on first reaching the world (live's), OK on each
+      await closeUnlocks(page);
       // npc.start (eligibility): a special NPC refuses a character without its duel right.
       // the NPCs here (on the map)
       const npcs = await npcNames(page);
@@ -26,15 +28,17 @@ describe.skipIf(!enabled)('NPC duels in the real world with the real duel engine
         await until(page,`${balloon}&&!${balloon}.disabled`,20000); await press(page,balloon);
         await until(page,`!${balloon}&&['idle','done'].includes(window.__deApp?.getState().npc?.stage ?? 'idle')`,20000);
       }
-      // A first duel: dialogue, rock-paper-scissors, first player, initial field.
-      await startNpcDuel(page,'Yami Yugi');
+      // A first duel: dialogue, rock-paper-scissors, first player, initial field. (Characters come online in My Room
+      // and walk out to Duel Academy, where Yami Yugi may not stand: then the area's first NPC without a duel right.)
+      const duelist = npcs.includes('Yami Yugi') ? 'Yami Yugi' : npcs.find(n => !['Seto Kaiba','Alexis Rhodes','Yami Marik','Marik Ishtar'].includes(n)) ?? 'Yami Yugi';
+      await startNpcDuel(page,duelist);
       // The NPC may already be playing its first turn: judge the opening by our own hand and both decks.
       await until(page,`${fieldCount('your','hand')}>=5&&${pileCount(1,'deck')}>0`,60000);
       await screenshot(page,'npc-start');
       const start = { hand:await page.ev(fieldCount('your','hand')), opponentHand:await page.ev(fieldCount('opponent','hand')), deck:await page.ev(pileCount(0,'deck')), opponentDeck:await page.ev(pileCount(1,'deck')), lp:await page.ev(`[...document.querySelectorAll('.de-lp-value')].map(n=>n.textContent).join('/')`) };
       expect(start.lp).toBe('8,000/8,000');
       expect(Number(start.hand) + Number(start.deck)).toBeGreaterThanOrEqual(40);
-      record('npc.start',{ actions:'Special NPC without its right; then Yami Yugi: dialogue, Duel NPC, RPS, first player, start', expected:'Eligibility validated; correct first turn and initial field', observed:`special NPC: ${refusal}; start: hands ${start.hand}/${start.opponentHand}, decks ${start.deck}/${start.opponentDeck}, LP ${start.lp}` });
+      record('npc.start',{ actions:`Special NPC without its right; then ${duelist}: dialogue, Duel NPC, RPS, first player, start`, expected:'Eligibility validated; correct first turn and initial field', observed:`special NPC: ${refusal}; start: hands ${start.hand}/${start.opponentHand}, decks ${start.deck}/${start.opponentDeck}, LP ${start.lp}` });
       // npc.play: an active bot summons, sets and attacks until the duel ends naturally.
       const result = await playDuel(page,{ timeout:420000 });
       await screenshot(page,'npc-end');
@@ -59,7 +63,7 @@ describe.skipIf(!enabled)('NPC duels in the real world with the real duel engine
       // Rematch lifecycle: the same NPC accepts another duel.
       if (await page.ev(resultShown)) await press(page,resultLeave);   // the result's Next (in the lobby the Main Menu has no Return to Lobby, as live)
       await until(page,lobbyShown,60000);
-      await startNpcDuel(page,'Yami Yugi');
+      await startNpcDuel(page,duelist);
       await until(page,`${fieldCount('your','hand')}>=5`,60000);
       // Surrender: the client's own Yes / No (main's YesNo, surrender-yes), then the server's question when it asks one
       await surrender(page);
