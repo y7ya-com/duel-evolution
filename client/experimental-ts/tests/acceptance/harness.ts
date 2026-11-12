@@ -552,8 +552,12 @@ export async function ownedCopies(page:Page,name:string):Promise<number> {
 export async function surrenderRow(page:Page):Promise<string> {
   // the deck's top card, or the empty deck zone once no card is left (it opens the same list)
   const deck = `(document.querySelector('.de-field-card[data-side="your"][data-zone="deck"]')??document.querySelector('[data-key="field-deck:0"]'))`;
-  if (!(await page.ev(`Boolean(${byKey('duel-surrender')})`))) await press(page,deck);
-  await until(page,byKey('duel-surrender'),20000);
+  // (a click on the deck opens or closes its list: one that found it closing, or a list the duel's update took away, is
+  // clicked again, as a player clicks the deck again)
+  for (let i = 0; i < 4 && !(await page.ev(`Boolean(${byKey('duel-surrender')})`)); i++) {
+    await press(page,deck);
+    await until(page,byKey('duel-surrender'),i < 3 ? 5000 : 20000).catch(e => { if (i >= 3) throw e; });
+  }
   return byKey('duel-surrender');
 }
 /** A spectator leaves the duel: a deck's command list (live's CUSummonDialogSp), its Leave Duel row. */
