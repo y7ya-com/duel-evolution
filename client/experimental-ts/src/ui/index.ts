@@ -49,7 +49,7 @@ import { cardSwapMenu } from './htmlui/card-swap-menu';
 import { TradeTrunk, isTradeTrunk } from './htmlui/trade-trunk';
 import { SideSwap, isSideSwap, SIDE_SWAP_ZONES } from './htmlui/side-swap';
 import { CardGetScene, isCardGet } from './htmlui/card-get';
-import { npcChibiSet } from '../avatars/npc';
+import { npcWaistUpSet } from './npc-waistup';
 import { deckBackdrop } from '@htmlui/screens/deck.js';
 import { PictureArt } from './htmlui/art';
 import { setPictureResolver, disposePictures } from './htmlui/pictures';
@@ -738,7 +738,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const fieldNodes = new Map<string, HTMLElement>();
   const duelScene = new DuelPresentation(controller.loadArchiveImage?.bind(controller) ?? null);
   // a famous NPC (Yami Yugi, Alexis Rhodes...) stands in its own picture in the janken, the duel and the result, as live
-  const duelNpcSets = (): void => { const id = state.npc?.stage === 'duel' || state.npc?.stage === 'after-duel' ? state.npc.npc?.id : undefined; duelScene.npcSets = [null, id === undefined ? null : npcChibiSet(id)]; };
+  const duelNpcSets = (): void => { const id = state.npc?.stage === 'duel' || state.npc?.stage === 'after-duel' ? state.npc.npc?.id : undefined; duelScene.npcSets = [null, id === undefined ? null : npcWaistUpSet(id)]; };
   duelScene.fx.speed = loadDuelSpeed();
   const avatarNodes = new Map<number, HTMLElement>();
   let effectsLayer: HTMLElement | null = null;
