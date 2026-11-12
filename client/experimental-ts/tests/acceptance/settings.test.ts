@@ -51,7 +51,8 @@ async function chooseIn(page:Page,name:string) {
 /** OPTIONS' OK, then OPTIONS again once the language chosen has loaded (or was refused). */
 async function okAndReopen(page:Page) {
   await press(page,optionsShown); await until(page,`!${optionsShown}`,10000);
-  await until(page,`${titleButton('options')}||${langError}`,30000);
+  // the load's outcome first (a refusal's box comes over the title a moment later: a press then lands on it)
+  await until(page,`!window.__deApp.getState().languageStatus?.loading&&(${titleButton('options')}||${langError})`,90000);
   if (await page.ev(`Boolean(${langError})`)) return;
   await press(page,titleButton('options')); await until(page,optionsShown,30000);
   await until(page,`${langReady}||${langError}`,90000);
@@ -132,8 +133,8 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       // Japanese: a different script and code page (< twice, through English).
       await choose(page,'Japanese',me);
       const japanese = await trunkNames(page), japaneseMenu = await menuLabels(page);
-      expect(japanese.some(n => /[぀-ヿ一-鿿]/.test(n))).toBe(true);
-      expect(japaneseMenu.some(n => /[぀-ヿ一-鿿]/.test(n))).toBe(true);
+      expect(japanese.some(n => /[぀-ヿ一-鿿]/.test(n)),`Japanese trunk: ${japanese.slice(0,6).join(' | ')}`).toBe(true);
+      expect(japaneseMenu.some(n => /[぀-ヿ一-鿿]/.test(n)),`Japanese menu: ${japaneseMenu.join(' | ')}`).toBe(true);
       await screenshot(page,'settings-language-ja-deck');
       // Refused data: the archive is unreachable when OK applies French: main's error dialog says so, German stays and
       // the flag can be chosen again.
@@ -153,16 +154,16 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       expect(await page.ev(`Boolean(${langError})`)).toBe(false);
       expect(await page.ev(langShown)).toBe('French');
       // Screen: the Full monitor and OK, refused once, leaves the window as it was; again it enters fullscreen and the
-      // Window monitor and OK leave it.
+      // Window monitor and OK leave it. (The chosen monitor as its checked picture: its name is in the game's language.)
       await page.ev(`(()=>{const real=Element.prototype.requestFullscreen;Element.prototype.requestFullscreen=function(){Element.prototype.requestFullscreen=real;return Promise.reject(new TypeError('Permissions check failed'));};})()`);
       await press(page,byKey('opt-fullscreen')); await okAndReopen(page); await sleep(500);
       const refusedFullscreen = await page.ev(`document.fullscreenElement===null&&${byKey('opt-windowed')}.getAttribute('aria-pressed')==='true'`) as boolean;
       expect(refusedFullscreen).toBe(true);
       await press(page,byKey('opt-fullscreen')); await okAndReopen(page);
-      await until(page,`document.fullscreenElement!==null&&${named('COptionDlg::m_textSelectedScreen')}?.textContent.trim()==='Full'`,15000);
+      await until(page,`document.fullscreenElement!==null&&${byKey('opt-fullscreen')}?.getAttribute('aria-pressed')==='true'&&!!${named('COptionDlg::m_textSelectedScreen')}?.textContent.trim()`,15000);
       await screenshot(page,'settings-fullscreen');
       await press(page,byKey('opt-windowed')); await okAndReopen(page);
-      await until(page,`document.fullscreenElement===null&&${named('COptionDlg::m_textSelectedScreen')}?.textContent.trim()==='Window'`,15000);
+      await until(page,`document.fullscreenElement===null&&${byKey('opt-windowed')}?.getAttribute('aria-pressed')==='true'&&!!${named('COptionDlg::m_textSelectedScreen')}?.textContent.trim()`,15000);
       await leaveOptions(page,me);
       const french = await trunkNames(page);
       expect(french.filter((f,i) => f !== english[i] && f !== german[i]).length).toBeGreaterThan(english.length / 3);
@@ -282,7 +283,9 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       await until(page,`window.__audio.media.filter(m=>!m.paused&&m.src).map(m=>window.__audio.names.get(m.src)).join()===${JSON.stringify(resultTrack)}`,20000);
       timeline.push(`${result}:${(await playing(page)).join(',')}`);
       await claimNpcReward(page);
-      await sample('lobby',area);
+      // (the NPC's area: Yami Yugi stands in Domino City, the character came online into Duel Academy)
+      const areaNow = [4,5,6,7].includes(await page.ev(`window.__deApp.getState().lobby?.mapId`) as number) ? 'gx_area.wav' : 'yugi_area.wav';
+      await sample('lobby',areaNow);
       const stuck = await page.ev(`window.__audio.active`) as number;
       expect(stuck).toBe(0);
       expect(maxPlaying).toBe(1);
