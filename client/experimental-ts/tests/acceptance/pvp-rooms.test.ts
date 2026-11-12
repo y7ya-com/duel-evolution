@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, type, sleep, screenshot, record, stack, byKey, searchPlayers, listRow, cardButton, pressSurrender, type Page } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, type, sleep, screenshot, record, stack, byKey, searchPlayers, listRow, cardButton, pressSurrender, duelNoticeText, duelNoticeOk, type Page } from './harness';
 import { avatar, invitation, requesting, onDuel, finished, menuActions, playerMenu, startBoth, read, settled, mirrored, playBoth, backToLobby } from './pvp-helpers';
 
 /** Main's Create Duel (CWindowModelDuelWait, src/ui/htmlui/lobby.ts): the bar's Duel key, Create Duel. */
@@ -26,9 +26,9 @@ async function surrenderAt10(a:Page,b:Page,loser:Page) {
   // the client asks first (main's YesNo "Surrender this duel?", surrender-yes), then the server answers
   const ask = byKey('surrender-yes');
   await pressSurrender(loser); await until(loser,ask,20000); await press(loser,ask);
-  await until(loser,`document.querySelector('.de-duel-notice')?.textContent.includes('10th turn')`,30000);
-  const refusal = await loser.ev(`document.querySelector('.de-duel-notice p').textContent`) as string;
-  await press(loser,`document.querySelector('.de-duel-notice button')`);
+  await until(loser,`${duelNoticeText}.includes('10th turn')`,30000);
+  const refusal = await loser.ev(duelNoticeText) as string;
+  await press(loser,duelNoticeOk);
   const played = await playBoth(a,b,{ attack:false,stop:turn => turn >= 10,timeout:400000 });
   expect(played.turn).toBeGreaterThanOrEqual(10);
   await pressSurrender(loser); await until(loser,ask,20000); await press(loser,ask);

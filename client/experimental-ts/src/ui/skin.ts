@@ -114,11 +114,9 @@ export const SKIN_CSS = `
 .de-client [data-key=lobby-npcs]>button:hover:not(:disabled) { color:#fff; ${OUTLINE}; background:linear-gradient(180deg,#61c7ff 0%,#258ee8 45%,#0963c7 52%,#0752a9 100%); box-shadow:inset 3px 0 #fff098; }
 
 /* Dialogs: the yellow box (OK, Yes / No, invitations, notices) round a white reading surface. */
-.de-client :is(.de-duel-notice,.de-notice) { color:#111; font-weight:normal; letter-spacing:.03em; border:0; border-radius:2px; padding:14px 16px 12px; background:linear-gradient(#fff,#fff) 5px 5px / calc(100% - 10px) calc(100% - 46px) no-repeat,#ffbf44; box-shadow:${DIALOG},0 4px 14px #0005; }
+.de-client .de-notice { color:#111; font-weight:normal; letter-spacing:.03em; border:0; border-radius:2px; padding:14px 16px 12px; background:linear-gradient(#fff,#fff) 5px 5px / calc(100% - 10px) calc(100% - 46px) no-repeat,#ffbf44; box-shadow:${DIALOG},0 4px 14px #0005; }
 .de-client .de-notice { padding:10px 16px; background:#fff; box-shadow:${DIALOG}; }
 .de-client .de-notice.de-sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; box-shadow:none; }
-.de-client .de-duel-notice button { min-width:110px; color:#111; font-weight:normal; text-shadow:none; border:1px solid #011434; border-radius:0; box-shadow:none; background:${PLATE}; }
-.de-client .de-duel-notice button:hover:not(:disabled) { background:${PLATE_HOVER}; box-shadow:none; }
 .de-client .de-duel-prompt[role=dialog][aria-label='Duel Invitation'] { box-shadow:${DIALOG},0 4px 14px #0005; border:0; background:#fff; }
 .de-client .de-duel-prompt[role=dialog][aria-label='Duel Invitation']>.de-panel-title { margin:-7px -7px 10px!important; }
 

@@ -142,6 +142,17 @@ describe('UI ownership and semantic interaction', () => {
     f.root.querySelectorAll('button').find(n => n.dataset.key === 'field-deck:0')!.onclick?.({}); await Promise.resolve();
     expect(control(f, 'duel-surrender')).toBeUndefined(); expect(f.mounted.htmlUi.press('duel-leave')).toBe(true); expect(f.commands.at(-1)).toEqual({ type: 'leaveDuel' }); f.mounted.dispose();
   });
+  it("shows the duel's information box as live's OK dialog until OK", async () => {
+    const f = fixture(), duel: NonNullable<ClientView['duel']> = { players: [{ name: 'A', lp: 8000 }, { name: 'B', lp: 8000 }], cards: [], prompt: null, turn: 1, turnPlayer: 0, phase: 'Main', log: [], notice: { id: 1, text: 'You cannot surrender before the 10th turn.' } };
+    f.update({ scene: 'duel', duel }); await Promise.resolve();
+    const box = f.mounted.htmlUi.windows().find(s => s.win.cls === 'CUOkDialog');
+    expect(box?.win.controls.find(c => c.cls === 'CWindowTaskTextField')?.text).toBe('You cannot surrender before the 10th turn.');
+    expect(f.root.textContent).not.toContain('10th turn');   // no rewrite box on the stage
+    expect(f.mounted.htmlUi.press('duel-notice-ok')).toBe(true); await Promise.resolve();
+    expect(f.mounted.htmlUi.windows().some(s => s.win.cls === 'CUOkDialog')).toBe(false);
+    f.update({ duel: { ...duel, notice: { id: 2, text: 'Time is up!' } } }); await Promise.resolve();
+    expect(f.mounted.htmlUi.text()).toContain('Time is up!'); f.mounted.dispose();
+  });
   it('renders index zero as the deck top and preserves access to nonrendered pile actions', async () => {
     const f = fixture(); f.update({ scene: 'duel', duel: { players: [{ name: 'A', lp: 8000 }, { name: 'B', lp: 8000 }], cards: [{ id: 'top', name: 'Hidden', controller: 0, zone: 'deck', index: 0, faceUp: false }, { id: 'bottom', name: 'Hidden', controller: 0, zone: 'deck', index: 1, faceUp: false }], prompt: null, turn: 1, turnPlayer: 0, phase: 'Main', log: [], actions: [{ id: 'pile-action', cardId: 'bottom', label: 'Server pile action' }] } }); await Promise.resolve();
     const keys = f.root.querySelectorAll('button').map(n => n.dataset.key); expect(keys).toContain('field-card:top'); expect(keys).not.toContain('field-card:bottom');

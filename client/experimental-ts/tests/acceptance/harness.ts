@@ -340,7 +340,7 @@ export async function duelBot(page:Page,options:{ attack?:boolean; summon?:boole
     if(find('Return to Lobby')||ok(document.querySelector('[data-key="duel-result-next"]')))return {kind:'finished'};
     const turn=/Turn (\\d+)/.exec(document.querySelector('.de-phase-bar')?.getAttribute('aria-label')??'')?.[1]??'0';
     if(window.__botTurn!==turn){window.__botTurn=turn;window.__tried=new Set();window.__battled=false;}
-    const notice=document.querySelector('.de-duel-notice button');if(ok(notice))return {kind:'press',sel:'.de-duel-notice button'};
+    const notice=document.querySelector('[data-key="duel-notice-ok"]');if(ok(notice))return {kind:'press',sel:'[data-key="duel-notice-ok"]'};
     const prompt=document.querySelector('.de-duel-prompt[role=dialog]');
     if(prompt){
       const opts=[...prompt.querySelectorAll('button')].filter(ok);
@@ -426,6 +426,10 @@ export async function pointerAway(page:Page) {
   await page.send('Input.dispatchMouseEvent',{ type:'mouseMoved',...p });
   await page.ev('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
 }
+/** The duel's information box (live's CUOkDialog): its text, and its OK. */
+export const duelNotice = `document.querySelector('#htmlui-host .win[data-window-class="CUOkDialog"]')`;
+export const duelNoticeText = `(${duelNotice}?.innerText.replace(/\s+/g,' ').replace(/ OK$/,'').trim()??'')`;
+export const duelNoticeOk = `document.querySelector('[data-key="duel-notice-ok"]')`;
 /** Play until the duel ends (or the time runs out); returns the result banner text. */
 export async function playDuel(page:Page,options:{ attack?:boolean; summon?:boolean; timeout?:number } = {}):Promise<string> {
   const start = Date.now();
@@ -523,7 +527,7 @@ export async function surrender(page:Page) {
   for (const start = Date.now(); Date.now() - start < 180000;) {
     if (await page.ev(`Boolean(${byText('End Turn')})||${resultShown}`)) break;
     // Answer whatever the server asks meanwhile (chains, targets), without playing anything.
-    if (await page.ev(`Boolean(document.querySelector('.de-duel-prompt[role=dialog],.de-zone-target,.de-duel-notice'))`)) await duelBot(page,{ summon:false,attack:false });
+    if (await page.ev(`Boolean(document.querySelector('.de-duel-prompt[role=dialog],.de-zone-target,[data-key="duel-notice-ok"]'))`)) await duelBot(page,{ summon:false,attack:false });
     await sleep(200);
   }
   if (await page.ev(resultShown)) return;

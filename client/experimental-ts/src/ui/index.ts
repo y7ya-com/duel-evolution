@@ -61,7 +61,7 @@ import { StartScene, PORTRAIT_AT } from './htmlui/start-scene';
 import { TitleScene, type TitleButton } from './htmlui/title-scene';
 import { BUST_AT } from './htmlui/windows';
 import { loginLocal, loginWindow } from './htmlui/login';
-import { duelDialog, duelDialogCovers, loadDuelSpeed } from './htmlui/duel-dialogs';
+import { duelDialog, duelDialogCovers, duelOkDialog, loadDuelSpeed } from './htmlui/duel-dialogs';
 import { duelCmdWindow, duelCmdRect, menuCommand, SURRENDER_COMMAND, type DuelCmdRow, type DuelCmdUi } from './htmlui/duel-cmd';
 import { DuelSpeedButton } from './htmlui/duel-speed';
 import { duelResultWindows, preparationDialog, type PrepChoice } from './htmlui/duel-result';
@@ -488,6 +488,11 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (duel.ended && !state.sideboarding && !state.replay) out.push(...duelResultWindows({ ids: htmlIds, duel, match: state.match, npc: npcRec, ...(!state.match || state.match.complete ? { next: () => open('lobby') } : {}) }));
     if (state.replay) out.push(replayWindow(htmlIds, state.replay, action => send({ type: 'replayControl', action })));
     if (duelCmdView && local.duelCmd === duelCmdView.owner) out.push(duelCmdWindow({ ids: htmlIds, ...duelCmdView, ui: duelCmdUi, rerender: showHtml }));
+    // the duel's information box (a refused surrender, a lost opponent, time up): live's CUOkDialog, until OK; it stands
+    // over the question the server re-sends after it
+    if (!duel.notice) local.noticeSeen = 0;
+    const notice = duel.notice;
+    if (notice && notice.id > local.noticeSeen) out.push(duelOkDialog(htmlIds, String(notice.id), notice.text, () => { local.noticeSeen = Math.max(local.noticeSeen, notice.id); showHtml(); }));
     const prompt = duel.prompt;
     if (prompt && htmlDuelPrompt(prompt)) {
       if (local.promptId !== prompt.id) { local.promptId = prompt.id; local.selected.clear(); local.promptInspection = null; duelHover = { selected: local.selected, hover: null }; }
@@ -1146,13 +1151,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     board.append(el('div', 'de-duel-bar', wrench, duelScene.fx.ringElement, help));
     const log = el('div', 'de-duel-log de-sr'); log.setAttribute('role', 'log'); log.setAttribute('aria-label', 'Duel log');
     for (const line of duel.log.slice(-80)) log.append(el('div', '', line)); board.append(log);
-    if (!duel.notice) local.noticeSeen = 0;
-    if (duel.notice && duel.notice.id > local.noticeSeen) {
-      // The original shows these as a message box closed with OK; it never blocks the re-sent prompt underneath.
-      const notice = duel.notice, close = () => { local.noticeSeen = Math.max(local.noticeSeen, notice.id); requestRender(); };
-      const box = el('section', 'de-panel de-duel-notice', el('p', '', notice.text), button('OK', close, false, true)); box.setAttribute('role', 'alertdialog'); box.setAttribute('aria-label', notice.text);
-      stage.append(box); setTimeout(() => { if (local.noticeSeen < notice.id && !disposed) close(); }, 6000);
-    }
     if (duel.prompt && !htmlDuelPrompt(duel.prompt)) renderPrompt(duel.prompt);
     // A spectator is neither side: the result names the winner instead of Victory/Defeat.
     const endedText = duel.ended && (duel.spectating && (duel.ended === 'Victory' || duel.ended === 'Defeat') ? `${duel.players[duel.ended === 'Victory' ? 0 : 1].name} wins` : duel.ended);

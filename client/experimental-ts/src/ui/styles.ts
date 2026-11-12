@@ -125,7 +125,6 @@ button.de-card { padding:2px; min-height:0; color:#fff; background:linear-gradie
 .de-janken-plate { display:block; position:relative; overflow:hidden; width:clamp(150px,22vw,264px); aspect-ratio:352/64; }
 .de-janken-plate img { position:absolute; left:0; width:100%; height:400%; max-width:none; }
 .de-janken-order:hover .de-janken-plate img,.de-janken-order:focus-visible .de-janken-plate img { margin-top:calc(clamp(150px,22vw,264px) * -64 / 352); }
-.de-duel-notice { position:absolute; left:50%; top:22%; transform:translateX(-50%); width:min(90%,420px); z-index:11; display:flex; flex-direction:column; align-items:center; gap:10px; text-align:center; font-weight:bold; }
 .de-duel-end { position:absolute; left:50%; top:48%; width:min(70%,560px); aspect-ratio:352/128; transform:translateX(-50%); z-index:9; display:grid; place-items:center; pointer-events:none; }
 .de-duel-end>* { grid-area:1/1; }
 .de-duel-end img { width:100%; height:100%; }

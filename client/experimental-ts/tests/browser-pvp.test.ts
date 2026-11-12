@@ -147,9 +147,9 @@ describe.skipIf(process.env.BROWSER_PVP !== '1')('two real browsers duel each ot
       // Before turn 10 the server refuses a surrender with an information box; the client must show it.
       if (agreed < 10) {
         await click(b,'Surrender');
-        await until(b,`document.querySelector('.de-duel-notice')?.textContent.includes('10th turn')`);
+        await until(b,`document.querySelector('#htmlui-host .win[data-window-class="CUOkDialog"]')?.textContent.includes('10th turn')`);
         await writeFile('/tmp/duel-ts-pvp-beta-refused.png',await b.shot());
-        await click(b,'OK'); await until(b,`!document.querySelector('.de-duel-notice')`);
+        await click(b,'OK'); await until(b,`!document.querySelector('#htmlui-host .win[data-window-class="CUOkDialog"]')`);
       }
       const turn = async () => Number(/Turn (\d+)/.exec(await a.ev(`document.querySelector('.de-phase-bar')?.getAttribute('aria-label')`) ?? '')?.[1] ?? 0);
       for (const started = Date.now(); Date.now() - started < 180000 && await turn() < 10;) { await Promise.all([step(a),step(b)]); await sleep(200); }

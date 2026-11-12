@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, sleep, screenshot, record, startNpcDuel, playDuel, byKey, type Page, placeName, cardOpen, cardButton, closeCard, lobbyShown, searchPlayers, listRow } from './harness';
-import { resultShown, resultLeave, leaveWatching } from './harness';
+import { resultShown, resultLeave, leaveWatching, duelNoticeText } from './harness';
 import { avatar, invitation, inLobby, onDuel, finished, playerMenu, startBoth, read, settled, mirrored, playBoth, backToLobby } from './pvp-helpers';
 
 /** Main's Duel menu (the bar's Duel key, src/ui/htmlui/lobby.ts) open. */
@@ -62,8 +62,8 @@ describe.skipIf(!enabled)('PvP matchmaking, disconnect and time-out endings, and
       await playBoth(a,b,{ stop:turn => turn >= 2,timeout:200000 });
       b.close();
       const gone = Date.now();
-      await until(a,`document.querySelector('.de-duel-notice')?.textContent.includes('lost the connection')`,60000);
-      const notice = await a.ev(`document.querySelector('.de-duel-notice p').textContent`) as string;
+      await until(a,`${duelNoticeText}.includes('lost the connection')`,60000);
+      const notice = await a.ev(duelNoticeText) as string;
       await until(a,finished,120000);
       const disconnect = { result:await read(a), after:Math.round((Date.now() - gone) / 1000) };
       expect(disconnect.result.ended).toBe('Victory');
@@ -88,7 +88,7 @@ describe.skipIf(!enabled)('PvP matchmaking, disconnect and time-out endings, and
       const clocks = await settled(a,b);
       const waited = Date.now();
       for (const p of [a,b]) await until(p,`window.__duelEnd()`,300000);
-      const timeout = { idle:await read(idle), other:await read(other), after:Math.round((Date.now() - waited) / 1000), text:await idle.ev(`[...document.querySelectorAll('.de-duel-notice,.de-duel-log div')].map(n=>n.textContent).filter(t=>/time/i.test(t)).slice(-2).join(' | ')`) as string };
+      const timeout = { idle:await read(idle), other:await read(other), after:Math.round((Date.now() - waited) / 1000), text:await idle.ev(`[...document.querySelectorAll('#htmlui-host .win[data-window-class="CUOkDialog"],.de-duel-log div')].map(n=>n.textContent).filter(t=>/time/i.test(t)).slice(-2).join(' | ')`) as string };
       expect(timeout.idle.ended).toBe('Defeat'); expect(timeout.other.ended).toBe('Victory');
       await screenshot(idle,'pvp-timeout-loser');
       for (const p of [a,b]) await backToLobby(p);
