@@ -249,7 +249,8 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
       while (Date.now() - start < 540000) {
         const [sa,sb] = await Promise.all([snap(a),snap(b)]);
         prompts.before('A',sa); prompts.before('B',sb);
-        if (sa.ended || sb.ended) { result = `${sa.ended}/${sb.ended}`; break; }
+        // (one side's end can show before the other's: the loser's board comes after live's end banner)
+        if (sa.ended || sb.ended) { for (const p of [a,b]) await until(p,`window.__duelEnd()`,60000); result = `${await a.ev(`window.__duelEnd()`)}/${await b.ev(`window.__duelEnd()`)}`; break; }
         if (animationProbe === '' && sa.moving) {
           // duel.presentation: while A's board animates, A is given no input (the prompt waits for the animation).
           const s = await snap(a);
