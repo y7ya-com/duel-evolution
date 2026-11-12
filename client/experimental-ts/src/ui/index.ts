@@ -813,9 +813,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const ch = alone ? undefined : state.characters.find(c => c.slot === htmlUiState.selected);
     // first dressing: Change Avatar's portrait of the look being made (CChangeAvatarPack), no ring logo
     if (d?.kind === 'avatar') { startScene.show({ logo: false, portrait: Uint8Array.from(d.look), reducedMotion: state.settings.reducedMotion }); return; }
-    // live's Select Player is the swirl backdrop and the turning ring alone: no portrait of the row under the pointer;
-    // the ring turns as live's engine turns it, whatever the reduced-motion setting
-    void ch; startScene.show({ logo: true, portrait: null, reducedMotion: false });
+    // live's Select Player: the swirl backdrop, the turning ring and the waist-up portrait of the character last under
+    // the pointer (CWindowPlayerSelect::onMain; main's select.js leaves the engine's bust to show through); the ring
+    // turns as live's engine turns it, whatever the reduced-motion setting
+    startScene.show({ logo: true, portrait: ch?.parts?.length === 16 ? Uint8Array.from(ch.parts) : null, reducedMotion: false });
   }
   function renderLobby(): void {
     if (!state.lobby) return emptyPanel('lobby', 'Lobby', 'Waiting for the online world.');
