@@ -223,7 +223,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const p = state.profileDetail, lobby = state.lobby; if (!p || p.selectedPid === null || p.selectedPid === p.selfPid) return {};
     const pid = p.selectedPid, avatar = lobby?.avatars.find(a => a.id === pid), name = p.summary?.name ?? p.details?.name ?? avatar?.name ?? '';
     const close = () => send({ type: 'profileAction', action: { type: 'close' } });
-    const social = (type: 'inviteFriend' | 'inviteTrade' | 'inviteTeam' | 'ignore') => () => { send({ type: 'socialAction', action: { type, pid } }); close(); };
+    // (the trade request carries the name: its refusal says who declined, '<name> declined the trade.')
+    const social = (type: 'inviteFriend' | 'inviteTrade' | 'inviteTeam' | 'ignore') => () => { send({ type: 'socialAction', action: type === 'inviteTrade' && name ? { type, pid, name } : { type, pid } }); close(); };
     const watchable = !!avatar?.duelling && !lobby?.rooms?.some(r => (r.owner === pid || r.opponent === pid) && r.watch === false);
     return {
       ...(!avatar?.duelling ? { duel: () => {
