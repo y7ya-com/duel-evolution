@@ -44,7 +44,7 @@ html.de-phone-page, html.de-phone-page body { overflow:hidden; overscroll-behavi
 /* the world's name tags too (the chibis scale with the world view; a tag's 16 px is the game's, at the frame's scale) */
 .de-client.de-phone .de-avatar-name { zoom:var(--de-frame-s,1); }
 .de-phone input, .de-phone textarea, #htmlui-host input, #htmlui-host textarea { user-select:text; -webkit-user-select:text; touch-action:manipulation; }
-#de-fs { position:fixed; z-index:47; width:32px; height:32px; padding:7px; border:0; border-radius:6px; background:rgba(0,0,0,.45); color:#fff; opacity:.35; cursor:pointer; transition:opacity .15s; }
+#de-fs { position:fixed; z-index:47; top:max(8px, env(safe-area-inset-top)); right:max(8px, env(safe-area-inset-right)); width:32px; height:32px; padding:7px; border:0; border-radius:6px; background:rgba(0,0,0,.45); color:#fff; opacity:.35; cursor:pointer; transition:opacity .15s; }
 #de-fs:hover, #de-fs:focus-visible { opacity:1; }
 #de-fs[hidden] { display:none; }
 #de-rotate { display:none; position:fixed; inset:0; z-index:2147483000; background:#000; color:#fff; flex-direction:column; align-items:center; justify-content:center; gap:18px; padding:24px; text-align:center; font:600 18px/1.3 system-ui,sans-serif; touch-action:none; }
@@ -88,16 +88,18 @@ export function mountPhoneStage(o: PhoneStageOptions): PhoneStage {
 
   // the fitted frame: phones and tablets always (coarse pointer), and any window too small for the rewrite's desktop
   // layout (its stage is at least 640x480 and the page would scroll; live's stage.js fits every window)
-  const compactQuery = win.matchMedia?.(COMPACT);
-  const framed = (): boolean => coarse || !!compactQuery?.matches;
-  if (!coarse && !compactQuery) return { coarse, fit: () => null, toggleFullscreen, dispose: () => { for (const [t, type, fn, opt] of listeners) t.removeEventListener(type, fn, opt); } };
-
+  // live's #fs: the window's top right corner on every page, desktop too (stage.js), hidden where nothing can go full
+  // screen (iPhone Safari)
   const css = doc.createElement('style'); css.id = 'de-phone-css'; css.textContent = PHONE_CSS; doc.head.append(css);
   const btn = doc.createElement('button'); btn.id = 'de-fs'; btn.type = 'button'; btn.tabIndex = -1; btn.title = 'Full screen (Alt+Enter)'; btn.setAttribute('aria-label', 'Toggle full screen');
   btn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
-  btn.hidden = true;
+  btn.hidden = !canFs;
   doc.body.append(btn);
   on(btn, 'click', (e => { e.stopPropagation(); toggleFullscreen(); }) as EventListener);
+  on(btn, 'mousedown', (e => e.stopPropagation()) as EventListener);
+  const compactQuery = win.matchMedia?.(COMPACT);
+  const framed = (): boolean => coarse || !!compactQuery?.matches;
+  if (!coarse && !compactQuery) return { coarse, fit: () => null, toggleFullscreen, dispose: () => { for (const [t, type, fn, opt] of listeners) t.removeEventListener(type, fn, opt); btn.remove(); css.remove(); } };
   let rot: HTMLElement | null = null;
   if (coarse) {
     // ---- the page is the game
@@ -130,11 +132,11 @@ export function mountPhoneStage(o: PhoneStageOptions): PhoneStage {
     root.classList?.remove('de-phone-page'); host.classList.remove('de-phone');
     for (const k of ['left', 'top', 'width', 'height'] as const) host.style[k] = '';
     for (const v of vars) stage.style.removeProperty?.(v);
-    btn.hidden = true;
+    btn.style.top = ''; btn.style.left = '';   // back to the window's corner (PHONE_CSS)
   };
   const fit = (): FrameFit | null => {
     if (!framed()) { unframe(); o.onFit?.(); return null; }
-    if (!framedNow) { framedNow = true; root.classList?.add('de-phone-page'); host.classList.add('de-phone'); btn.hidden = !canFs; }   // iPhone Safari: elements can't go full screen
+    if (!framedNow) { framedNow = true; root.classList?.add('de-phone-page'); host.classList.add('de-phone'); }
     const vv = coarse ? win.visualViewport : null, st = host.style;   // the visible part: smaller while the keyboard is up
     const view: Viewport = vv ? { offsetLeft: vv.offsetLeft, offsetTop: vv.offsetTop, width: vv.width, height: vv.height } : { offsetLeft: 0, offsetTop: 0, width: win.innerWidth, height: win.innerHeight };
     st.left = view.offsetLeft + 'px'; st.top = view.offsetTop + 'px'; st.width = view.width + 'px'; st.height = view.height + 'px';
