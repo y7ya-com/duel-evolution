@@ -1272,19 +1272,22 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const go = (scene: Scene) => () => open(scene);
       const entries: MenuEntry[] = !state.player ? [] : [
         { label: 'Edit Deck', key: 'deck', disabled: blocked || sideboard, run: go('deck') },
-        ...(state.profileDetail && state.mode !== 'free' ? [
+        ...(state.profileDetail ? [
           { label: 'My Profile', key: 'profile', disabled: blocked || sideboard, run: () => { if (state.scene !== 'lobby') open('lobby'); send({ type: 'profileAction', action: { type: 'open', pid: state.player!.id } }); } },
           // Create Comment edits the player's own profile lines: it opens over that profile (the controller's rule)
           { label: 'Create Comment', key: 'comment', disabled: blocked || sideboard, run: () => { if (state.scene !== 'lobby') open('lobby'); const p = state.profileDetail; if (p?.selectedPid !== state.player!.id) send({ type: 'profileAction', action: { type: 'open', pid: state.player!.id } }); htmlUiState.comment = [p?.selectedPid === state.player!.id ? p.comments[0] ?? '' : '', p?.selectedPid === state.player!.id ? p.comments[1] ?? '' : '']; showHtml(); } },
+          // Change Title (CWindowModelTitleConfig), live's My Room menu's, after My Profile
+          ...(state.location === 'my-room' && state.titles ? [{ label: 'Change Title', key: 'change-title', disabled: blocked || sideboard, run: () => { titleUi = { selected: -1, top: 0 }; showHtml(); } }] : []),
         ] : []),
-        ...(state.mode !== 'free' && state.location ? [
+        ...(state.location ? [
           // Return to your Room (the private My Room lobby) and, inside it, the door back to the world
           state.location === 'my-room'
             ? { label: 'Return to the World', key: 'leave-room', disabled: blocked || sideboard || !!state.duel, run: () => { if (state.scene !== 'lobby') open('lobby'); send({ type: 'myRoom', enter: false }); } }
             : { label: 'Return to your Room', key: 'my-room', disabled: blocked || sideboard || !!state.duel, run: () => { if (state.scene !== 'lobby') open('lobby'); send({ type: 'myRoom', enter: true }); } },
         ] : []),
         { label: 'DUEL OPTIONS', key: 'settings', disabled: blocked, run: () => { optionsUi = { kind: 'options' }; showHtml(); } },
-        ...(state.mode !== 'free' ? [
+        // live's free mode keeps the whole menu (its D-Mail, Duel Log and lists over the free lobby's session)
+        ...([
           { label: 'D-Mail', key: 'mail', disabled: blocked || sideboard || !state.socialDetail, run: () => { htmlUiState.mail = { top: 0, selected: -1 }; send({ type: 'socialAction', action: { type: 'refreshMail' } }); showHtml(); } },
           // Duel Log (CWindowModelDuellogTop): Latest / Server Duel Logs, the Duel Log Collection
           { label: 'Duel Log', key: 'duellog', disabled: blocked || sideboard, run: () => { duellog = duellogUi(); loadDuellog(duellog.search, 1); } },
@@ -1294,7 +1297,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
           // main's list windows (src/ui/htmlui: CWindowModelBlacklist / Friendlist / Teamlist) over the scene
           ...(state.socialDetail ? (['ignore', 'friends', 'team'] as const).map(kind => ({ label: { ignore: 'Ignore List', friends: 'Friend List', team: 'Team List' }[kind], key: kind === 'team' ? 'teams' : kind,
             disabled: blocked || sideboard, run: () => { htmlUiState.lists = { kind, selected: -1 }; if (kind === 'team') send({ type: 'socialAction', action: { type: 'refreshTeam' } }); if (kind === 'friends') loadPresence(); showHtml(); } })) : []),
-        ] : []),
+        ]),
         ...((state.duel || sideboard) && state.scene !== 'duel' ? [{ label: 'Return to Duel', key: 'duel', disabled: blocked, run: go('duel') }] : []),
         // the way back from the rewrite's own scenes; in the lobby itself there is nothing to return to (live has no entry)
         ...(state.scene !== 'lobby' ? [{ label: 'Return to Lobby', key: 'lobby', disabled: blocked || sideboard, run: go('lobby') }] : []),
@@ -1302,10 +1305,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         // goes straight back to the title (no question first)
         ...(state.connection === 'online' ? [{ label: 'Return to Title', key: 'title', run: () => send({ type: 'disconnect' }) }] : []),
       ];
-      // live's order (main's Main Menu over the 2008 engine, top to bottom): Edit Deck, My Profile, Create Comment, DUEL
+      // live's order (main's Main Menu over the 2008 engine, top to bottom): Edit Deck, My Profile, (My Room: Change Title,) Create Comment, DUEL
       // OPTIONS, D-Mail, Audio, Duel Log, Ignore / Friend / Team List, Return to your Room, Return to Title; the
       // rewrite's own entries after the lists, before the ways out
-      const LIVE_ORDER = ['deck', 'profile', 'comment', 'settings', 'mail', 'audio', 'duellog', 'ignore', 'friends', 'teams', 'change-title', 'tournament', 'find', 'shop', 'my-room', 'leave-room', 'duel', 'lobby', 'title'];
+      const LIVE_ORDER = ['deck', 'profile', 'change-title', 'comment', 'settings', 'mail', 'audio', 'duellog', 'ignore', 'friends', 'teams', 'tournament', 'find', 'shop', 'my-room', 'leave-room', 'duel', 'lobby', 'title'];
       const rank = (e: MenuEntry) => { const i = LIVE_ORDER.indexOf(e.key); return i < 0 ? LIVE_ORDER.length - 4 : i; };
       entries.sort((a, b) => rank(a) - rank(b));
       const world = state.scene === 'lobby' && state.lobby;
