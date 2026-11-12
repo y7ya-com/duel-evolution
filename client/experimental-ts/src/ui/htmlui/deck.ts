@@ -42,8 +42,10 @@ export interface DeckUi {
   /** The editor at its full height (the chat folded or none: live's CWindowTaskDeck expanded, 11 trunk rows); false
    * with the chat open under it (live's lobby: the windows 104 shorter, the Side row at 480, 9 trunk rows). */
   tall: boolean;
+  /** No chat under the editor at all (Free Duel): live's screen is bare (black) under the deck windows, 248..1024 x 712..736. */
+  bare: boolean;
 }
-export const deckUi = (): DeckUi => ({ view: 'main', top: 0, filter: emptyKabanFilter(), shown: 0, detail: 0, mouse: null, drag: null, files: null, dialog: null, tall: true });
+export const deckUi = (): DeckUi => ({ view: 'main', top: 0, filter: emptyKabanFilter(), shown: 0, detail: 0, mouse: null, drag: null, files: null, dialog: null, tall: true, bare: false });
 /** What the chat open under the editor takes off its windows' height (live: 712 -> 608). */
 export const shortBy = (ui: Pick<DeckUi, 'tall'>) => ui.tall ? 0 : 104;
 /** The trunk's rows (CWindowTaskKaban::setRowCount: 11 at full height, 9 with the chat open). */
@@ -257,7 +259,7 @@ export function kabanWindow(ctx: DeckContext): WindowSpec {
   // here it came out over the search field)
   control(b, ids, 'bar', 'CWindowTaskDeckBar', 'Bar', { x: 736, y: 0, z: z + 7 }, { parts: bar });
   const total = ctx.owned;
-  const num = t.parts(); t.swf(num, 'KabanCountBtn', 944, 4, z + 10); t.label(num, 'KabanCountNumber', `@9${total}`, total < 10 ? 1000 : total < 100 ? 992 : 984, 6, z + 16);
+  const num = t.parts(); t.swf(num, 'KabanCountBtn', 944, 4, z + 10); t.label(num, 'KabanCountNumber', `@9${total}`, 1000 - 8 * (String(total).length - 1), 6, z + 16);
   control(b, ids, 'num', 'CWindowTaskKabanNumber', 'KabanNum', { x: 944, y: 4, z: z + 8 }, { count: total, parts: num });
   const order = t.parts(); ['MagicBtn', 'TrapBtn', 'NormalBtn', 'EffectBtn', 'RitualBtn', 'FusionBtn'].forEach((n, i) => t.swf(order, n, 832 + 32 * i, 29, z + 15));
   control(b, ids, 'order', 'CWindowTaskKabanOrder', 'Order', { x: 832, y: 29, z: z + 8 }, { parts: order });

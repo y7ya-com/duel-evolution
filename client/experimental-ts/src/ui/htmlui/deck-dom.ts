@@ -111,10 +111,12 @@ export class DeckDom {
   }
   // the scene's buttons (side menu, tabs, the detail's arrow) and the drop zones (taking the mouse only while a card is held)
   private chrome(on: boolean): void {
-    const ui = this.scene.ui, key = JSON.stringify([on, ui.view, ui.detail, !!ui.drag, ui.tall]);
+    const ui = this.scene.ui, key = JSON.stringify([on, this.active, ui.view, ui.detail, !!ui.drag, ui.tall, ui.bare]);
     if (key === this.zonesKey) return;
     this.zonesKey = key;
     this.zones.replaceChildren(); this.controls.replaceChildren();
+    // Free Duel: nothing under the deck windows (live's black, no chat bar there)
+    if (this.active && ui.bare) { const foot = this.box(this.zones, 'div', 248, 712, 776, 24); Object.assign(foot.style, { background: '#000', pointerEvents: 'none' }); }
     if (!on) return;
     for (const z of (ui.view === 'extra' ? ['extra', 'trunk'] : ['main', 'side', 'trunk']) as (keyof typeof ZONES)[]) {
       const [x, y, w, h] = zoneAt(z, shortBy(ui)), d = this.box(this.zones, 'div', x, y, w, h);

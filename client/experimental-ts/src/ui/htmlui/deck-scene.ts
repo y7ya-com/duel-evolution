@@ -129,7 +129,7 @@ export class DeckScene {
   windows(): WindowSpec[] {
     const view = this.o.state(); if (view.scene !== 'deck' || !view.deckEditor) { this.ui.files = null; this.ui.dialog = null; this.ui.drag = null; this.ui.mouse = null; this.chatFolded = false; return []; }
     this.refresh(view);
-    const chat = this.chatMode(view); this.ui.tall = chat !== 1;
+    const chat = this.chatMode(view); this.ui.tall = chat !== 1; this.ui.bare = chat === null;
     // the card wire's table (YO2 ids): the windows name their cards by it, as live's (main's crafting row reads it);
     // asked again after a while if it could not be read
     if (!peekTable() && Date.now() - this.tableAsked > 15000) { this.tableAsked = Date.now(); void loadTable().then(t => { if (t) this.o.rerender(); }, () => {}); }
