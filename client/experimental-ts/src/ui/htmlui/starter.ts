@@ -25,7 +25,7 @@ export class StarterPicker {
     if (typeof document === 'undefined') return;
     if (who !== this.who) { this.who = who; this.close(); }
     const api = (globalThis as unknown as { yo2Starter?: Yo2Starter }).yo2Starter;
-    if (this.shown && api && !api.open) this.shown = false;   // closed by its own OK
+    if (this.shown && api && !api.open) { this.shown = false; this.release(); }   // closed by its own OK
     if (who === null || !decks?.length || this.shown || this.opening || this.done.has(who)) return;
     this.opening = true; void this.open(decks).catch(e => console.warn('starter:', e)).finally(() => { this.opening = false; });
   }
@@ -43,12 +43,15 @@ export class StarterPicker {
         try { const r = await this.deps.claim(id); if (r.ok && who !== null) this.done.add(who); return r; }
         finally { this.claiming = null; }
       })(),
-      later: () => { if (this.who !== null) this.done.add(this.who); this.shown = false; this.deps.later(); },
+      later: () => { if (this.who !== null) this.done.add(this.who); this.shown = false; this.release(); this.deps.later(); },
     });
     this.shown = api.open;
   }
+  /** The deck tiles' cover art goes back once the picker is gone (each cover's lease ends with this abort): kept, the
+   * starters' 2x art (~10 MiB of the asset budget) stayed leased for the whole session. */
+  private release(): void { this.abort?.abort(); this.abort = null; }
   close(): void {
-    this.abort?.abort(); this.abort = null;
+    this.release();
     if (this.shown) (globalThis as unknown as { yo2Starter?: Yo2Starter }).yo2Starter?.close();
     this.shown = false;
   }

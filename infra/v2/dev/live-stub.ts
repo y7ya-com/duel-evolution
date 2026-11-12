@@ -1,11 +1,11 @@
 // Local testing only (README.md "Local check"): stands in for the production Worker `duel-evolution` under wrangler
 // dev, so the front's LIVE binding reaches a local live-server stack. The front has already pointed the request at
 // LIVE_ORIGIN (the stack's http://127.0.0.1:<port>), so this passes it on as it is, WebSocket upgrades included.
-// The game's own files (/game/*, /ui/*: R2 in production, absent from a local stack) are read from GAME_FILES
-// (default https://original.ygoevolution.com, public and read-only: the same files the Vite dev server proxies), with
-// no cookie or Origin, only the range and cache validators.
+// The game's own files (/game/*, the 2x card art /cards/*, /ui/*, the site icons: R2 / live's static files in production,
+// absent from a local stack) are read from GAME_FILES (default https://original.ygoevolution.com, public and read-only:
+// the same files the Vite dev server proxies), with no cookie or Origin, only the range and cache validators.
 interface Env { GAME_FILES?: string }
-const FILES = /^\/(?:game|ui)\//;
+const FILES = /^\/(?:(?:game|cards|ui)\/|(?:favicon|apple-touch-icon)\.png$)/;
 const PASS = ["Range", "If-Range", "If-None-Match", "If-Modified-Since", "Accept", "Accept-Encoding"];
 export default {
   fetch(req: Request, env: Env) {

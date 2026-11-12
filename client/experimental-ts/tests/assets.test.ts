@@ -128,7 +128,7 @@ describe('range archive reader', () => {
 });
 
 describe('asset lifetime', () => {
-  it('shares art, pins live leases, evicts released URLs, and disposes idempotently', async () => {
+  it('shares art, pins live leases, serves art past the budget uncached, evicts released URLs, and disposes idempotently', async () => {
     const fetcher = server(archive([{ name:'123.jpg',data:jpeg() },{ name:'456.jpg',data:jpeg() }]));
     const revoke = vi.spyOn(URL,'revokeObjectURL');
     const charge = jpeg().length * 2 + 3 * 2 * 4;
@@ -137,9 +137,15 @@ describe('asset lifetime', () => {
     expect(a.value).toBe(b.value); expect(a.value.mimeType).toBe('image/jpeg');
     expect(fetcher).toHaveBeenCalledTimes(3); expect(manager.cacheBytes).toBe(charge);
     expect(a.value).toMatchObject({ width:3,height:2 });
+    // the budget all live leases: 456 is still served (a picture on screen never goes missing), outside the cache, up to
+    // the budget again; past that a load is refused
+    const over = await manager.loadCard(456);
+    expect(over.value.url).not.toBe(a.value.url); expect(manager.cacheBytes).toBe(charge);
     await expect(manager.loadCard(456)).rejects.toThrow('live leases');
+    over.release(); over.release(); expect(revoke).toHaveBeenCalledWith(over.value.url);
     a.release(); a.release();
-    await expect(manager.loadCard(456)).rejects.toThrow('live leases');
+    const again = await manager.loadCard(456); again.release();
+    expect(revoke).toHaveBeenCalledWith(again.value.url); expect(revoke).not.toHaveBeenCalledWith(a.value.url);
     b.release();
     const c = await manager.loadCard(456);
     expect(revoke).toHaveBeenCalledWith(a.value.url);
