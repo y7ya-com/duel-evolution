@@ -24,7 +24,9 @@ import { evaluate, type EvalMon, type Position } from "./evaluate.ts";
 export interface PlanMon extends EvalMon { seq: number }
 /** One monster able to attack now: its index in the battle command, its zone, its ATK, and whether it may attack
  *  directly while the opponent still has monsters. */
-export interface PlanAttacker { index: number; seq: number; atk: number; canDirect: boolean }
+export interface PlanAttacker { index: number; seq: number; atk: number; canDirect: boolean;
+  /** Its attack returns the target and itself to the hand before damage (Neo-Spacian Grand Mole). */
+  bounces?: boolean }
 export interface PlannedAttack { index: number; seq: number; atk: number; /** The opponent's zone, null = direct. */ target: number | null }
 
 export interface Outcome {
@@ -78,6 +80,8 @@ function resolve(s: State, a: PlanAttacker, t: PlanMon | null, bit: number): Sta
   const me = my.find((m) => m.seq === a.seq);
   const atk = me?.atk ?? a.atk;
   if (t === null) return { myLp, oppLp: oppLp - atk, my, opp, used, flipCost };
+  // a bounce: both leave the field, no battle (a battle-proof target goes too)
+  if (a.bounces) return { myLp, oppLp, my: my.filter((m) => m.seq !== a.seq), opp: opp.filter((m) => m.seq !== t.seq), used, flipCost };
   const guard = guardOf(t);
   const dropOpp = () => { if (!t.battleProof) opp = opp.filter((m) => m.seq !== t.seq); };
   const dropMine = () => { if (!me?.battleProof) my = my.filter((m) => m.seq !== a.seq); };
@@ -107,7 +111,7 @@ const bodyValue = (m: EvalMon): number => 1000 + Math.max(m.atk, m.def) * 0.4;
 export function replyPosition(p: Position): Position {
   let my = [...p.myMon];
   let myLp = p.myLp;
-  const attackers = p.oppMon.filter((m) => m.attackPos && !m.faceDown).map((m) => m.atk).sort((a, b) => b - a);
+  const attackers = p.oppMon.filter((m) => m.attackPos && !m.faceDown && !m.noAttack).map((m) => m.atk).sort((a, b) => b - a);
   for (const atk of attackers) {
     if (my.length === 0) { myLp -= atk; continue; }
     let best = -1, bestLoss = 0;
@@ -147,7 +151,7 @@ const holdOf = (m: EvalMon): number => (m.faceDown && !m.known ? Math.max(m.def,
  */
 export function outcomeScore(p: Position): number {
   const side = (mine: EvalMon[], theirs: EvalMon[], theirLp: number) => {
-    const attackers = mine.filter((m) => m.attackPos && !m.faceDown);
+    const attackers = mine.filter((m) => m.attackPos && !m.faceDown && !m.noAttack);
     const best = attackers.reduce((n, m) => Math.max(n, m.atk), 0);                               // S1
     const wins = (a: number) => theirs.length === 0 || theirs.some((t) => !t.battleProof && a > holdOf(t));
     const productive = attackers.filter((m) => wins(m.atk)).reduce((n, m) => Math.max(n, m.atk), 0);   // S3
@@ -330,6 +334,24 @@ export function planAttacks(input: PlanInput): PlannedAttack[] {
     cur = { base: { ...cur.base, myLp: s.myLp, oppLp: s.oppLp }, my: s.my, opp: s.opp, attackers: cur.attackers.filter((x) => x.seq !== a.seq) };
   }
   return out;
+}
+
+/**
+ * What this board's Battle Phase (Master Duel's attacks, planEnd) wins against what the opponent's next Battle Phase
+ * (replyPosition) takes back, in one currency: LP 1:1 and a monster at its body worth. Choosing between two boards
+ * that differ by one monster's position: raise Marshmallon to attack a 200/100 Ryko and it hits for 100, then three
+ * attackers take 5,600 LP through it (production, duel 393); evaluate() weighs LP at 0.05 and saw the kill as worth
+ * more. A line that leaves me dead to the reply is -1e6.
+ */
+export function tradeValue(input: PlanInput): number {
+  const { end } = planEnd(input);
+  const worth = (ms: EvalMon[]) => ms.reduce((n, m) => n + bodyWorth(m), 0);
+  const won = (input.base.oppLp - end.oppLp) + worth(input.opp) - worth(end.oppMon);
+  if (end.oppLp <= 0) return 1e6;
+  const lost = (input.base.myLp - end.myLp) + worth(input.my) - worth(end.myMon);
+  const reply = replyPosition(end);
+  if (reply.myLp <= 0) return -1e6;
+  return won - lost - (end.myLp - reply.myLp) - (worth(end.myMon) - worth(reply.myMon));
 }
 
 /** The board after planAttacks' Battle Phase on this one: the attacks and the end position (for comparing plays). */

@@ -197,4 +197,137 @@ describe.skipIf(!haveData)("NPC scenarios (real engine)", () => {
     expect(npcActivated(p, "Judgment of Anubis")).toBe(true);
     expect(leftField(p, "Nightmare's Steelcage")).toBe(false);
   });
+
+  // ---- AI rev 7's live duels (rev7-review: duel_archive 368-406)
+  it("keeps Marshmallon in defence instead of raising it to hit a 200/100 Ryko under three attackers (duel 393)", () => {
+    const p = play(dc, {
+      npcId: 1, first: "player", turns: 2,
+      npc: { mzone: [["Marshmallon", "def"]] },
+      player: { mzone: ["Wulf, Lightsworn Beast", "Ryko, Lightsworn Hunter", "Celestia, Lightsworn Angel"] },
+    });
+    expect(npcChoices(p, "SELECT_IDLECMD").some(([, r]) => r?.action === "SELECT_POS_CHANGE")).toBe(false);
+    expect(msgs(p, "ATTACK")).toHaveLength(0);
+  });
+
+  it("sets Spirit Reaper at 200 LP instead of summoning it face-up under a 3000 (duel 402)", () => {
+    const p = play(dc, {
+      npcId: 44, first: "player", turns: 2,
+      npc: { lp: 200, hand: ["Spirit Reaper"] },
+      player: { mzone: ["Blue-Eyes White Dragon", "Ehren, Lightsworn Monk"] },
+    });
+    expect(msgs(p, "SUMMONING", "Spirit Reaper")).toHaveLength(0);
+  });
+
+  it("keeps a 2000/100 Warwolf in attack over a defending Spirit Reaper (duel 392)", () => {
+    const p = play(dc, {
+      npcId: 53, first: "player", turns: 2,
+      npc: { mzone: ["Gene-Warped Warwolf"] },
+      player: { mzone: [["Spirit Reaper", "def"]] },
+    });
+    expect(npcChoices(p, "SELECT_IDLECMD").some(([, r]) => r?.action === "SELECT_POS_CHANGE")).toBe(false);
+  });
+
+  it("summons Gamma onto an empty field and attacks instead of setting it (duel 380)", () => {
+    const p = play(dc, {
+      npcId: 53, first: "player", turns: 2,
+      npc: { hand: ["Gamma The Magnet Warrior"] },
+      player: {},
+    });
+    expect(msgs(p, "SUMMONING", "Gamma The Magnet Warrior")).toHaveLength(1);
+    expect(msgs(p, "ATTACK").length).toBeGreaterThan(0);
+  });
+
+  it("Normal Summons Fusilier Dragon without tributes onto an empty field (duel 396)", () => {
+    const p = play(dc, {
+      npcId: 8, first: "player", turns: 2,
+      npc: { hand: ["Fusilier Dragon, the Dual-Mode Beast"] },
+      player: {},
+    });
+    expect(msgs(p, "SUMMONING", "Fusilier Dragon, the Dual-Mode Beast")).toHaveLength(1);
+  });
+
+  it("sets Swarm of Locusts for its Flip Summon instead of summoning it face-up (duel 393)", () => {
+    const p = play(dc, {
+      npcId: 1, first: "npc", turns: 1,
+      npc: { hand: ["Swarm of Locusts"] },
+      player: {},
+    });
+    expect(msgs(p, "SUMMONING", "Swarm of Locusts")).toHaveLength(0);
+  });
+
+  it("plays a second monster on turn 1 beside a lone Tempest (duel 390)", () => {
+    const p = play(dc, {
+      npcId: 60, first: "npc", turns: 1,
+      npc: { hand: ["Elemental HERO Sparkman"], mzone: ["Elemental HERO Tempest"] },
+      player: {},
+    });
+    const played = p.msgs.some((m) => (m.type === "SUMMONING" || (m.type === "SET" && (Number(m.location) & 0x04) !== 0)) && m.code === code("Elemental HERO Sparkman"));
+    expect(played).toBe(true);
+  });
+
+  it("chains Raigeki Break to Demise's wipe instead of losing it unused (duel 368)", () => {
+    const p = play(dc, {
+      npcId: 57, first: "player", turns: 1,
+      npc: { hand: ["Fire Princess"], szone: ["Raigeki Break"], mzone: [["The Forgiving Maiden", "set"]] },
+      player: { mzone: ["Demise, King of Armageddon"] },
+      player_policy: activating("Demise, King of Armageddon"),
+    });
+    expect(npcActivated(p, "Raigeki Break")).toBe(true);
+  });
+
+  it("Ring of Destruction takes the 1200 that attacks directly (duel 385)", () => {
+    const p = play(dc, {
+      npcId: 44, first: "player", turns: 3,
+      npc: { lp: 4800, szone: ["Ring of Destruction"], deck: Array(20).fill('Spirit Message "A"') },
+      player: { mzone: ["Pyramid Turtle"] },
+      player_policy: attacker,
+    });
+    expect(npcActivated(p, "Ring of Destruction")).toBe(true);
+    expect(leftField(p, "Pyramid Turtle")).toBe(true);
+  });
+
+  it("Raigeki Break destroys the attacker, not the monster beside it (duel 406)", () => {
+    const p = play(dc, {
+      npcId: 7, first: "npc", turns: 2,
+      npc: { hand: ["Petit Moth"], szone: ["Raigeki Break"] },
+      player: { mzone: ["Armageddon Knight", ["Brron, Mad King of Dark World", "def"]] },
+      player_policy: attacker,
+    });
+    if (npcActivated(p, "Raigeki Break")) {
+      expect(leftField(p, "Armageddon Knight")).toBe(true);
+      expect(leftField(p, "Brron, Mad King of Dark World")).toBe(false);
+    }
+    expect(p.msgs.some((m) => m.type === "DAMAGE" && Number(m.player) === 1)).toBe(false);
+  });
+
+  it("the second Giant Rat's trigger is used too (duel 403)", () => {
+    const p = play(dc, {
+      npcId: 2, first: "npc", turns: 2,
+      npc: { mzone: ["Giant Rat", "Giant Rat"], deck: Array(20).fill("Giant Rat") },
+      player: { mzone: ["Wulf, Lightsworn Beast", "Celestia, Lightsworn Angel"] },
+      player_policy: attacker,
+    });
+    const rats = p.msgs.filter((m) => m.type === "SPSUMMONING" && m.code === code("Giant Rat")).length;
+    expect(rats).toBeGreaterThanOrEqual(2);
+  });
+
+  it("sets Mirror Force before flipping Morphing Jar (duel 397)", () => {
+    const p = play(dc, {
+      npcId: 56, first: "player", turns: 2,
+      npc: { hand: ["Mirror Force", "Fiend's Sanctuary"], mzone: [["Morphing Jar", "set"]] },
+      player: { mzone: ["Garoth, Lightsworn Warrior", "Wulf, Lightsworn Beast"] },
+    });
+    const flip = p.msgs.findIndex((m) => m.type === "FLIPSUMMONING" && m.code === code("Morphing Jar"));
+    const set = p.msgs.findIndex((m) => m.type === "SET" && m.code === code("Mirror Force"));
+    if (flip >= 0) expect(set >= 0 && set < flip).toBe(true);
+  });
+
+  it("gives Lava Golem to the opponent under its own Level Limit - Area B (duel 391)", () => {
+    const p = play(dc, {
+      npcId: 1, first: "player", turns: 2,
+      npc: { hand: ["Lava Golem"], szone: [["Level Limit - Area B", "up"]] },
+      player: { mzone: [["Wulf, Lightsworn Beast", "def"], ["Celestia, Lightsworn Angel", "def"]] },
+    });
+    expect(msgs(p, "SPSUMMONING", "Lava Golem")).toHaveLength(1);
+  });
 });

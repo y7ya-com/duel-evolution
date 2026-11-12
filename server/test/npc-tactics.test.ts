@@ -190,13 +190,13 @@ describe("NPC gaps found in duel traces", () => {
     expect(new HeuristicBot(0, named).choose(chain({ phase: 0x200 }, theirs))?.index).toBe(0);   // their End Phase
   });
 
-  it("answers one attack with one trap", () => {
+  it("answers one attack with one trap, the cheapest that does it (Sakuretsu Armor, not Mirror Force, on a lone attacker)", () => {
     const bot = new HeuristicBot(0, named);
     bot.observe({ ev: "msg", type: "ATTACK", card: { controller: 1, location: 4, sequence: 0 }, target: null });
     const chain = (codes: number[]) => select("SELECT_CHAIN", [], [mon(2000)], { turn_player: 1, phase: 8,
       selects: codes.map((code, sequence) => ({ code, controller: 0, location: 8, sequence, description: 0 })), forced: false });
-    expect(bot.choose(chain([103, 104]))?.index).toBe(0);
-    expect(bot.choose(chain([104]))?.index).toBe(null);
+    expect(bot.choose(chain([103, 104]))?.index).toBe(1);
+    expect(bot.choose(chain([103]))?.index).toBe(null);
     bot.observe({ ev: "msg", type: "CHAIN_END" });
     expect(bot.choose(chain([104]))?.index).toBe(0);
   });

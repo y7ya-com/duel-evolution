@@ -222,7 +222,7 @@ type SelectSum = Extract<Prompt, { kind: "selectSum" }>;
  * mode 1 (rituals): AT LEAST the target and minimal (no picked card is redundant). Response indices count the
  * must-cards first.
  */
-export function solveSum(ev: SelectSum): Json | null {
+export function solveSum(ev: SelectSum, cost?: (i: number) => number): Json | null {
   const lo = (p: number) => p & 0xffff;
   const hi = (p: number) => (p >>> 16) & 0xffff;
   let mustSums = [0];
@@ -230,7 +230,10 @@ export function solveSum(ev: SelectSum): Json | null {
     const vs = [lo(m.param), hi(m.param)].filter((v) => v > 0);
     mustSums = [...new Set(mustSums.flatMap((s) => vs.map((v) => s + v)))];
   }
-  const sel = ev.cards;
+  // with a cost per card: the cheapest cards are tried first (taken before skipped), so the sum found spends them
+  const order = ev.cards.map((_, i) => i);
+  if (cost) order.sort((a, b) => cost(a) - cost(b));
+  const sel = order.map((i) => ev.cards[i]!);
   const exact = ev.mode === 0;
   const minCount = Math.max(0, ev.min - ev.must.length);
   const maxCount = ev.max > 0 ? ev.max : sel.length;
@@ -239,20 +242,20 @@ export function solveSum(ev: SelectSum): Json | null {
     else if (need <= 0 && -need < minUsed && count >= minCount) return picked;
     if (i >= sel.length || count >= maxCount) return null;
     if (exact && need < 0) return null;
-    const skip = dfs(i + 1, need, count, minUsed, picked);
-    if (skip) return skip;
+    const skip = () => dfs(i + 1, need, count, minUsed, picked);
+    if (!cost) { const r = skip(); if (r) return r; }
     for (const v of [lo(sel[i]!.param), hi(sel[i]!.param)]) {
       if (v <= 0) continue;
       if (exact && v > need) continue;
       const r = dfs(i + 1, need - v, count + 1, Math.min(minUsed, v), [...picked, i]);
       if (r) return r;
     }
-    return null;
+    return cost ? skip() : null;
   };
   for (const ms of mustSums) {
     const picked = dfs(0, ev.sumVal - ms, 0, Infinity, []);
     if (picked && (picked.length || ev.must.length)) {
-      return { type: "SELECT_SUM", indicies: [...ev.must.map((_, i) => i), ...picked.map((i) => i + ev.must.length)] };
+      return { type: "SELECT_SUM", indicies: [...ev.must.map((_, i) => i), ...picked.map((i) => order[i]! + ev.must.length)] };
     }
   }
   return null;

@@ -101,8 +101,11 @@ export interface CardRule {
   summonScore?: (ctx: RuleCtx) => number;
   /** The card's own yes/no prompt (an upkeep cost, an optional payment): pay / accept? No rule = no. */
   yesNo?: (ctx: RuleCtx) => boolean;
-  /** Its own Special Summon from the hand, when the engine offers it: do it? No rule = yes. */
+  /** Its own Special Summon from the hand, when the engine offers it: do it? No rule = yes. With an idlePriority > 0
+   *  it is made before the search weighs the turn (Lava Golem under the NPC's own lock). */
   specialSummon?: (ctx: RuleCtx) => boolean;
+  /** This monster of mine stays out of my attacks (its survival is the plan: Des Wombat under Dark Snake Syndrome). */
+  noAttack?: (ctx: RuleCtx) => boolean;
   /** Never Normal Summon or Set it (an Exodia piece: it wins from the hand). */
   keepInHand?: boolean;
   /** Set, and about to be destroyed by the opponent's chain: use it now? No rule = yes (it is lost otherwise). */

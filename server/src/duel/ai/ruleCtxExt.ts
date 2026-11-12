@@ -35,6 +35,9 @@ export const EXT_NUM = [
    *  graveyard (they gain from being discarded: Sangan-like, Dark World); Counter Traps (hand or set); cards that
    *  revive a monster (hand or set). */
   "myHandDead", "myHandDiscardPayoff", "myCounterTraps", "myReviveCards",
+  /** How many of my Standby Phases the card the rule is about has spent face-up on my field (Wave-Motion Cannon's
+   *  counters: 1000 damage each). */
+  "selfStandbys",
 ] as const;
 export const EXT_BOOL = [
   /** My turn, before my Battle Phase is over (Main Phase 1 or the Battle Phase); my Main Phase 2; a battle under way. */
@@ -68,5 +71,10 @@ export const EXT_BOOL = [
   "mySetFlipMon",
   /** The opponent's attacks this turn add up to my LP (oppPlanLethal by its other name). */
   "oppLethalThrough",
+  /** My Main Phase 1 with my Battle Phase still to come (never on the duel's first turn). */
+  "battlePhaseAhead",
+  /** A burn that hits both players each Standby Phase, 300 doubling (Dark Snake Syndrome), kills the opponent before me
+   *  (a face-up Des Wombat of mine takes my share away). */
+  "doublingBurnWins",
 ] as const;
 export type RuleCtxExt = Partial<Record<(typeof EXT_NUM)[number], number> & Record<(typeof EXT_BOOL)[number], boolean>>;

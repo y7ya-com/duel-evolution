@@ -19,6 +19,8 @@ export interface EvalMon {
   battleProof?: boolean;
   /** What its owner gets back when it is destroyed (a search, a summon, a revival: aiCategories.json). */
   afterlife?: number;
+  /** A face-up lock stops it attacking (Messenger of Peace at 1500 ATK, Gravity Bind, Swords of Revealing Light...). */
+  noAttack?: boolean;
 }
 export interface Position {
   myMon: EvalMon[];

@@ -3,8 +3,12 @@
 //
 // Its picker takes, in order: a card that wants the graveyard (Sangan, a self-reviving monster), a card it lists as a
 // preferred discard (aiCategories.json discardFirst: dead in hand like the Spirit Messages, or better in the
-// graveyard like the LV monsters), then plain cards (lowest printed ATK first, so spells/traps before monsters), and
-// only then the cards it keeps (importance 3, 2, then 1). A "safe" payment, the one Raigeki Break and the cost checks
+// graveyard like the LV monsters), then plain cards, and only then the cards it keeps (importance 3, 2, then 1).
+// Among plain cards Master Duel takes the lowest printed ATK, so every spell and trap went before any monster: production
+// threw away Scapegoat at 1100 LP, Snatch Steal over a Mystical Elf and Brain Control over a 500 ATK Union. Here the
+// plain cards go by our own worth of the card (#worth: a dead or duplicate card low, a live answer high), ATK breaks
+// ties. A Spirit Message is dead only once its Destiny Board is gone: with the Board still to come the deck's only
+// copy is kept (production discarded "L" to Dark World Dealings over a second Nightmare's Steelcage). A "safe" payment, the one Raigeki Break and the cost checks
 // make while the CPU is not behind, refuses a card it keeps instead of paying with it; behind, anything goes.
 // The first port read the discard-first list as "never discard" (+3000), and a Spirit Message rule as "keep in
 // hand": the NPC then had no card to pay Raigeki Break with and died holding it (duel 300).
@@ -33,9 +37,10 @@ export interface CostView {
   canNormalSummon: (code: number) => boolean;
   /** A piece of the deck's plan its card rule keeps in hand (Exodia): given up last of all. */
   keep?: (code: number) => boolean;
-  /** Our own worth of a hand card: breaks Master Duel's ties (it falls back to hand order, which threw away Mystical
-   *  Space Typhoon before a spare Field Spell: every spell has ATK 0). */
+  /** Our own worth of a hand card: orders the plain cards (Master Duel's ATK order threw away every spell first). */
   worth?: (code: number) => number;
+  /** A Destiny Board is still in my hand, on my field or in my Deck: its Spirit Messages are not dead cards. */
+  destinyLive?: boolean;
 }
 
 /** 0 = expendable; 1 / 2 / 3 = kept, 1 the strongest (D-costs.md §1.2). */
@@ -47,7 +52,7 @@ export function importance(code: number, v: CostView): 0 | 1 | 2 | 3 {
     if (monsters === 1 && v.canNormalSummon(code)) return 1;
   }
   if (copies < 2) {
-    if (SPIRIT_MESSAGES.has(code)) return 1;
+    if (SPIRIT_MESSAGES.has(code) && v.destinyLive) return 1;
     // a monster that cannot come back once it leaves, with no copy of it on my field
     if (LOST_FOREVER.has(code) && !v.field.includes(code)) return 2;
   }
@@ -57,8 +62,14 @@ export function importance(code: number, v: CostView): 0 | 1 | 2 | 3 {
 }
 
 /** A card the picker takes before any other: it wants the graveyard (2) or it is a preferred discard (1). */
-export function discardBenefit(code: number): number {
+export function discardBenefit(code: number, v?: Pick<CostView, "destinyLive">): number {
+  if (SPIRIT_MESSAGES.has(code) && v?.destinyLive) return 0;
   return WANTS_GRAVE.has(code) ? 2 : DISCARD_FIRST.has(code) ? 1 : 0;
+}
+
+/** A card never set on its own (the Spirit Messages, the Sarcophagi: dead in the Spell & Trap Zone). */
+export function neverSet(code: number): boolean {
+  return DISCARD_FIRST.has(code);
 }
 
 /**
@@ -73,8 +84,8 @@ export function costOrder(v: CostView, o: { exclude?: number; safe?: boolean } =
     const imp = importance(c, v);
     const worth = v.worth?.(c) ?? 0;
     // benefit first; then plain cards; then kept ones, the weakest keep (3) before 2 before 1; a plan piece last
-    if (v.keep?.(c)) return [0, 9, v.atk(c), worth, i];
-    return [-discardBenefit(c), imp === 0 ? 0 : 4 - imp, v.atk(c), worth, i];
+    if (v.keep?.(c)) return [0, 9, worth, v.atk(c), i];
+    return [-discardBenefit(c, v), imp === 0 ? 0 : 4 - imp, worth, v.atk(c), i];
   };
   idx.sort((a, b) => {
     const x = key(a), y = key(b);
@@ -93,5 +104,5 @@ export function canPay(v: CostView, o: { exclude?: number; safe: boolean }): boo
 
 /** How many hand cards the picker would give up without touching a kept one. */
 export function expendable(v: CostView, exclude?: number): number {
-  return v.hand.filter((c, i) => i !== exclude && c && !v.keep?.(c) && (discardBenefit(c) > 0 || importance(c, v) === 0)).length;
+  return v.hand.filter((c, i) => i !== exclude && c && !v.keep?.(c) && (discardBenefit(c, v) > 0 || importance(c, v) === 0)).length;
 }

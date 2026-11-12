@@ -16,6 +16,7 @@ import type { CardDB as EngineCardDB } from "../engine/data.ts";
 import type { Json } from "../engine/core.ts";
 import { tagMask, type CardDB as BrainDB } from "../brain/cards.ts";
 import type { NpcProfilesJson } from "../brain/index.ts";
+import FLIP_SUMMON_JSON from "./flipSummon.json";
 import { HeuristicBot, type BotStyle, type CardInfo } from "./heuristicBot.ts";
 import { activeRules, type RuleSet } from "./ruleSet.ts";
 import type { ForkLink, SearchAccess } from "./simSearch.ts";
@@ -27,7 +28,7 @@ export { activeRules, buildRules, setActiveRules, type RuleSet } from "./ruleSet
 export type Tier = "easy" | "hard" | "elite";
 
 /** Which AI played, in the duel record (npcDuelLog.ts): one more whenever the AI's play changes. */
-export const NPC_AI_REV = 7;
+export const NPC_AI_REV = 8;
 
 /** Per-NPC personalities (NPC id -> style). */
 export const STYLE_BY_NPC: Record<number, BotStyle> = {};
@@ -59,6 +60,7 @@ export function tierFor(_npcId: number, _profiles?: NpcProfilesJson | null): Tie
 const DISRUPTIVE = tagMask("destroy_monster", "destroy_st", "destroy_any", "nuke_opp", "nuke_all", "storm_opp", "storm_all",
   "bounce", "control", "search", "draw", "revive");
 
+const FLIP_SUMMON = new Set<number>(FLIP_SUMMON_JSON.codes);
 const INFO = new WeakMap<EngineCardDB, CardInfo>();
 /** Card knowledge for the AI: stats and names from the engine's cards.cdb, flip effects from the brain's card tags. */
 export function cardInfo(db: EngineCardDB, brain: BrainDB): CardInfo {
@@ -77,7 +79,7 @@ export function cardInfo(db: EngineCardDB, brain: BrainDB): CardInfo {
     },
     flipRisk(code) {
       const c = brain.get(code);
-      if (!c || !c.is_flip) return 0;
+      if (!c || (!c.is_flip && !FLIP_SUMMON.has(code))) return 0;
       return c.any(DISRUPTIVE) ? 2200 : 700;
     },
     brain,
