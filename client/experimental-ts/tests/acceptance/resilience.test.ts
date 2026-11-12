@@ -148,7 +148,14 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       // The server may ask chain questions on the way to the end of the turn: decline them; End Turn is never pressed again.
       const no = `[...document.querySelectorAll('#htmlui-host button')].find(b=>b.dataset.key?.startsWith('prompt-option:')&&b.textContent.trim()==='No'&&!b.disabled)`;
       let declined = 0;
-      for (let i = 0; i < 400 && await turn(page) <= t0; i++) { if (await page.ev(`Boolean(${no})`)) { await press(page,no).catch(() => {}); declined++; } await sleep(150); }
+      // (and any other question on the way, as the turn's end asks a discard down to six cards: answered through the
+      // prompt alone, End Turn never pressed again)
+      const asked = `Boolean(document.querySelector('#htmlui-host [data-key^="prompt-"],.de-zone-target,.de-card-target,[data-key="duel-notice-ok"]'))`;
+      for (let i = 0; i < 400 && await turn(page) <= t0; i++) {
+        if (await page.ev(`Boolean(${no})`)) { await press(page,no).catch(() => {}); declined++; }
+        else if (await page.ev(asked)) await duelBot(page,{ summon:false,attack:false });
+        await sleep(150);
+      }
       const t1 = await turn(page);
       const log = await page.ev(`[...document.querySelectorAll('.de-duel-log div')].map(d=>d.textContent)`) as string[];
       // the NPC's own turn can pass between two looks on a fast stack: then the turn shown is the player's next one (an
