@@ -37,6 +37,10 @@ export async function extractWorldMaps(sourceRoot = resolve(root, '../src/Game')
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const output = resolve(root, process.argv[2] ?? 'public/world-maps.json');
   const data = await extractWorldMaps();
+  // the NPC spots come from the user's own yo2.exe (YO2_EXE, or the decomp data checkout), when there is one
+  const { defaultExe, extractNpcSpots, withNpcSpots } = await import('./npc-spots.mjs'), exe = defaultExe();
+  if (exe) { withNpcSpots(data, extractNpcSpots(await readFile(exe)).spots); console.log(`NPC spots from ${exe}`); }
+  else console.warn('No yo2.exe (YO2_EXE): the maps have no NPC spots, so no NPC stands on them');
   await mkdir(dirname(output), { recursive: true });
   await writeFile(output, JSON.stringify(data));
   console.log(`Generated ${data.maps.length} maps (${data.maps.filter(m => m.grid).length} grids): ${output}`);

@@ -17,6 +17,10 @@ export function crossingAt(map: number, avatarPosition: Point): CrossingRegion |
   mapId(map); validPoint(avatarPosition);
   return CROSSING_REGIONS.find(r => r.mapId === map && avatarPosition.x >= r.x0 && avatarPosition.x < r.x1 && avatarPosition.y >= r.y0 && avatarPosition.y < r.y1) ?? null;
 }
+/** An exit whose entry source is 11: the card shop's door, not a map. */
+export const SHOP_DOOR = 11;
+/** The shop door re-arms once the avatar is this far from where it entered it (shopdirect.c: 48 px). */
+export const SHOP_DOOR_REARM = 48;
 export interface ExitTrigger { readonly index: ExitIndex; readonly color: number; readonly destination: number; readonly source: 'mask' | 'crossing' }
 /** probeColor is the original solver's reported color. Passing a mask pixel only
  * classifies that pixel; it does not reconstruct probeWalls. Destinations are
@@ -30,7 +34,9 @@ export function detectExit(map: Pick<WorldMap, 'id' | 'entries'>, probeColor: nu
   const index = exitIndexFromPixel(color);
   if (index === null) return null;
   const destination = crossing?.destination ?? map.entries[index]?.from;
-  // 11 is special and 12 is END; neither is a normal map destination.
+  // 11 is the card shop's door (the Game Shop / Store counter: CAreaMap::receive's exit message 0x1d pushes SCENE_SHOP
+  // for an entry whose source is 11; recomp shopdirect.c); 12 is END. Neither is a map.
+  if (destination === SHOP_DOOR) return Object.freeze({ index, color, destination, source: crossing ? 'crossing' : 'mask' });
   if (destination === undefined || !Number.isInteger(destination) || destination < 0 || destination > 9) return null;
   return Object.freeze({ index, color, destination, source: crossing ? 'crossing' : 'mask' });
 }
