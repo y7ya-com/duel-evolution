@@ -70,48 +70,19 @@ export const SKIN_CSS = `
 .de-client details[open]>summary::before { transform:rotate(90deg); }
 .de-client details>summary:hover { filter:brightness(1.08); }
 .de-client details[open]>summary { margin-bottom:5px; }
-.de-client :is(.de-deck-tools,.de-deck-filters) { background:#effcffd9; border:1px solid #6299bd; border-radius:2px; box-shadow:inset 0 1px 3px #164c7738; }
 
 /* Inset wells and list rows. */
-.de-client :is(.de-social-card,.de-profile-comments,.de-npc-dialogue,.de-prompt-inspector) { background:#effcff; border:1px solid #6299bd; border-radius:2px; box-shadow:inset 0 1px 3px #164c7738,0 1px 0 #e3ffff; }
-.de-client .de-social-card h3 { margin:-8px -10px 4px; padding:3px 10px; color:#fff; ${OUTLINE}; font-size:13px; background:linear-gradient(180deg,#d8faff,#79d6fc 12%,#2189e4 70%,#145ec9); border-bottom:1px solid #104eaa; }
-.de-client .de-social-row { border-bottom:1px solid #b3d9ec; padding:3px 4px; }
-.de-client .de-social-row:nth-child(even) { background:#d8eff966; }
-.de-client .de-social-row:hover { background:#bceaff; }
-.de-client .de-room-row { border-top:1px solid #9fcbe2; padding:5px 4px 2px; }
+.de-client :is(.de-npc-dialogue,.de-prompt-inspector) { background:#effcff; border:1px solid #6299bd; border-radius:2px; box-shadow:inset 0 1px 3px #164c7738,0 1px 0 #e3ffff; }
 .de-client .de-zone-title { color:#fff; ${OUTLINE}; font-weight:bold; border-radius:2px 2px 0 0; padding:3px 8px; background:linear-gradient(180deg,#e6ffd9,#7fdc63 14%,#2ea33a 70%,#16852c); border:1px solid #0d6420; }
-.de-client .de-collection>.de-zone-title,.de-client .de-collection .de-zone-title { background:linear-gradient(180deg,#fff0d8,#ffc466 14%,#f0861e 70%,#d6680c); border-color:#9b4a06; }
 .de-client .de-deck-zone { background:#effcffcc; border:1px solid #6299bd; border-top:0; border-radius:0 0 2px 2px; }
 
 /* The menu bar and Main Menu are main's (src/ui/htmlui); the nav keeps only the status, for assistive technology. */
 .de-client .de-nav { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; border:0; }
 
-.de-window-title { position:absolute; left:0; right:0; top:0; height:22px; background:${TITLE_BAR}; }
-.de-window-title h2 { margin:0; font:15px/21px Arial,sans-serif; letter-spacing:.04em; color:#fff; ${OUTLINE}; text-align:center; }
-.de-client button.de-close-box { position:absolute; top:4px; right:4px; width:16px; height:13px; min-height:0; padding:0; border:0; border-left:1px solid #fff; border-radius:0; box-shadow:none;
-  background:linear-gradient(to right,transparent calc(100% - 2.5px),#f5cf00 calc(100% - 1.5px),#f7dc80 calc(100% - .5px)),linear-gradient(to bottom,#fffec2 .5px,#fffd63 1.5px,#fffc00 3px,#fffc00 calc(100% - 2.5px),#f1bb00 calc(100% - 1.5px),#f5cf80 calc(100% - .5px)); }
-.de-client button.de-close-box::before,.de-client button.de-close-box::after { content:''; position:absolute; left:1px; top:5.5px; width:12px; height:2px; background:#005fea; border-radius:1px; transform:rotate(42deg); }
-.de-client button.de-close-box::after { transform:rotate(-42deg); }
-.de-client button.de-close-box:hover { filter:brightness(1.08); background:linear-gradient(to bottom,#fffec2 .5px,#fffd63 1.5px,#fffc00 3px,#fffc00 calc(100% - 2.5px),#f1bb00 calc(100% - 1.5px),#f5cf80 calc(100% - .5px)); box-shadow:none; }
-
-/* Lobby: the place plate (lobbyname_win_01_c01: a gold rim round a blue to cyan glass), names in white with a dark
- * edge (no plate), the chat window (iconbar over a translucent plane), the player menu (yellow-green frame, cream
- * plate keys). */
-.de-client .de-lobby-name { left:8px; top:8px; min-width:250px; padding:5px 18px 5px 14px; font:16px/22px Arial,sans-serif; letter-spacing:.06em; color:#fff; ${OUTLINE}; border:2px solid #f2b42a; border-radius:5px;
-  background:linear-gradient(to right,#1f7cf7,#4aa6fb 55%,#8ff3ff); box-shadow:inset 0 0 0 1px #ffe57a,0 1px 3px #0005; }
 /* the name over a head as live's engine draws it: dark letters in a white rim */
 .de-client .de-avatar-name { color:#1c2733; background:none; padding:0 2px; font:16px/18px Arial,sans-serif; letter-spacing:.04em; text-shadow:1px 0 #fff,-1px 0 #fff,0 1px #fff,0 -1px #fff,1px 1px #fff,-1px -1px #fff; }
 /* the nation flag (CNationFlag's small cell, 22 x 15) ends where the name starts: on the avatar's centre line */
 .de-client .de-avatar-flag { position:absolute; right:100%; top:50%; margin-top:-8px; width:22px; height:15px; background-repeat:no-repeat; }
-.de-client .de-context { border:0; outline:0; border-radius:2px; padding:10px 14px 12px; background:rgba(255,255,255,.78); box-shadow:inset 0 0 0 1px #ecf481,inset 0 0 0 3px #ebf368,inset 0 0 0 5px #e9ea54,inset -1px -1px 0 5px #e2cf32,0 3px 10px #0004; }
-.de-client .de-context>.de-panel-title:first-child { margin:-10px -14px 8px!important; padding:4px 10px; color:#e8202a; text-shadow:none; background:#c8c8d0b3; border-radius:0; text-align:left; letter-spacing:.04em; }
-.de-client .de-context button:where(:not(:disabled)),.de-client .de-context button:disabled { color:#111; text-shadow:none; font-weight:normal; letter-spacing:.04em; border:1px solid #011434; border-radius:0; box-shadow:none; background:${PLATE}; }
-.de-client .de-context button:hover:not(:disabled) { background:${PLATE_HOVER}; box-shadow:none; }
-.de-client .de-context button:active:not(:disabled) { background:${PLATE_PRESSED}; transform:none; }
-.de-client .de-lobby-places { top:8px; right:8px; max-height:calc(100% - 190px); }
-.de-client [data-key=lobby-npcs]>button { width:100%; display:block; text-align:left; font-weight:normal; text-shadow:none; color:#14365b; min-height:26px; padding:3px 9px; margin-top:0; border:0; border-bottom:1px solid #b3d9ec; border-radius:0; box-shadow:none; background:#effcff; }
-.de-client [data-key=lobby-npcs]>button:nth-of-type(even) { background:#dcf1fa; }
-.de-client [data-key=lobby-npcs]>button:hover:not(:disabled) { color:#fff; ${OUTLINE}; background:linear-gradient(180deg,#61c7ff 0%,#258ee8 45%,#0963c7 52%,#0752a9 100%); box-shadow:inset 3px 0 #fff098; }
 
 /* Dialogs: the yellow box (OK, Yes / No, invitations, notices) round a white reading surface. */
 .de-client :is(.de-duel-notice,.de-notice) { color:#111; font-weight:normal; letter-spacing:.03em; border:0; border-radius:2px; padding:14px 16px 12px; background:linear-gradient(#fff,#fff) 5px 5px / calc(100% - 10px) calc(100% - 46px) no-repeat,#ffbf44; box-shadow:${DIALOG},0 4px 14px #0005; }
@@ -130,46 +101,16 @@ html:has(.de-client[data-scene=title]:not(.de-phone)), html:has(.de-client[data-
 .de-client[data-scene=title]:not(.de-phone) { width:min(100vw,calc(100vh*4/3)); margin:calc((100vh - min(100vh,calc(100vw*3/4)))/2) auto 0; }
 .de-client[data-scene=title]:not(.de-phone)>.de-stage { min-height:0; max-height:none; height:auto; aspect-ratio:4/3; border:0; }
 .de-client[data-scene=title]:not(.de-phone)>.de-nav { display:none; }
-/* every scene but the rewrite's own Options page as live's stage.js frames them: the 4:3 stage fills the window (no 40 px kept
+/* every scene as live's stage.js frames them ([data-scene]: every client has one once drawn): the 4:3 stage fills the window (no 40 px kept
    for a status strip, which put every window ~20 px off live's), the status line kept for assistive technology only */
-html:has(.de-client:not(.de-phone):not([data-scene=settings])), html:has(.de-client:not(.de-phone):not([data-scene=settings])) body { overflow:hidden; margin:0; }
-.de-client:not(.de-phone):not([data-scene=settings]) { width:min(100vw,calc(100vh*4/3)); margin:calc((100vh - min(100vh,calc(100vw*3/4)))/2) auto 0; }
-.de-client:not(.de-phone):not([data-scene=settings])>.de-stage { min-height:0; max-height:none; height:auto; aspect-ratio:4/3; }
-.de-client:not(.de-phone):not([data-scene=settings])>.de-nav { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+html:has(.de-client[data-scene]:not(.de-phone)), html:has(.de-client[data-scene]:not(.de-phone)) body { overflow:hidden; margin:0; }
+.de-client[data-scene]:not(.de-phone) { width:min(100vw,calc(100vh*4/3)); margin:calc((100vh - min(100vh,calc(100vw*3/4)))/2) auto 0; }
+.de-client[data-scene]:not(.de-phone)>.de-stage { min-height:0; max-height:none; height:auto; aspect-ratio:4/3; }
+.de-client[data-scene]:not(.de-phone)>.de-nav { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 /* where live's sign-in panel stands: CWindowLogin at 256, 256, 464 wide (rt/session.cpp), under the title movie's logo */
 .de-client[data-scene=title] .de-scene>.de-panel { position:absolute; z-index:1; left:25%; top:33.333%; width:45.3125%; margin:0; box-sizing:border-box; }
 .de-client[data-scene=title] .de-scene .de-panel>button { min-height:36px; font:italic bold 16px Arial,sans-serif; letter-spacing:.05em; clip-path:polygon(14px 0,100% 0,calc(100% - 14px) 100%,0 100%); padding:0 24px; }
 .de-client[data-scene=title] .de-scene .de-panel>button.gold { min-height:44px; font-size:20px; color:#fff; text-shadow:1px 0 #a35a00,-1px 0 #a35a00,0 1px #a35a00,0 -1px #a35a00,0 2px 2px #7a4400; }
 .de-client[data-scene=title] .de-scene .de-panel>.de-panel-title:first-child { font:italic 900 22px/30px "Arial Black",Arial,sans-serif; letter-spacing:.04em; min-height:34px; }
-.de-client .de-characters { grid-template-columns:1fr; gap:6px; }
-.de-client .de-character-slot { flex-direction:row; gap:8px; align-items:stretch; }
-.de-client .de-characters button { flex-direction:row; justify-content:space-between; min-height:32px; padding:0 12px; text-align:left; color:#111; text-shadow:none; font-weight:normal; letter-spacing:.04em; border:1px solid #011434; border-radius:0; box-shadow:none; background:${PLATE}; }
-.de-client .de-characters button:hover:not(:disabled) { background:${PLATE_HOVER}; box-shadow:none; }
-.de-client .de-characters button:active:not(:disabled) { background:${PLATE_PRESSED}; }
-.de-client .de-characters button.gold { background:${PLATE_HOVER}; border-color:#ff9c1a; }
-.de-client .de-characters strong { font-size:14px; font-weight:normal; }
-.de-client .de-character-slot>button:first-child { flex:1; }
-.de-client .de-character-slot>button+button { flex:none; min-height:32px; padding:0 12px; font-size:12px; justify-content:center; }
 
-/* Profile: the duel-style window (CWindowTaskFrameDuel, sampled in htmlui controls/skin.js): a grey title bar and
- * slate body, the record in a light well with alternate rows darker, grey bevelled keys. */
-.de-client .de-profile-panel { color:#111; border:0; border-radius:0; background:#9999a9;
-  box-shadow:inset 3px 0 #c8c9d2,inset 0 -2px #485064,inset -2px 0 #797f8f,inset 4px 0 #c5c6cf,inset 0 -3px #5c6275,inset -3px 0 #898d9c,inset 5px 0 #bbbcc6,inset 0 -4px #848697,inset -4px 0 #a7a8b5,0 4px 14px #0006; }
-.de-client .de-profile-head { margin:-12px -12px 0; min-height:27px; padding:2px 6px 2px 12px; border-radius:0;
-  background:linear-gradient(to bottom,#f5f5f7 0,#e0e0e5 2px,#c9c9d2 3px,#b0b0bc 5px,#9999a9 8px,#727288 calc(100% - 7px),#66677d calc(100% - 5px),#4b4e5e calc(100% - 3px),#9fa1a9 calc(100% - 3px) calc(100% - 2px),#f2f2f4 calc(100% - 2px) calc(100% - 1px),#c9c9d6 calc(100% - 1px)); }
-.de-client .de-profile-head h3 { color:#fff; font-weight:normal; letter-spacing:.04em; ${OUTLINE}; }
-.de-client .de-profile-panel :is(.de-note,label,dt) { color:#22263a; }
-.de-client .de-profile-stats { gap:0; border:1px solid #4b4f77; border-radius:0; background:linear-gradient(#c9cad2,#dee3e9); box-shadow:inset 1px 1px #5c5c84,inset -1px -1px #8589a3; }
-.de-client .de-profile-stat { border-radius:0; background:transparent; }
-.de-client .de-profile-stat:nth-child(6n+4),.de-client .de-profile-stat:nth-child(6n+5),.de-client .de-profile-stat:nth-child(6n+6) { background:#3c3c503b; }
-.de-client .de-profile-comments { background:linear-gradient(#c9cad2,#dee3e9); border:1px solid #4b4f77; box-shadow:inset 1px 1px #5c5c84; }
-.de-client .de-profile-title { color:#c0181f; }
-.de-client .de-profile-panel button:where(:not(:disabled)),.de-client .de-profile-panel button:disabled { color:#000; text-shadow:none; font-weight:normal; letter-spacing:.03em; border:1px solid; border-color:#323232 #656565 #4f4f4f #323232; border-radius:2px; background:#c9c9c9;
-  box-shadow:inset 1px 1px #989898,inset -1px -1px #7f7f7f,inset 2px 2px #fff,inset -2px -2px #a6a6a6,inset 3px 3px #f1f1f1,inset -3px -3px #c1c1c1; }
-.de-client .de-profile-panel button:hover:not(:disabled) { background:#d6d6d6; box-shadow:inset 1px 1px #989898,inset -1px -1px #7f7f7f,inset 2px 2px #fff,inset -2px -2px #a6a6a6,inset 3px 3px #f1f1f1,inset -3px -3px #c1c1c1; }
-.de-client .de-profile-panel button:active:not(:disabled) { box-shadow:inset 1px 1px #7f7f7f,inset 2px 2px #a6a6a6,inset -1px -1px #fff,inset 3px 3px #c1c1c1; }
-
-/* Shop: pack plates in wells; MP in gold. */
-
-@media(max-width:700px) { .de-client .de-lobby-places { max-height:calc(100% - 200px); } }
 `;
