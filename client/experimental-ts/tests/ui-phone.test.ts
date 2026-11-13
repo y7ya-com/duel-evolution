@@ -104,6 +104,8 @@ describe('hold to walk (live: the right button held follows the cursor)', () => 
     el.fire('pointerdown', ev({ pointerId: 3, pointerType: 'mouse', button: 2 })); expect(step).toHaveBeenCalledOnce();
     el.fire('pointermove', ev({ pointerId: 3, pointerType: 'mouse', clientX: 400, clientY: 50 })); vi.advanceTimersByTime(STEER_MS); expect(step).toHaveBeenLastCalledWith(400, 50);
     el.fire('pointerup', ev({ pointerId: 3, pointerType: 'mouse' })); const n = step.mock.calls.length; vi.advanceTimersByTime(STEER_MS * 4); expect(step.mock.calls.length).toBe(n);
+    // the right button's walk leaves no click to swallow: the next left click walks
+    expect(w.consumeClick()).toBe(false);
     w.dispose(); vi.useRealTimers();
   });
   it('lets go of a held walk with release (the glide to a stop), not for a tap, a drag or a teardown', () => {
