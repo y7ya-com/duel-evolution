@@ -12,7 +12,11 @@ import type { HtmlControl, HtmlWindow } from './snapshot';
 
 type Sprite = { tex: string; src: [number, number, number, number] };
 type Slider = HtmlControl & { value: number; max: number; travel: number; tex: string; rail: number[]; railY: number; thumb: number[][] };
-interface State { back: HTMLElement; items: Map<number, { el: HTMLElement; sig: string }>; hover: number; pressed: number; drag: boolean; win: HtmlWindow | null }
+interface State { back: HTMLElement; items: Map<number, { el: HTMLElement; sig: string }>; hover: number; pressed: number; drag: boolean; win: HtmlWindow | null;
+  /** The help of the switch the pointer was on last (the engine keeps it in the help text once the pointer leaves). */
+  lastHelp?: string }
+/** The engine's scroll bar sheet (data/common/window/scroll_01_c00.png: 16 x 16 arrows, normal / hover / pressed). */
+const SCROLL_SHEET = 'data/common/window/scroll_01_c00.png';
 
 const CSS = `.opt-dlg-back, .opt-dlg-sprite { position: absolute; background-repeat: no-repeat; }
 .opt-dlg-pick { position: absolute; padding: 0; margin: 0; border: 0; background: transparent; cursor: pointer; overflow: hidden; }
@@ -20,7 +24,11 @@ const CSS = `.opt-dlg-back, .opt-dlg-sprite { position: absolute; background-rep
 .opt-dlg-pick:focus-visible, .opt-dlg-slider:focus-visible { outline: 2px solid #fff; outline-offset: -2px; }
 .opt-dlg-pick > .opt-dlg-sprite { left: 0; top: 0; width: 100%; height: 100%; }
 .opt-dlg-slider { position: absolute; cursor: pointer; touch-action: none; }
-.opt-dlg-text { position: absolute; pointer-events: none; }`;
+.opt-dlg-text { position: absolute; pointer-events: none; }
+.opt-dlg-bar { position: absolute; pointer-events: auto; }
+.opt-dlg-bar > button { position: absolute; left: 0; width: 16px; height: 16px; padding: 0; margin: 0; border: 0; background-color: transparent; background-repeat: no-repeat; cursor: pointer; }
+.opt-dlg-bar > i { position: absolute; left: 2px; width: 12px; box-sizing: border-box; border: 1px solid #8f9398; border-radius: 1px; background: #fff; }
+.opt-dlg-close { position: absolute; padding: 0; margin: 0; box-sizing: border-box; border: 1px solid #8a8f12; background: linear-gradient(#fffe86, #fcf903 45%, #f0c000); color: #0a5fe8; font: bold 13px/12px Arial, sans-serif; cursor: pointer; }`;
 const css = () => { if (!document.getElementById('opt-dlg-css')) { const st = document.createElement('style'); st.id = 'opt-dlg-css'; st.textContent = CSS; document.head.append(st); } };
 
 /** An element showing one sprite of an archive texture (its url once loaded). */
@@ -29,11 +37,36 @@ function paint(el: HTMLElement, tex: string, src: readonly number[]): void {
   if (el.dataset.tex !== tex) { el.dataset.tex = tex; void pictureUrl({ archive: tex }).then(url => { if (url && el.dataset.tex === tex) el.style.backgroundImage = `url("${url}")`; }); }
   el.style.backgroundPosition = pos;
 }
+/** The engine's scroll bar beside a scrolling text (live's help boxes: CWindowTaskScrollBar): its up and down arrows
+ * (scroll_01_c00) and the white thumb between them as long as the part of the text shown; the arrows move it a line, the
+ * wheel and the text's own scrolling move the thumb. */
+export function engineBar(text: HTMLElement, at: { x: number; y: number; h: number }): HTMLElement {
+  const bar = document.createElement('div'); bar.className = 'opt-dlg-bar'; bar.setAttribute('aria-hidden', 'true');
+  Object.assign(bar.style, { left: at.x + 'px', top: at.y + 'px', width: '16px', height: at.h + 'px' });
+  const arrow = (row: number, top: boolean, step: number) => {
+    const b = document.createElement('button'); b.type = 'button'; b.tabIndex = -1; b.style[top ? 'top' : 'bottom'] = '0';
+    const look = (col: number) => paint(b, SCROLL_SHEET, [16 * col, 16 * row]);
+    look(0);
+    b.addEventListener('pointerenter', () => look(1)); b.addEventListener('pointerleave', () => look(0));
+    b.addEventListener('pointerdown', () => look(2)); b.addEventListener('pointerup', () => look(1));
+    b.addEventListener('click', () => { text.scrollTop += step; });
+    return b;
+  };
+  const thumb = document.createElement('i');
+  bar.append(arrow(0, true, -16), thumb, arrow(1, false, 16));
+  const track = at.h - 32;
+  const place = () => { const total = text.scrollHeight || 1, shown = text.clientHeight || total, len = Math.max(8, Math.round(track * Math.min(1, shown / total)));
+    const max = total - shown, pos = max > 0 ? Math.round((track - len) * text.scrollTop / max) : 0;
+    Object.assign(thumb.style, { top: 16 + pos + 'px', height: len + 'px' }); };
+  text.addEventListener('scroll', place, { passive: true });
+  requestAnimationFrame(place); place();
+  return bar;
+}
 const lookOf = (c: HtmlControl, hover: boolean, pressed: boolean): string =>
   !c.enabled || c.state === 'disabled' ? (c.checked ? 'checked' : 'normal') : pressed ? 'pressed' : c.checked ? 'checked' : hover ? 'hover' : 'normal';
 
 export const optionDlgScreen: HtmlUiScreen = {
-  classes: ['COptionDlg', 'CWindowModelDuellogTop', 'CWindowModelDuellogList', 'CWindowModelDuellogServerSelect'],
+  classes: ['COptionDlg', 'CWindowModelDuellogTop', 'CWindowModelDuellogList', 'CWindowModelDuellogServerSelect', 'CWindowModelTitleConfig', 'CWindowModelTitleConfigArrow'],
   mode: 'owned',
   mount(win, root) {
     css();
@@ -55,21 +88,29 @@ export const optionDlgScreen: HtmlUiScreen = {
     const seen = new Set<number>();
     // a switch's help (the Duel Log's plates): shown in the window's help text while the pointer is on the switch
     const help = w.controls.find(k => k.id === s.hover && typeof k.help === 'string')?.help as string | undefined;
+    if (help !== undefined) s.lastHelp = help;
     for (const c0 of w.controls) {
-      const c = c0.helpSlot ? { ...c0, text: help ?? c0.text } : c0;
+      const c = c0.helpSlot ? { ...c0, text: help ?? s.lastHelp ?? c0.text } : c0;
       if (c.parent || !c.shown) continue;
       seen.add(c.id);
       if (c.cls === 'CWindowTaskText' || c.cls === 'CWindowTaskShadowText') {
-        const sh = c.shadow as { dx: number; dy: number; color: number[] } | undefined, scroll = !!c.scroll;
-        const sig = `t:${c.text}:${c.color}:${sh ? `${sh.dx},${sh.dy}` : ''}:${scroll}`; let it = s.items.get(c.id);
+        const sh = c.shadow as { dx: number; dy: number; color: number[] } | undefined, scroll = !!c.scroll, bar = c.bar as { x: number; y: number; h: number } | undefined;
+        const sig = `t:${c.text}:${c.color}:${sh ? `${sh.dx},${sh.dy}` : ''}:${scroll}:${bar ? `${bar.x},${bar.y},${bar.h}` : ''}`; let it = s.items.get(c.id);
         if (it?.sig !== sig) { it?.el.remove(); const el = document.createElement('div'); el.className = 'opt-dlg-text'; el.dataset.name = c.name; Object.assign(el.style, { left: c.x + 'px', top: c.y + 'px', width: c.w + 'px', height: c.h + 'px' });
-          if (scroll) Object.assign(el.style, { overflowY: 'auto', overflowX: 'hidden', pointerEvents: 'auto', scrollbarWidth: 'thin' });
+          if (scroll) Object.assign(el.style, { overflowY: 'auto', overflowX: 'hidden', pointerEvents: 'auto', scrollbarWidth: bar ? 'none' : 'thin' });
           const t = textBox(el, String(c.text ?? ''), { w: scroll ? c.w - 4 : c.w, align: Number(c.align ?? 1), px: Number(c.fontSize ?? 16), color: c.color as number[], white: true, wrap: scroll });
           if (scroll) t.style.position = 'relative';
           if (sh) t.style.textShadow = `${sh.dx}px ${sh.dy}px 0 rgba(${sh.color.slice(0, 3).map(v => Math.round(v * 255)).join(',')},${sh.color[3] ?? 1})`;
-          root.append(el); it = { el, sig }; s.items.set(c.id, it); }
+          let item: HTMLElement = el;
+          if (scroll && bar) { item = document.createElement('div'); Object.assign(item.style, { position: 'absolute', inset: '0', pointerEvents: 'none' }); item.append(el, engineBar(el, bar)); }
+          root.append(item); it = { el: item, sig }; s.items.set(c.id, it); }
       } else if (c.cls === 'CWindowTaskFrameDuel') {
         continue;
+      } else if (c.cls === 'CWindowTaskPicture' && typeof c.tex === 'string') {
+        // a piece of an archive picture (Change Title's well drawn over its window's blue box)
+        let it = s.items.get(c.id); const sig = `pic:${c.x},${c.y},${c.w},${c.h},${c.tex},${String(c.src)}`;
+        if (it?.sig !== sig) { it?.el.remove(); const el = document.createElement('i'); el.className = 'opt-dlg-sprite'; Object.assign(el.style, { left: c.x + 'px', top: c.y + 'px', width: c.w + 'px', height: c.h + 'px', pointerEvents: 'none' });
+          paint(el, c.tex, c.src as number[]); root.insertBefore(el, s.back.nextSibling); it = { el, sig }; s.items.set(c.id, it); }
       } else if (c.cls === 'CWindowTaskBackPlane' && c.band) {
         // a band of the well (the Duel Log list's dark header)
         let it = s.items.get(c.id); const sig = `p:${c.x},${c.y},${c.w},${c.h}`;
@@ -92,6 +133,12 @@ export const optionDlgScreen: HtmlUiScreen = {
           }
           root.append(el); it = { el, sig }; s.items.set(c.id, it);
         }
+      } else if (c.closeX) {
+        // a list window's close box (the Duel Log's server list: live's yellow box with its blue X)
+        let it = s.items.get(c.id);
+        if (!it) { const b = document.createElement('button'); b.type = 'button'; b.className = 'opt-dlg-close'; b.textContent = '✕'; b.setAttribute('aria-label', 'Close'); const id = c.id;
+          Object.assign(b.style, { left: c.x + 'px', top: c.y + 'px', width: c.w + 'px', height: c.h + 'px' }); b.addEventListener('click', () => { void api.click(id); });
+          root.append(b); it = { el: b, sig: '' }; s.items.set(c.id, it); }
       } else if (!['CWindowTaskPictureSwitch', 'CWindowTaskSlider', 'CWindowTaskButtonDuel'].includes(c.cls)) {
         // the rest (a switch, an input, a close box): main's generic renderers, the window's own fallback
         const sig = `g:${JSON.stringify([c.x, c.y, c.w, c.h, c.label, c.text, c.state, c.checked, c.value])}`; let it = s.items.get(c.id);

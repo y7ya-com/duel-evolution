@@ -19,7 +19,7 @@ import { Ids } from './htmlui/snapshot';
 import type { ControlHandlers, WindowSpec } from './htmlui/snapshot';
 import { htmlUiLocal, htmlWindows, stockDialog, duelRequestDialog, DELETE_TEXT, DUEL_REQUEST_TEXT } from './htmlui/windows';
 import { UiText, localizeSpecs } from '../features/ui-text';
-import { titleConfigWindow } from './htmlui/title-config';
+import { titleConfigWindow, titleConfigArrows, titleBit, TITLE_TEXTS } from './htmlui/title-config';
 import { StarterPicker } from './htmlui/starter';
 import { duellogQuery, duellogUi, duellogWindow, duellogServerPicker, fetchDuellogFull, replayWindow, type DuellogUi } from './htmlui/duellog';
 import type { TitleConfigUi } from './htmlui/title-config';
@@ -369,8 +369,17 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const titleSpecs = (): WindowSpec[] => {
     if (!titleUi || !state.player || !state.titles || state.scene === 'duel' || state.scene === 'title') { titleUi = null; return []; }
     const p = state.profileDetail;
-    return [titleConfigWindow(htmlIds, titleUi, { titles: state.titles, current: p?.details && p.selfPid === p.details.pid ? titleName(p.details.titleId) || undefined : undefined, busy: !!state.busy || p?.pending != null,
-      wear: bit => send({ type: 'profileAction', action: { type: 'setTitle', bit } }), close: () => { titleUi = null; showHtml(); }, rerender: () => showHtml() })];
+    if (!titleUi || !state.player || !state.titles || state.scene === 'duel' || state.scene === 'title') {
+      titleUi = null;
+      // the own profile opened for the window alone (the worn title, and the server wears one only for an open profile):
+      // closed once the window is and its title is confirmed
+      if (htmlUiState.titleBehind && !p?.pending) { htmlUiState.titleBehind = false; if (p?.selectedPid !== null && p?.selectedPid === p?.selfPid) send({ type: 'profileAction', action: { type: 'close' } }); }
+      return [];
+    }
+    const mine = !!p?.details && p.selfPid === p.details.pid;
+    return [titleConfigWindow(htmlIds, titleUi, { titles: state.titles, ...(mine ? { worn: titleBit(p!.details!.titleId) } : {}), busy: !!state.busy || p?.pending != null, text: id => gameTexts.get(id),
+      wear: bit => send({ type: 'profileAction', action: { type: 'setTitle', bit } }), close: () => { titleUi = null; showHtml(); }, rerender: () => showHtml() }),
+    ...titleConfigArrows(htmlIds, titleUi, { rerender: () => showHtml() })];
   };
   // Duel Log (CWindowModelDuellogTop / List / Operation / Search, live's flow) over the scene, opened from the Main Menu:
   // main's duel archive (Server Duel Logs, GET /api/de/replays, read once per opening) and this browser's duel records
@@ -623,7 +632,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const askGameTexts = () => {
     const language = state.settings.language ?? 'E'; if (gameTextsFor === language || !controller.gameText) return;
     gameTextsFor = language;
-    void controller.gameText([...Object.values(DELETE_TEXT), ...Object.values(DUEL_REQUEST_TEXT), ...Object.values(LOBBY_TEXT), ...Object.values(AREA_TEXT), ...Object.values(WORLD_TEXT), ...DUEL_OPTIONS_TEXTS, ...Object.values(CHALLENGE_UNLOCKS).map(u => u.text)], new AbortController().signal)
+    void controller.gameText([...Object.values(DELETE_TEXT), ...Object.values(DUEL_REQUEST_TEXT), ...Object.values(LOBBY_TEXT), ...Object.values(AREA_TEXT), ...Object.values(WORLD_TEXT), ...DUEL_OPTIONS_TEXTS, ...TITLE_TEXTS, ...Object.values(CHALLENGE_UNLOCKS).map(u => u.text)], new AbortController().signal)
       .then(m => { if (gameTextsFor !== language) return; gameTexts.clear(); for (const [k, v] of m) gameTexts.set(k, v); showHtml(); }, () => { if (gameTextsFor === language) gameTextsFor = null; });
     // every label main's screens show, in the chosen language: the English table names each label's id (features/ui-text.ts)
     if (language === 'E') { uiText.install([], null, 'E'); return; }
@@ -1407,7 +1416,11 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
             if (!mine) { htmlUiState.commentBehind = { fill: [true, true] }; send({ type: 'profileAction', action: { type: 'open', pid: state.player!.id } }); }
             htmlUiState.comment = [mine ? p.comments[0] ?? '' : '', mine ? p.comments[1] ?? '' : '']; showHtml(); } },
           // Change Title (CWindowModelTitleConfig), live's My Room menu's, after My Profile
-          ...(state.location === 'my-room' && state.titles ? [{ label: 'Change Title', key: 'change-title', disabled: blocked || sideboard, run: () => { titleUi = { selected: -1, top: 0 }; showHtml(); } }] : []),
+          ...(state.location === 'my-room' && state.titles ? [{ label: 'Change Title', key: 'change-title', disabled: blocked || sideboard, run: () => {
+            titleUi = { selected: null, page: 0 };
+            // live opens the window alone: the own profile it needs is opened hidden (windows.ts profileWindow)
+            if (state.profileDetail?.selectedPid !== state.player!.id) { htmlUiState.titleBehind = true; send({ type: 'profileAction', action: { type: 'open', pid: state.player!.id } }); }
+            showHtml(); } }] : []),
         ] : []),
         // Return to your Room (the private My Room lobby) in the world; in My Room live has no way out in the menu (its doors
         // lead out) and offers Change Title instead (after My Profile)
