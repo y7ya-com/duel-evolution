@@ -52,6 +52,7 @@ import { TradeTrunk, isTradeTrunk, TRADE_DROP } from './htmlui/trade-trunk';
 import { SideSwap, isSideSwap, SIDE_SWAP_ZONES } from './htmlui/side-swap';
 import { CardGetScene, isCardGet } from './htmlui/card-get';
 import { npcWaistUpSet } from './npc-waistup';
+import { AnimationCarry } from './anim-carry';
 import { deckBackdrop } from '@htmlui/screens/deck.js';
 import { PictureArt } from './htmlui/art';
 import { setPictureResolver, disposePictures } from './htmlui/pictures';
@@ -882,6 +883,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   let renderedIdentity = '';
   let renderedNpcIdentity = '';
   const art = new Map<string, ArtEntry>();
+  // looping CSS animations carried over each rebuild of the stage (anim-carry.ts)
+  const animCarry = new AnimationCarry();
   const imageEntries = new WeakMap<Element, ArtEntry>();
   const startArt = (entry: ArtEntry) => {
     if (disposed || entry.pending || entry.failed || entry.lease) return;
@@ -1505,7 +1508,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       header.replaceChildren(el('h1', '', 'Duel Evolution'));
       const status = el('div', 'de-status', el('span', `de-connection ${state.connection}`), state.player ? `${state.player.name}${state.player.level ? ` · Lv ${state.player.level}` : ''} · ` : '', state.mode === 'free' ? 'Free Duel · ' : '', state.status);
       status.setAttribute('role', 'status');
-      stage.replaceChildren(); stage.setAttribute('aria-busy', String(!!state.busy)); host.dataset.scene = state.scene; host.dataset.motion = state.settings.reducedMotion ? 'reduced' : 'full';
+      animCarry.carry(stage); stage.replaceChildren(); stage.setAttribute('aria-busy', String(!!state.busy)); host.dataset.scene = state.scene; host.dataset.motion = state.settings.reducedMotion ? 'reduced' : 'full';
       if (state.scene !== 'shop') { leaveShop = false; cardShop.dispose(); }
       else if (leaveShop && !state.busy) { leaveShop = false; queueMicrotask(() => open('lobby')); }
       if (state.scene !== 'title') titleScene?.hide();
@@ -1635,7 +1638,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         host.querySelector<HTMLElement>('.de-card-target:not(:disabled), .de-zone-target:not(:disabled), .de-field-card[data-side="your"][aria-haspopup="menu"]')?.focus({ preventScroll: true });
       trackedActionsFor = actionsFor;
       if (focusNpc) Array.from(host.querySelectorAll<HTMLElement>('[data-key]')).find(x => x.dataset.key?.startsWith('npc:') && !(x as HTMLButtonElement).disabled)?.focus({ preventScroll: true });
-    } finally { pruneArt(); rendering = false; }
+    } finally { try { animCarry.resume(stage); } catch { /* an animation never stops a render */ } pruneArt(); rendering = false; }
     showHtml();
   }
   host.onkeydown = e => {
