@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, type, text, sleep, stageShot, record, earnCards, ownedCopies, openDeckEditor, exitDeckEditor, byKey, listRow, lobbyShown, type Page } from './harness';
 
 /** Card Swap is main's trade windows (src/ui/htmlui/trade.ts: CWindowModelTrade, its card areas, main's dialogs) and
- * the deck screen's trunk (CWindowModelKaban, htmlui/trade-trunk.ts: its rows .htmlui-deck-row, a press offers). */
+ * the deck screen's trunk (CWindowModelKaban, htmlui/trade-trunk.ts: its rows .htmlui-deck-row, a row dragged onto the
+ * offer area offers its card, as live). */
 const scene = `document.querySelector('.de-trade-scene')`;
 /** The text of main's dialog holding this button (the invitation, the final confirmation, the result). */
 const dialogText = (key:string) => `(document.querySelector('[data-key="${key}"]')?.closest('.win')?.innerText ?? '')`;
@@ -19,11 +20,17 @@ async function invite(from:Page,to:Page,name:string) {
 const trunk = (page:Page,name:string) => page.ev(`(window.yo2Html.tradeTrunk?.()??[]).find(r=>r.name===${JSON.stringify(name)})?.left ?? 0`) as Promise<number>;
 /** The trunk shown (its window and its rows' layer). */
 const trunkShown = `Boolean(document.querySelector('#htmlui-host .win[data-window-class="CWindowModelKaban"]'))`;
-/** Offer a card: its row scrolled into view (the wheel's way), pressed. */
+/** Offer a card: its row scrolled into view (the wheel's way), dragged onto this side's offer area (live: a press only
+ * shows the card). */
 async function offer(page:Page,name:string) {
   await page.ev(`(()=>{const r=(window.yo2Html.tradeTrunk?.()??[]).find(r=>r.name===${JSON.stringify(name)});if(r)window.yo2Html.tradeTrunkReveal(r.row);})()`);
   const row = `[...document.querySelectorAll('.htmlui-deck-row[data-zone="trunk"]')].find(e=>e.getAttribute('aria-label')===${JSON.stringify(name)})`;
-  await until(page,row,10000); await press(page,row);
+  await until(page,row,10000);
+  const at = await page.ev(`(()=>{const e=${row},r=e.getBoundingClientRect(),l=document.querySelector('.htmlui-deck-cards').getBoundingClientRect(),k=l.width/1024;return {x:r.x+r.width/2,y:r.y+r.height/2,tx:l.left+490*k,ty:l.top+450*k};})()`) as { x:number; y:number; tx:number; ty:number };
+  await page.send('Input.dispatchMouseEvent',{ type:'mouseMoved',x:at.x,y:at.y });
+  await page.send('Input.dispatchMouseEvent',{ type:'mousePressed',x:at.x,y:at.y,button:'left',buttons:1,clickCount:1 });
+  for (let i = 1; i <= 8; i++) { await page.send('Input.dispatchMouseEvent',{ type:'mouseMoved',x:at.x + (at.tx - at.x) * i / 8,y:at.y + (at.ty - at.y) * i / 8,button:'left',buttons:1 }); await sleep(30); }
+  await page.send('Input.dispatchMouseEvent',{ type:'mouseReleased',x:at.tx,y:at.ty,button:'left',buttons:0,clickCount:1 });
 }
 /** The partner's offered card shown in their (upper) area, by name. */
 const offered = (name?:string) => `[...document.querySelectorAll('[data-picture^="trade-card:o:"]')].find(e=>${name ? `e.title===${JSON.stringify(name)}` : 'true'})`;

@@ -15,7 +15,7 @@ import { duelConfigWindow, titleOptionsWindow, DUEL_OPTIONS_TEXTS, type OptionsD
 import { closeAudioPage, openAudioPage } from './htmlui/audio-page';
 import { renderTagLobby, TAG_CSS } from './extra/tag';
 import { changeAvatarAction, freeChoices, FIRST_CATEGORY } from './htmlui/avatar';
-import { Ids } from './htmlui/snapshot';
+import { Ids, WindowBuilder } from './htmlui/snapshot';
 import type { ControlHandlers, WindowSpec } from './htmlui/snapshot';
 import { htmlUiLocal, htmlWindows, stockDialog, duelRequestDialog, DELETE_TEXT, DUEL_REQUEST_TEXT } from './htmlui/windows';
 import { UiText, localizeSpecs } from '../features/ui-text';
@@ -30,6 +30,7 @@ import type { CardActions, MailBox, MenuEntry, MenuView, SocialLists } from './h
 import type { HtmlUiLayer } from './htmlui/layer';
 import { GameCursor } from './htmlui/cursor';
 import { fetchPackCompletion, npcPackOpen, npcPackSelect, npcPackUi } from './htmlui/npc-pack';
+import { rewardBar, BAR_STRIP } from './htmlui/reward-bar';
 import { npcTalkWindows, npcTalkStage } from './htmlui/npc-talk';
 import { avatarListWindow, type AvatarListOpen } from './htmlui/avatar-list';
 import { DeckScene } from './htmlui/deck-scene';
@@ -47,7 +48,7 @@ import { barReserve, onBarReserve } from '@htmlui/screens/lobby_icons.js';
 import { titleName } from '../features/titles';
 import { tradeLocal, tradeWindows, tradeScene, trunkOpen, partnerLeft, THINKING_FRAME_MS } from './htmlui/trade';
 import { cardSwapMenu } from './htmlui/card-swap-menu';
-import { TradeTrunk, isTradeTrunk } from './htmlui/trade-trunk';
+import { TradeTrunk, isTradeTrunk, TRADE_DROP } from './htmlui/trade-trunk';
 import { SideSwap, isSideSwap, SIDE_SWAP_ZONES } from './htmlui/side-swap';
 import { CardGetScene, isCardGet } from './htmlui/card-get';
 import { npcWaistUpSet } from './npc-waistup';
@@ -164,7 +165,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   let state = controller.getState();
   const local: LocalState = { message: '', inspected: null, inspectedFrom: 'collection', promptInspection: null, promptId: null, selected: new Set(), roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, noticeSeen: 0, tradeSearch: '', logScroll: null, duelCmd: null, helpText: '', helpFrom: 0 };
   const host = el('section', 'de-client'); host.setAttribute('aria-label', 'Duel Evolution');
-  const css = el('style'); css.textContent = CLIENT_CSS + TAG_CSS + SKIN_CSS + BADGE_CSS + LP_PLATE_CSS + JANKEN_CSS;
+  const css = el('style'); css.textContent = CLIENT_CSS + TAG_CSS + SKIN_CSS + BADGE_CSS + LP_PLATE_CSS + JANKEN_CSS + `.de-client{--de-bar-strip:${BAR_STRIP}}`;
   const header = el('header', 'de-top'), stage = el('main', 'de-stage'), nav = el('nav', 'de-nav'); nav.setAttribute('aria-label', 'Game menu');
   host.append(css, header, stage, nav); root.append(host);
   // phones and tablets: live's stage.js (the frame fitted to the visible viewport, the rotate prompt, first-tap fullscreen)
@@ -351,7 +352,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (thinking && thinkingTimer === null) thinkingTimer = setInterval(() => { if (!disposed) showHtml(); }, THINKING_FRAME_MS);
     else if (!thinking && thinkingTimer !== null) { clearInterval(thinkingTimer); thinkingTimer = null; }
     const out = tradeWindows({ trade: sd.trade, ui: tradeUi, ids: htmlIds, dispatch: action => send({ type: 'socialAction', action }), rerender: showHtml, thinking: Math.floor(Date.now() / THINKING_FRAME_MS),
-      name: passcode => socialOptions().card?.(passcode).name ?? `Card ${passcode}`, status: sd.status, ...(reason ? { reason } : {}) });
+      name: passcode => socialOptions().card?.(passcode).name ?? `Card ${passcode}`, status: sd.status, ...(reason ? { reason } : {}),
+      ...(() => { const lv = sd.trade.partner ? state.lobby?.avatars.find(a => a.id === sd.trade.partner!.pid)?.level : undefined; return lv !== undefined ? { partnerLevel: lv } : {}; })() });
     // Card Swap's columns: the menu (CARD SWAP, EXIT) and the card detail at the left, the trunk at the right (open while
     // this side may offer, and after the partner left, as live), over the trade's scene windows, under its dialogs
     const scene = tradeScene(sd.trade), left = partnerLeft({ trade: sd.trade, status: sd.status, ...(reason ? { reason } : {}) });
@@ -411,14 +413,15 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // the NPC reward pack pick in main's pack picker (htmlui/npc-pack.ts: CWindowPackSelect) over the lobby or the duel
   const npcPack = npcPackUi();
   // the rows' completion (the original's packCompletionLine): the server's shop pack view (GET /api/de/shop/pack, its
-  // `collected`), online only; a pack the shop does not list stays without one
+  // `collected`), online only; live prints one on every row, so a pack the shop does not list (or before the answer)
+  // reads 0.0 %
   const packDone = new Map<number, number | null>();
   const packCompletion = (id: number): number | undefined => {
     if (!packDone.has(id) && state.online && state.connection === 'online' && typeof fetch === 'function') {
       packDone.set(id, null);
       void fetchPackCompletion(id).then(pct => { packDone.set(id, pct); if (pct !== null && npcPackOpen(controller.getState().npc)) showHtml(); });
     }
-    return packDone.get(id) ?? undefined;
+    return packDone.get(id) ?? 0;
   };
   // what a pack holds (main's screens/pack-contents.js), over the layer: the NPC pack picker's Contents key
   let packSheet: { close(): void } | null = null;
@@ -478,6 +481,12 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const spec = npcPackSelect(state.npc, { ids: htmlIds, ui: npcPack, packName: id => state.packNames?.[id], packImage: id => state.packInfo?.[id]?.image, completion: packCompletion, busy: !!state.busy, rerender: () => showHtml(), contents: openContents,
       send: command => { if (npcPackOpen(controller.getState().npc)) send(command); } });
     return spec ? [spec] : []; };
+  // the bar under the reward scenes: live's duel bar without the wrench (htmlui/reward-bar.ts), the menu bar's place
+  const rewardBarSpecs = (): WindowSpec[] => {
+    if (!rewardScene() || sceneVeilUp()) return [];
+    const card = cardGetUp() && state.npc?.packStatus !== 'pending', picked = npcPackOpen(state.npc) ? state.npc.packs[npcPack.selected] : undefined;
+    return [rewardBar(htmlIds, { message: picked !== undefined ? state.packInfo?.[picked]?.description ?? '' : '', ring: card, dim: card, load: controller.loadArchiveImage ? loadArchiveArt : null })];
+  };
   const npcItems = npcItemGetUi();
   const npcItemSpecs = (): WindowSpec[] => {
     if (state.scene !== 'lobby' || sceneVeilUp()) return [];
@@ -510,6 +519,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   };
   // DUEL OPTIONS / Audio (htmlui/options.ts, the original's COptionDlg) over the scene, opened from the Main Menu
   let optionsUi: OptionsUi | null = null;
+  // DUEL OPTIONS opened from the duel's wrench closes with the duel screen (it stood under the result board)
+  let optionsFromDuel = false;
   let trackedActionsFor: string | null = null;
   const optionsSpecs = (): WindowSpec[] => {
     if (!optionsUi) return languageError([]);
@@ -519,7 +530,15 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       text: id => gameTexts.get(id), rerender: showHtml,
       set: settings => send({ type: 'settings', settings }), close: () => { optionsUi = null; showHtml(); } };
     // DUEL OPTIONS (the Main Menu's) or the title's OPTIONS
-    return languageError([ui.kind === 'title' ? titleOptionsWindow(htmlIds, ui, deps) : duelConfigWindow(htmlIds, ui, deps)]);
+    const spec = ui.kind === 'title' ? titleOptionsWindow(htmlIds, ui, deps) : duelConfigWindow(htmlIds, ui, deps);
+    // the duel's end: live's result board comes over DUEL OPTIONS, which is greyed under its veil and takes no input
+    const duel = state.scene === 'duel' ? state.duel : null;
+    if (ui.kind !== 'title' && duel?.ended && !state.replay && !state.sideboarding && endPhase() === null) {
+      // (not modal: the layer stacks a modal window by its z over every other; in the page's order it lies under the board)
+      Object.assign(spec.win, { z: 51140, modal: false, topmost: false }); const after = spec.after;
+      spec.after = root => { after?.(root); root.style.filter = 'brightness(.5)'; root.style.pointerEvents = 'none'; root.inert = true; };
+    } else { const after = spec.after; spec.after = root => { after?.(root); if (root.inert) { root.style.filter = ''; root.style.pointerEvents = ''; root.inert = false; } }; }
+    return languageError([spec]);
   };
   // a language that could not load (CSystemConfigManager::applyLanguage refused, after the title's OPTIONS OK): main's
   // error dialog over the title (and over an OPTIONS window); the previous language stays and its flag chooses it again
@@ -533,7 +552,18 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     return out;
   };
   let languageErrorSeen = '';
-  const sceneWindows = (): WindowSpec[] => { duelSpeedButton.show(state.scene === 'duel' && (!!state.duel || !!state.preparation)); return [...loginSpecs(), ...tradeSpecs(), ...swapSpecs(), ...avatarListSpecs(), ...npcTalkSpecs(), ...npcPackSpecs(), ...cardGetSpecs(), ...npcItemSpecs(), ...unlockSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs()]; };
+  // the menu bar's notice icon (windows.ts menuBar CNoticeIconDuel): live's crossed swords in their blue disc
+  // (menuicon_03_05, 32 x 32 drawn ~36 at 247, 731) pulsing as its movie (menuicon_03_a05) does, while a duel request
+  // waits on this player's answer
+  const noticeIconSpecs = (): WindowSpec[] => {
+    if (!menuView?.notice || !menuView.keys || menuView.room) return [];
+    const b = new WindowBuilder(htmlIds, 'menubar-notice', 'CEnginePictures', { x: 0, y: 0, w: 1024, h: 768 }, { z: 51204,
+      pics: [{ key: 'notice:duel', source: { archive: 'data/common/window/icon/menuicon_03_05.png' }, x: 247, y: 731, w: 36, h: 36, z: 0, shown: true, label: 'Duel request' }] });
+    const spec = b.spec();
+    spec.after = root => { const el = root.querySelector<HTMLElement>('[data-picture="notice:duel"]'); if (el && !el.style.animation) el.style.animation = 'de-notice-pulse 0.87s ease-in-out infinite alternate'; };
+    return [spec];
+  };
+  const sceneWindows = (): WindowSpec[] => { duelSpeedButton.show(state.scene === 'duel' && (!!state.duel || !!state.preparation)); return [...loginSpecs(), ...tradeSpecs(), ...swapSpecs(), ...avatarListSpecs(), ...npcTalkSpecs(), ...npcPackSpecs(), ...cardGetSpecs(), ...npcItemSpecs(), ...noticeIconSpecs(), ...rewardBarSpecs(), ...unlockSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs()]; };
   // The duel's question dialogs (main's screens/duel.js: htmlui/duel-dialogs.ts) and the duel speed button (main's
   // duelspeed.js) while the layer is up; card lists, free number entry and declarations stay the duel screen's panel.
   // live's duel speed button (main's duelspeed.js) is the page's, in its top right corner beside the game, not a window
@@ -604,13 +634,20 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     closeCmd();
   };
   globalThis.addEventListener?.('pointermove', cmdPointer, true); globalThis.addEventListener?.('pointerdown', cmdPress, true);
-  let referenceShown: string | null = null;
+  let referenceShown: string | null = null, cardClosedForDuel = false, challenger = false;
   // The duel's end as live plays it: "YOU WIN" / "YOU LOSE" / "DRAW" over the dimmed field (data/y/duel_end), then
   // between a match's games its score board (data/y/duel/match), then the result board or Card Swap
   const END_BANNER_MS = 2200, END_BOARD_MS = 3200;
   let endSeq: { key: string; at: number } | null = null, matchMarks: string[] = [], matchMarked = '';
-  const endPhase = (): 'banner' | 'board' | null => {
+  // a notice the duel ended with (live: "<name> has ran out of time.") stands over the field first, the LP as they were;
+  // the end's banner and board follow its OK
+  const noticeUp = (duel: DuelView): boolean => !!duel.notice && duel.notice.id > local.noticeSeen;
+  let lpBefore: [number, number] | null = null;
+  const shownLp = (duel: DuelView, i: 0 | 1): number => duel.ended && lpBefore && noticeUp(duel) ? lpBefore[i] : duel.players[i].lp;
+  const endPhase = (): 'notice' | 'banner' | 'board' | null => {
     const duel = state.scene === 'duel' ? state.duel : null;
+    if (duel && !duel.ended) lpBefore = [duel.players[0].lp, duel.players[1].lp];
+    if (duel?.ended && !state.replay && noticeUp(duel)) { endSeq = null; return 'notice'; }
     if (!duel?.ended || state.replay || duel.spectating) { endSeq = null; return null; }
     const key = `${duel.ended}:${duel.turn}:${duel.players.map(p => p.lp).join('/')}`;
     if (endSeq?.key !== key) {
@@ -636,7 +673,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     // over the question the server re-sends after it
     if (!duel.notice) local.noticeSeen = 0;
     const notice = duel.notice;
-    if (notice && notice.id > local.noticeSeen) out.push(duelOkDialog(htmlIds, String(notice.id), notice.text, () => { local.noticeSeen = Math.max(local.noticeSeen, notice.id); showHtml(); }, /ran out of time|Time is up|disconnected|lost the connection/i.test(notice.text)));
+    if (notice && notice.id > local.noticeSeen) out.push(duelOkDialog(htmlIds, String(notice.id), notice.text, () => { local.noticeSeen = Math.max(local.noticeSeen, notice.id); showHtml(); requestRender(); }, /ran out of time|Time is up|disconnected|lost the connection/i.test(notice.text)));
     const prompt = duel.prompt;
     if (prompt && htmlDuelPrompt(prompt)) {
       if (local.promptId !== prompt.id) { local.promptId = prompt.id; local.selected.clear(); local.promptInspection = null; duelHover = { selected: local.selected, hover: null }; }
@@ -688,19 +725,19 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (disposed) return;
     if (!deckDom && state.scene === 'deck' && typeof globalThis.document !== 'undefined') deckDom = new DeckDom(host, deckScene, { art: '/ui/', ...cardArt(), owns: w => !isTradeTrunk(w) && !isSideSwap(w) && !isCardGet(w) });
     const trading = !!state.socialDetail && tradeScene(state.socialDetail.trade);
-    if (!tradeDom && trading && typeof globalThis.document !== 'undefined') tradeDom = new DeckDom(htmlUi?.host ?? host, tradeTrunk, { art: htmlUi ? new URL('/ui/', location.href).href : '/ui/', ...cardArt(), owns: isTradeTrunk });
+    if (!tradeDom && trading && typeof globalThis.document !== 'undefined') tradeDom = new DeckDom(htmlUi?.host ?? host, tradeTrunk, { art: htmlUi ? new URL('/ui/', location.href).href : '/ui/', ...cardArt(), owns: isTradeTrunk, engineKeys: true, zones: TRADE_DROP, sideButtons: [] });
     const swapping = state.scene === 'duel' && !!state.sideboarding;
     if (!swapDom && swapping && typeof globalThis.document !== 'undefined') swapDom = new DeckDom(htmlUi?.host ?? host, sideSwap, { art: htmlUi ? new URL('/ui/', location.href).href : '/ui/', ...cardArt(), owns: isSideSwap, zones: SIDE_SWAP_ZONES, sideButtons: [] });
     const gettingCard = cardGetUp();
     if (!cardGetDom && gettingCard && typeof globalThis.document !== 'undefined') cardGetDom = new DeckDom(htmlUi?.host ?? host, cardGet, { art: htmlUi ? new URL('/ui/', location.href).href : '/ui/', ...cardArt(), owns: isCardGet, zones: {}, sideButtons: [] });
-    if (!htmlUi) { const specs = deckDom || tradeDom || swapDom ? buildHtml() : []; if (deckDom) { const d = deckScene.stageView(); deckDom.show(specs, d.detail, d.drag); } tradeDom?.show(specs, tradeTrunk.detailView(), null); swapDom?.show(specs, sideSwap.detailView(), sideSwap.dragView()); syncPortrait(); return; }
+    if (!htmlUi) { const specs = deckDom || tradeDom || swapDom ? buildHtml() : []; if (deckDom) { const d = deckScene.stageView(); deckDom.show(specs, d.detail, d.drag); } tradeDom?.show(specs, tradeTrunk.detailView(), tradeTrunk.dragView()); swapDom?.show(specs, sideSwap.detailView(), sideSwap.dragView()); syncPortrait(); return; }
     const specs = buildHtml(), deck = deckScene.stageView();
     // the title under its OPTIONS window: the movie and the backdrop at kTitleDimmed, the movie's buttons inactive
     const titleDialog = state.scene === 'title' && optionsUi?.kind === 'title';
     titleScene?.setActive(!titleDialog);
     htmlUi.show(specs, ['title', 'characters'].includes(state.scene), engineScene(), titleDialog ? TITLE_DIMMED : 1);
     deckDom?.show(specs, deck.detail, deck.drag);
-    tradeDom?.show(specs, tradeTrunk.detailView(), null);
+    tradeDom?.show(specs, tradeTrunk.detailView(), tradeTrunk.dragView());
     swapDom?.show(specs, sideSwap.detailView(), sideSwap.dragView());
     cardGetDom?.show(specs, gettingCard ? cardGet.detailView() : null, null);
     syncPortrait();
@@ -713,7 +750,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const avatar = d?.kind === 'avatar' && state.scene !== 'characters' ? d : null;
     // a duel request's other duelist (live keeps their bust at the right while its box is up: asked, asking, refused)
     const lobby = state.scene === 'lobby' ? state.lobby : undefined, refused = lobby?.refused && lobby.refused.id > refusedSeen ? lobby.refused : undefined;
-    const request = lobby?.invitation?.parts ?? lobby?.outgoing?.parts ?? refused?.parts ?? null;
+    // (and a trade request's partner while this side waits for the answer: live keeps their bust beside "Requesting Trade")
+    const trade = state.socialDetail?.trade, tradeAsk = trade && (trade.phase === 'requesting' || trade.phase === 'waiting' || trade.phase === 'offered') && trade.partner ? lobby?.avatars.find(a => a.id === trade.partner!.pid)?.parts : undefined;
+    const request = lobby?.invitation?.parts ?? lobby?.outgoing?.parts ?? refused?.parts ?? (tradeAsk ? Array.from(tradeAsk) : null);
     // a player's card: live shows that player's bust where the Discord card's stands (BUST_AT)
     const card = state.scene === 'lobby' && state.profileDetail && state.profileDetail.selectedPid !== null && state.profileDetail.selectedPid !== state.profileDetail.selfPid
       ? state.lobby?.avatars.find(a => a.id === state.profileDetail!.selectedPid)?.parts : null;
@@ -784,7 +823,17 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const clockText = (timer: NonNullable<DuelView['timer']>) => { const left = Math.max(0, timer.paused || !timer.at ? timer.seconds : timer.seconds - Math.floor((Date.now() - timer.at) / 1000)); return `${timer.paused ? 'Paused · ' : ''}${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`; };
   /** The TIME gauge's fraction left: the clock's seconds at `at` run down between redraws (the plate's whole is 180 s,
    * or the clock's own start when longer). */
-  const timeFraction = (timer: NonNullable<DuelView['timer']>) => { const left = Math.max(0, timer.paused || !timer.at ? timer.seconds : timer.seconds - (Date.now() - timer.at) / 1000); return left / Math.max(180, timer.seconds); };
+  const timeLeft = (timer: NonNullable<DuelView['timer']>) => Math.max(0, timer.paused || !timer.at ? timer.seconds : timer.seconds - (Date.now() - timer.at) / 1000);
+  const timeFraction = (timer: NonNullable<DuelView['timer']>) => timeLeft(timer) / Math.max(180, timer.seconds);
+  // the TIME gauge and its count under a side's LP: live shows them in a PvP duel (the count in the LP digits); an NPC
+  // duel's stay empty, though the turn still times out
+  // (at the duel's end the clock stops: a turn that ran out reads 0, as live's, else the gauges are empty)
+  const plateTime = (i: 0 | 1): [number | null, number | null] => {
+    const duel = controller.getState().duel, timer = duel?.timer, npc = controller.getState().npc;
+    if (!timer || timer.player !== i || npc && ['duel', 'after-duel', 'won', 'lost', 'item', 'claiming'].includes(npc.stage)) return [null, null];
+    if (duel?.ended) return /ran out of time|Time is up/.test(duel.notice?.text ?? '') ? [0, 0] : [null, null];
+    return [timeFraction(timer), timeLeft(timer)];
+  };
   const lpNodes: Partial<Record<0 | 1, HTMLElement>> = {}, lpBars: Partial<Record<0 | 1, HTMLElement>> = {}, lpPlates: Partial<Record<0 | 1, LpPlate>> = {};
   const positionAvatars = (lobby: NonNullable<ClientView['lobby']>) => {
     if (worldRenderer && lobby.mapId !== undefined) {
@@ -867,6 +916,15 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     else startArt(entry);
   };
   const drawCard = (card: CardView, showName = true, faceUp = true) => cardTile(card, showName, faceUp, controller.loadCardImage ? loadArt : undefined, controller.loadArchiveImage ? image => loadArchiveArt(CARD_BACK, image) : undefined);
+  const pileEdges = (cards: number, side: 0 | 1, rotation: number): string => {
+    const depth = Math.min(15, Math.floor(cards / 4)), turn = rotation * Math.PI / 180, out: string[] = [];
+    for (let k = 1; k <= depth; k++) {
+      // the edge's screen offset, turned back into the card's own frame (an upside-down pile's shadow turns with it)
+      const sx = side ? k : -k, sy = k, x = Math.round(sx * Math.cos(turn) + sy * Math.sin(turn)), y = Math.round(-sx * Math.sin(turn) + sy * Math.cos(turn));
+      out.push(`${x}px ${y}px 0 ${k === depth ? '#4a402a' : k % 2 ? '#e5d1b3' : '#c5ad89'}`);
+    }
+    return out.join(', ') || 'none';
+  };
   const placeFieldCard = (node: HTMLElement, card: DuelCardView, handCount: number) => {
     const p = fieldCardPosition(card, handCount), motion = card.motion;
     node.style.left = `${(motion?.x ?? p.x) / 1024 * 100}%`; node.style.top = `${(motion?.y ?? p.y) / 768 * 100}%`;
@@ -880,6 +938,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     // and a pile's count reads upright too (the opponent's piles stand upside down)
     const count = node.querySelector?.<HTMLElement>('.de-card-count');
     if (count && (card.zone === 'deck' || card.zone === 'extra')) count.style.transform = `translate(-50%,-50%) rotate(${-(motion?.rotation ?? 0)}deg)`;
+    // a deck / extra pile is live's thick stack: a card edge a pixel for every four cards, beige and its shade in turn,
+    // spreading down and away from the field's middle (the player's to the left, the opponent's to the right)
+    if (count && (card.zone === 'deck' || card.zone === 'extra')) node.style.boxShadow = pileEdges(Number(count.textContent) || 0, card.controller, motion?.rotation ?? 0);
   };
   const canSkipRender = (previous: ClientView, next: ClientView) => {
     if (previous.scene !== next.scene || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.relay !== next.relay || previous.sideboarding !== next.sideboarding || previous.match !== next.match || previous.preparation !== next.preparation || previous.unavailable?.[previous.scene] !== next.unavailable?.[next.scene]) return false;
@@ -925,16 +986,19 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const present = (duel: DuelView) => {
     const handCounts: [number, number] = [0, 0]; for (const card of duel.cards) if (card.zone === 'hand') handCounts[card.controller]++;
     for (const card of duel.cards) { const node = fieldNodes.get(card.id); if (node) placeFieldCard(node, card, handCounts[card.controller]); }
-    for (const i of [0, 1] as const) { if (lpNodes[i]) lpNodes[i]!.textContent = duel.players[i].lp.toLocaleString(); if (lpBars[i]) lpBars[i]!.style.width = lpWidth(duel.players[i].lp); lpPlates[i]?.setLp(duel.players[i].lp); }
+    for (const i of [0, 1] as const) { const lp = shownLp(duel, i); if (lpNodes[i]) lpNodes[i]!.textContent = lp.toLocaleString(); if (lpBars[i]) lpBars[i]!.style.width = lpWidth(lp); lpPlates[i]?.setLp(lp); }
     presentEffects(duel); duelNpcSets(); duelScene.update(duel, state.settings.reducedMotion);
   };
   const pruneArt = () => {
     for (const [code, entry] of art) if (!entry.used) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; art.delete(code); }
   };
   // A full render replaces the stage's controls. Between a press and its release that would swallow the click, so
-  // renders wait until the pointer is released (or 1.5 s pass, e.g. a release outside the window).
+  // renders wait until the pointer is released (or 1.5 s pass, e.g. a release outside the window). The held render runs
+  // in a task of its own after the release: the browser dispatches pointerup, mouseup and click in one task, and a
+  // render in pointerup's microtasks replaced the button before its mouseup, so the click never came (the janken cards
+  // in an NPC duel, whose state changes while the player presses).
   let pointerHeld = false, deferredRender = false, pointerTimer: ReturnType<typeof setTimeout> | null = null;
-  const releasePointer = () => { pointerHeld = false; if (pointerTimer) { clearTimeout(pointerTimer); pointerTimer = null; } if (deferredRender) { deferredRender = false; requestRender(); } };
+  const releasePointer = () => { pointerHeld = false; if (pointerTimer) { clearTimeout(pointerTimer); pointerTimer = null; } if (deferredRender) { deferredRender = false; setTimeout(requestRender, 0); } };
   const holdPointer = (e?: Event) => { if (avatarList && (e as PointerEvent | undefined)?.button === 2) { avatarList = null; showHtml(); } pointerHeld = true; if (pointerTimer) clearTimeout(pointerTimer); pointerTimer = setTimeout(releasePointer, 1500); };
   host.addEventListener?.('pointerdown', holdPointer, true);
   globalThis.addEventListener?.('pointerup', releasePointer, true); globalThis.addEventListener?.('pointercancel', releasePointer, true);
@@ -1151,7 +1215,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const jv = jankenView();
     if (jv) {
       duelNpcSets(); const portraits = duelScene.jankenPortraits(state.duel?.players ?? null);
-      stage.append(jankenScene(jv, { hand: hand => { jankenMine = hand; send({ type: 'chooseHand', hand }); }, first: first => send({ type: 'chooseFirst', first }) },
+      // (live's janken timer plate stands on the asking side of a duel request: livetour2 60 / 73)
+      stage.append(jankenScene({ ...jv, timer: challenger && state.npc?.stage !== 'duel' && !state.relay }, { hand: hand => { jankenMine = hand; send({ type: 'chooseHand', hand }); }, first: first => send({ type: 'chooseFirst', first }) },
         controller.loadArchiveImage ? loadArchiveArt : null, portraits));
       if (state.relay) stage.append(relayRoster());
       return;
@@ -1172,7 +1237,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const match = state.match ? `Match ${state.match.round} · ${state.match.scores[0]}–${state.match.scores[1]}${state.match.scores[2] ? ` · ${state.match.scores[2]} drawn` : ''}` : '';
     const clock = (index: 0 | 1) => duel.timer && duel.timer.player === index ? clockText(duel.timer) : '';
     const duelist = (index: 0 | 1) => {
-      const player = duel.players[index], lp = el('strong', 'de-lp-value', player.lp.toLocaleString()), bar = el('span', 'de-lp-fill'); bar.style.width = lpWidth(player.lp); lpNodes[index] = lp; lpBars[index] = bar;
+      const player = { ...duel.players[index], lp: shownLp(duel, index) }, lp = el('strong', 'de-lp-value', player.lp.toLocaleString()), bar = el('span', 'de-lp-fill'); bar.style.width = lpWidth(player.lp); lpNodes[index] = lp; lpBars[index] = bar;
       const panel = el('div', `de-duelist${duel.turnPlayer === index ? ' active' : ''}`, el('div', 'de-duelist-name', player.name), el('div', 'de-lp', el('span', 'de-lp-label', 'LP'), el('span', 'de-lp-bar', bar), lp));
       panel.setAttribute('aria-label', `${player.name}: ${player.lp} life points${duel.turnPlayer === index ? ', their turn' : ''}`);
       if (clock(index)) { const node = el('div', 'de-duel-clock', `Time ${clock(index)}`); panel.append(node); duelClockNode = node; }
@@ -1188,8 +1253,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       hud.className += ' de-sr';
       for (const i of [0, 1] as const) {
         // (an NPC duel's TIME bar stays empty on live, though the turn still times out)
-        const t = duel.timer && duel.timer.player === i && state.npc?.stage !== 'duel' ? timeFraction(duel.timer) : null;
-        const plate = lpPlate({ side: i, name: duel.players[i].name, lp: duel.players[i].lp, time: t, image: archive });
+        const [t, seconds] = plateTime(i);
+        const plate = lpPlate({ side: i, name: duel.players[i].name, lp: shownLp(duel, i), time: t, seconds, image: archive });
         plate.root.setAttribute('aria-hidden', 'true'); board.append(plate.root); lpPlates[i] = plate;
       }
     }
@@ -1197,7 +1262,16 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const current = phases.find(([key]) => key === duel.phase);
     const bar = el('div', `de-phase-bar${duel.turnPlayer ? ' opponent' : ''}`); bar.setAttribute('role', 'status');
     bar.setAttribute('aria-label', `Turn ${duel.turn}${current ? `, ${current[2]}` : ''}, ${duel.players[duel.turnPlayer].name}'s turn`);
-    bar.append(el('div', 'de-turn-box', el('small', '', 'Turn'), el('strong', '', String(Math.max(1, duel.turn)))));   // live counts from 1, before the first draw too
+    // live counts from 1, before the first draw too; with the art live's plate (duel_turn_01_c00: 56 x 32 at 260, 320,
+    // its fill see-through) and the number in duel_fonts (6 x 8 digits, drawn 1.2 times: live's are ~7 x 9.6) right-aligned at 308, 339
+    const turnText = String(Math.max(1, duel.turn));
+    if (archive) {
+      const box = el('div', 'de-turn-box de-turn-art'); box.setAttribute('aria-label', `Turn ${turnText}`);
+      box.append(archive('data/y2/duel_turn_01_c00_e.png', 'de-turn-plate'));
+      const digits = el('div', 'de-turn-digits'); digits.setAttribute('aria-hidden', 'true');
+      for (const ch of turnText) { const cell = el('span', 'de-turn-digit'), sheet = archive('data/y/duel/font/duel_fonts.png'); sheet.style.left = `${-Number(ch) * 100}%`; cell.append(sheet); digits.append(cell); }
+      box.append(digits); bar.append(box);
+    } else bar.append(el('div', 'de-turn-box', el('small', '', 'Turn'), el('strong', '', turnText)));
     // The phase buttons are the engine's (CDuelPhaseButton): on the player's turn BP / M2 / EP are pressed to enter the
     // Battle Phase, Main Phase 2 or end the turn, as live; no separate action buttons.
     const PHASE_ACTION: Partial<Record<string, string>> = { battle: 'phase:3', main2: 'phase:4', end: 'phase:5' };
@@ -1323,7 +1397,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     // which opens DUEL OPTIONS (CWindowModelDuelConfig, htmlui/options.ts) over the duel as live's does, and the help
     // line, which runs across its box from the right as live's does. Live shows no duel log on the duel screen (main's
     // chat.js hides the Duel Log tab): the log is kept for assistive technology only, never drawn
-    const wrench = button('', () => { optionsUi = { kind: 'options' }; showHtml(); }); wrench.className = 'de-duel-wrench'; wrench.dataset.key = 'duel-options'; wrench.setAttribute('aria-label', 'DUEL OPTIONS'); wrench.title = 'DUEL OPTIONS';
+    const wrench = button('', () => { optionsUi = { kind: 'options' }; optionsFromDuel = true; showHtml(); }); wrench.className = 'de-duel-wrench'; wrench.dataset.key = 'duel-options'; wrench.setAttribute('aria-label', 'DUEL OPTIONS'); wrench.title = 'DUEL OPTIONS';
     // the key's picture is the menu bar's (data/common/window/menuicon_02_c01.png: 80×32 cells, the wrench row 4,
     // columns normal / hover / pressed), as live's bar draws it; without the art a plain wrench glyph stands in
     const wrenchArt = controller.loadArchiveImage ? el('img', 'de-duel-wrench-art') as HTMLImageElement : null;
@@ -1333,12 +1407,14 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const run = el('span', 'de-duel-help-run', helpText), help = el('div', 'de-duel-help', run); help.setAttribute('aria-label', helpText);
     if (local.helpText !== helpText) { local.helpText = helpText; local.helpFrom = performance.now(); }
     run.style.animationDelay = `${-(performance.now() - local.helpFrom) / 1000}s`;
-    board.append(el('div', 'de-duel-bar', wrench, duelScene.fx.ringElement, help));
+    // behind the result board live's bar keeps its ring and empty field: no wrench, no help line
+    const resultUp = !!duel.ended && !state.replay && !state.sideboarding && endPhase() === null;
+    board.append(el('div', `de-duel-bar${resultUp ? ' de-result-up' : ''}`, wrench, duelScene.fx.ringElement, help));
     const log = el('div', 'de-duel-log de-sr'); log.setAttribute('role', 'log'); log.setAttribute('aria-label', 'Duel log');
     for (const line of duel.log.slice(-80)) log.append(el('div', '', line)); board.append(log);
     // A spectator is neither side: the result names the winner instead of Victory/Defeat.
     const endedText = duel.ended && (duel.spectating && (duel.ended === 'Victory' || duel.ended === 'Defeat') ? `${duel.players[duel.ended === 'Victory' ? 0 : 1].name} wins` : duel.ended);
-    if (endedText && htmlUi) {
+    if (endedText && htmlUi && endPhase() !== 'notice') {
       // main's result screen (duel-result.ts: CWindowResult) shows it; the result is still announced (assistive technology)
       const status = el('div', 'de-duel-end de-sr', endedText); status.setAttribute('role', 'status'); status.setAttribute('aria-label', endedText); stage.append(status);
       // live dims the whole field, its plates and bar behind the result board
@@ -1393,12 +1469,19 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     try {
       state = controller.getState();
       if (!state.preparation) jankenMine = null;   // each duel's rock-paper-scissors anew
+      // whether this side asked for the coming duel (its request out) or was asked (an invitation came)
+      if (state.lobby?.outgoing) challenger = true; else if (state.lobby?.invitation) challenger = false;
+      if (optionsFromDuel && state.scene !== 'duel') { optionsFromDuel = false; if (optionsUi?.kind === 'options') optionsUi = null; }
+      // a duel closes the other player's card that was open when it began (live comes back to the lobby with none open)
+      const card = state.profileDetail;
+      if (state.scene === 'duel' && card && card.selectedPid !== null && card.selectedPid !== card.selfPid) { if (!cardClosedForDuel) { cardClosedForDuel = true; queueMicrotask(() => send({ type: 'profileAction', action: { type: 'close' } })); } }
+      else if (state.scene !== 'duel') cardClosedForDuel = false;
       if (!state.match) { matchMarks = []; matchMarked = ''; }
       // the starter deck chooser: main's (web-shell/starter.js), from the lobby or Edit Deck like main's My Room / lobby / deck
       starterPicker.sync(state.mode !== 'free' && state.player ? state.player.id : null, state.starter?.claimable && (state.scene === 'lobby' || state.scene === 'deck') ? state.starter.decks : undefined);
       if (state.scene !== 'lobby') { Object.assign(lobbyUi, { open: null, searching: false, npc: null, join: null, cancel: false }); worldRenderer?.hide(); }
       const restoreDrafts = !resetDraftsNextRender; resetDraftsNextRender = false;
-      if (state.scene === 'duel' && state.duel?.timer && !state.duel.timer.paused && !state.duel.ended) { if (duelClock === null) duelClock = setInterval(() => { const timer = controller.getState().duel?.timer; if (duelClockNode && timer) duelClockNode.textContent = `Time ${clockText(timer)}`; if (timer) lpPlates[timer.player]?.setTime(timeFraction(timer)); }, 250); } else if (duelClock !== null) { clearInterval(duelClock); duelClock = null; }
+      if (state.scene === 'duel' && state.duel?.timer && !state.duel.timer.paused && !state.duel.ended) { if (duelClock === null) duelClock = setInterval(() => { const timer = controller.getState().duel?.timer; if (duelClockNode && timer) duelClockNode.textContent = `Time ${clockText(timer)}`; if (timer) lpPlates[timer.player]?.setTime(...plateTime(timer.player)); }, 250); } else if (duelClock !== null) { clearInterval(duelClock); duelClock = null; }
       if (state.scene === 'duel' && state.sideboarding?.deadline && !state.sideboarding.ready) { if (sideboardClock === null) sideboardClock = setInterval(() => requestRender(), 1000); } else if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; }
       const identity = `${state.scene}/${state.player?.id ?? 'none'}`;
       if (renderedIdentity !== identity || !restoreDrafts) { drafts.clear(); expanded.clear(); renderedIdentity = identity; }
@@ -1505,9 +1588,11 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const trading = !!state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene);
       // (the reward scenes' bar is its strip, the pack pick's help line the picked pack's description, as live)
       const reward = rewardScene(), pickedPack = reward && npcPackOpen(state.npc) ? state.npc.packs[npcPack.selected] : undefined;
-      menuView = state.scene === 'title' && !showsLogin() || state.scene === 'duel' || state.scene === 'shop' ? null : { entries, fieldShift, keys: !!state.player && !['deck', 'shop', 'characters'].includes(state.scene) && !trading && !reward, room: !!world && state.location === 'my-room',
+      // (the reward scenes have their own bar: rewardBarSpecs)
+      menuView = state.scene === 'title' && !showsLogin() || state.scene === 'duel' || state.scene === 'shop' || reward ? null : { entries, fieldShift, keys: !!state.player && !['deck', 'shop', 'characters'].includes(state.scene) && !trading && !reward, room: !!world && state.location === 'my-room',
         // live's bar message is blank but for a pending request's wait (no "Online in Duel Academy.")
         message: reward ? (pickedPack !== undefined ? state.packInfo?.[pickedPack]?.description ?? '' : '') : state.player ? (world && waitingMessage({ state, text: id => gameTexts.get(id) })) || '' : '',
+        ...(world && state.location !== 'my-room' && state.lobby?.invitation ? { notice: 'duel' as const } : {}),
         mainOpen: () => { const p = state.profileDetail; return !!(htmlUiState.mail || htmlUiState.compose || htmlUiState.lists || htmlUiState.comment || optionsUi?.kind === 'options' || duellog || titleUi
           || p && p.selectedPid !== null && p.selectedPid === p.selfPid); },
         // My Room's bar has Main Menu, Wardrobe and Missions only (no Duel, no Move), as live

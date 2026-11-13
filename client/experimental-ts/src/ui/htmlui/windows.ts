@@ -75,7 +75,10 @@ export interface MenuView { entries: MenuEntry[]; message: string; duel?: () => 
    * Missions slots, lobby_icons.js reserveBar): the message's x follows, so main's bar redraws it at the field's start. */
   fieldShift?: number;
   /** My Room's bar: the Main Menu key alone of the game's (live: Main Menu, then the page's Wardrobe and Missions). */
-  room?: boolean }
+  room?: boolean;
+  /** A duel request waiting on this player's answer: live's notice icon after MOVE (the crossed swords, menuicon_03_a05),
+   * an engine-drawn slot the page's Wardrobe and Missions keys move past (wardrobe-launcher.js CNoticeIcon*). */
+  notice?: 'duel' }
 
 export interface BuildContext {
   state: ClientView; ui: HtmlUiLocal; ids: Ids;
@@ -467,6 +470,8 @@ export function menuBar(ctx: BuildContext, menu: MenuView): WindowSpec {
     if (!menu.room) {
       key('MENUBAR_MENU_DUEL', 80, 32, only(duelOpen, mainOpen || moveOpen, menu.duel), 'menubar-duel', 'Duel', duelOpen);
       key('MENUBAR_MENU_MOVE', 160, 96, only(moveOpen, mainOpen || duelOpen, menu.move), 'menubar-move', 'Move', moveOpen);
+      // (its picture is the stage's: index.ts noticeIconSpecs)
+      if (menu.notice) b.add('CNoticeIconDuel', 'notice', { x: 240, y: 0, w: 48, h: 32 }, {});
     }
   }
   return b.spec();

@@ -2,8 +2,9 @@
  * 3 time up, 4 refused; the flag is 1 when it is about the opponent. Original wording (StringDB 0x11a7 "%s has
  * disconnected." as live shows it with the duelist's name, 0x11a5, 0x11a2, 0x1972); null where the duel's own messages
  * already say it. */
-export function serverInfoText(code: number, aboutOpponent: boolean, opponent: string): string | null {
+export function serverInfoText(code: number, aboutOpponent: boolean, opponent: string, self?: string): string | null {
   if (code === 1) return aboutOpponent ? `${opponent} has disconnected.` : 'You have been disconnected from the Duel Server.';
-  if (code === 3) return aboutOpponent ? `${opponent} has ran out of time.` : 'Time is up!';
+  // live names whoever ran out, this player too ("Lq2201 has ran out of time.")
+  if (code === 3) return aboutOpponent ? `${opponent} has ran out of time.` : self ? `${self} has ran out of time.` : 'Time is up!';
   return null;
 }

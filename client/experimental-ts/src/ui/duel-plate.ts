@@ -10,7 +10,7 @@
 
 const BOARD_W = 1024, BOARD_H = 768, PLATE_W = 288, PLATE_H = 64, FULL_LP = 8000;
 const PLATE = 'data/y2/duel_window_01_c01.png', LABELS = 'data/y2/duel_font_02_c01.png';
-const DIGITS = 'data/y/duel/life/duel_font_01_c01.png';
+const DIGITS = 'data/y/duel/life/duel_font_01_c01.png', DIGITS_RED = 'data/y/duel/life/duel_font_01_c02.png';
 const track = (side: 0 | 1) => `data/y2/duel_gauge_02_c0${side}.png`;
 const fill = (side: 0 | 1) => `data/y2/duel_gauge_01_c0${side}.png`;
 
@@ -27,6 +27,11 @@ type Image = (path: string, className?: string) => HTMLImageElement | null;
 
 /** The colour band of duel_gauge_01 for a fraction left (0 green, 2 yellow, 3 red; the thresholds are a guess). */
 export function gaugeBand(fraction: number): 0 | 2 | 3 { return fraction > 0.5 ? 0 : fraction > 0.25 ? 2 : 3; }
+/** The TIME gauge's band by the seconds left, as live draws it (de-scratch/duelwin/live/to: a turn timing out): orange
+ * (1) above a minute (157, 110, 62), yellow (2) from there (57, 20, 4); empty at 0. */
+export function timeBand(seconds: number): 1 | 2 { return seconds > 60 ? 1 : 2; }
+/** The TIME count's digits turn red (duel_font_01_c02) near the end (live: 20 white, 14 red). */
+export const TIME_RED = 15;
 /** LP as drawn: whole, never negative, at most 99999. */
 export function lpDigits(lp: number): string { return String(Math.min(99999, Math.max(0, Math.trunc(lp) || 0))); }
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
@@ -85,17 +90,19 @@ export const LP_PLATE_CSS = `
 .de-lpp-name{top:${pct(2, PLATE_H)};width:${pct(270, PLATE_W)};height:${pct(18, PLATE_H)};font:calc(14 / ${PLATE_W} * 100cqw)/1.25 Verdana,Tahoma,sans-serif;color:#eef2f5;text-shadow:0 0 1px #3a4a58,1px 1px 0 #3a4a58;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .de-lpp[data-side="0"] .de-lpp-name{left:${pct(8, PLATE_W)}}
 .de-lpp[data-side="1"] .de-lpp-name{right:${pct(8, PLATE_W)};text-align:right}
-.de-lpp-digits{top:${pct(DIGITS_TOP, PLATE_H)};right:${pct(PLATE_W - DIGITS_RIGHT, PLATE_W)};height:${pct(DIGIT, PLATE_H)};display:flex;justify-content:flex-end}
+.de-lpp-digits{top:${pct(DIGITS_TOP, PLATE_H)};z-index:1;right:${pct(PLATE_W - DIGITS_RIGHT, PLATE_W)};height:${pct(DIGIT, PLATE_H)};display:flex;justify-content:flex-end}
 .de-lpp-digit{position:relative;overflow:hidden;width:calc(${DIGIT} / ${PLATE_W} * 100cqw);height:100%}
+.de-lpp-digits.de-lpp-time{top:${pct(TIME_BAR.y, PLATE_H)}}
 .de-lpp-digits.is-text{font:700 calc(12 / ${PLATE_W} * 100cqw)/1.35 Verdana,sans-serif;color:#fff;-webkit-text-stroke:.12em #222;paint-order:stroke}
 .de-lpp-fallback{position:absolute;inset:${pct(3, 16)} 0;border-radius:6px;background:linear-gradient(#bfffc4,#2ed23a)}
 .de-lpp-track-fallback{position:absolute;inset:${pct(1, 16)} 0;border-radius:6px;background:#555;box-shadow:0 0 0 1px #fff}
 `;
 
-export interface LpPlate { root: HTMLElement; setLp(lp: number): void; setTime(fraction: number | null): void }
+/** `setTime`: the gauge's fraction left (null: empty) and, when live prints it (a PvP turn clock), the seconds left. */
+export interface LpPlate { root: HTMLElement; setLp(lp: number): void; setTime(fraction: number | null, seconds?: number | null): void }
 
 /** One side's plate. `image` makes an <img> of an archive file (null: no original art, a plain fallback is drawn). */
-export function lpPlate(opts: { side: 0 | 1; name: string; lp: number; time: number | null; image: Image | null }): LpPlate {
+export function lpPlate(opts: { side: 0 | 1; name: string; lp: number; time: number | null; seconds?: number | null; image: Image | null }): LpPlate {
   const { side, name } = opts, image = opts.image;
   const root = document.createElement('div'); root.className = 'de-lpp'; root.dataset.side = String(side); root.setAttribute('role', 'group');
   const mirror = (x: number, w: number) => side ? PLATE_W - x - w : x;
@@ -112,7 +119,7 @@ export function lpPlate(opts: { side: 0 | 1; name: string; lp: number; time: num
   }
 
   /** A gauge: the track, and a fill anchored at the plate's outer edge whose width follows the fraction. */
-  const gauge = (spot: { x: number; y: number; w: number }) => {
+  const gauge = (spot: { x: number; y: number; w: number }, bandOf: (f: number, seconds: number | null) => number = f => gaugeBand(f)) => {
     const box = document.createElement('div'); box.className = 'de-lpp-gauge'; at(box, spot.x, spot.y, spot.w); visual.append(box);
     const fillBox = document.createElement('div'); fillBox.className = 'de-lpp-gauge'; fillBox.style.top = '0'; fillBox.style.height = '100%';
     let trackBar: SlicedBar | null = null, fillBar: SlicedBar | null = null, band = -1;
@@ -126,25 +133,35 @@ export function lpPlate(opts: { side: 0 | 1; name: string; lp: number; time: num
       const f = document.createElement('div'); f.className = 'de-lpp-fallback'; fillBox.append(f);
     }
     box.append(fillBox);
-    return (fraction: number | null) => {
+    return (fraction: number | null, seconds: number | null = null) => {
       const f = fraction === null ? 0 : clamp01(fraction), px = Math.round(f * spot.w);   // full: the fill's slanted end on the track's (live)
       fillBox.hidden = px <= 0;
       fillBox.style.width = pct(px, spot.w); fillBox.style.left = side ? pct(spot.w - px, spot.w) : '0';
       if (fillBar && image) {
         fillBar.root.dataset.px = String(px);
-        const next = gaugeBand(f); if (next !== band) { band = next; fillBar.setBand(image, fill(side), 64, band); } else fillBar.layout();
+        const next = bandOf(f, seconds); if (next !== band) { band = next; fillBar.setBand(image, fill(side), 64, band); } else fillBar.layout();
       }
     };
   };
-  const setLpBar = gauge(LP_BAR), setTimeBar = gauge(TIME_BAR);
+  const setLpBar = gauge(LP_BAR), setTimeBar = gauge(TIME_BAR, (f, seconds) => seconds !== null ? timeBand(seconds) : gaugeBand(f));
 
   const digits = document.createElement('div'); digits.className = 'de-lpp-digits';
   const drawDigits = (lp: number) => {
     const text = lpDigits(lp);
     if (!image) { digits.className = 'de-lpp-digits is-text'; digits.textContent = text; return; }
-    digits.replaceChildren(...[...text].map(ch => { const d = crop(image, DIGITS, 176, 16, Number(ch) * DIGIT, 0, DIGIT, 16); d.className = 'de-lpp-digit'; return d; }));
+    // (live prints a side's LP of 0 in the red digits, duel_font_01_c02: livetour2 53-result, 69-pvp-board)
+    digits.replaceChildren(...[...text].map(ch => { const d = crop(image, text === '0' ? DIGITS_RED : DIGITS, 176, 16, Number(ch) * DIGIT, 0, DIGIT, 16); d.className = 'de-lpp-digit'; return d; }));
   };
-  visual.append(digits);
+  // the TIME count: the seconds left in the LP digits' font, right-aligned under them (live's PvP turn clock)
+  const timeDigits = document.createElement('div'); timeDigits.className = 'de-lpp-digits de-lpp-time';
+  let timeShown: string | null = null;
+  const drawTime = (seconds: number | null) => {
+    const text = seconds === null ? '' : String(Math.max(0, Math.ceil(seconds))), red = seconds !== null && seconds <= TIME_RED, key = `${text}:${red}`;
+    if (key === timeShown) return; timeShown = key;
+    if (!image) { timeDigits.className = 'de-lpp-digits de-lpp-time is-text'; timeDigits.textContent = text; timeDigits.style.color = red ? '#f22' : ''; return; }
+    timeDigits.replaceChildren(...[...text].map(ch => { const d = crop(image, red ? DIGITS_RED : DIGITS, 176, 16, Number(ch) * DIGIT, 0, DIGIT, 16); d.className = 'de-lpp-digit'; return d; }));
+  };
+  visual.append(digits, timeDigits);
   root.append(visual);
 
   let shown: string | null = null;
@@ -154,6 +171,7 @@ export function lpPlate(opts: { side: 0 | 1; name: string; lp: number; time: num
     setLpBar(lp / FULL_LP);
     if (text !== shown) { drawDigits(lp); shown = text; }
   };
-  setLp(opts.lp); setTimeBar(opts.time);
-  return { root, setLp, setTime: setTimeBar };
+  const setTime = (fraction: number | null, seconds: number | null = null) => { setTimeBar(fraction, seconds); drawTime(seconds); };
+  setLp(opts.lp); setTime(opts.time, opts.seconds ?? null);
+  return { root, setLp, setTime };
 }

@@ -94,9 +94,11 @@ export function duelResultWindows(ctx: DuelResultContext): WindowSpec[] {
       const t = b.add('CWindowTaskShadowText', 'title', { x: 16, y: 30, w: w - 32, h: 28 }, { text: duel.ended || '', align: 1, fontSize: 24, color: GOLD });
       b.add('CWindowTaskText', 'title/shadow', { x: 17, y: 31, w: w - 32, h: 28 }, { parent: t.id, text: t.text, color: BLACK });
     }
-    // the duel's rows between players: the duel itself
-    const rows: [string, string, string][] = [['lp', 'Life Points', String(Math.max(0, p.lp))], ['turns', 'Turns', String(duel.turn)], ...(match ? [['match', 'Games Won', String(match.scores[side] ?? 0)] as [string, string, string]] : []),
-        ...(side === 0 && duel.rewards ? [['score', 'SCORE', String(duel.rewards.score)] as [string, string, string]] : [])];
+    // the rows between players, as live's (livetour2 69-pvp-board, main's mock/result-pvp.json m_WinNum / m_LoseNum /
+    // m_ScoreNum): each side's WIN / LOSE (this duel's, a match's games) and SCORE (this player's from the server's
+    // rewards; the other's 0)
+    const other = side === 0 ? 1 : 0, won = match ? match.scores[side] ?? 0 : result === 'WIN' ? 1 : 0, lost = match ? match.scores[other] ?? 0 : result === 'LOSE' ? 1 : 0;
+    const rows: [string, string, string][] = [['win', 'WIN', String(won)], ['lose', 'LOSE', String(lost)], ['score', 'SCORE', String(side === 0 ? duel.rewards?.score ?? 0 : 0)]];
     const name = p.name, lines = [name, ...rows.flatMap(([, label]) => ['', label])];
     const text = lines.join('\n'), th = lines.length * 24;
     const record = b.add('CWindowTaskShadowText', 'record', { x: 16, y: 99, w: 216, h: th }, { text, align: 0, fontSize: 24, lineGap: 0, firstLine: 0, pageLines: lines.length, color: WHITE });

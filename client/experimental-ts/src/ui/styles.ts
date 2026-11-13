@@ -131,6 +131,11 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 .de-turn-box { position:absolute; left:1.34%; top:117.5%; width:11.6%; height:70%; display:flex; flex-direction:column; align-items:center; justify-content:center; margin:0; line-height:1; color:#fff; background:#2a3d58e6; border:1px solid #c8d8ee; border-radius:3px; }
 .de-turn-box small { font-size:9px; }
 .de-turn-box strong { font-size:15px; }
+.de-turn-box.de-turn-art { left:${4 / 448 * 100}%; top:${45 / 40 * 100}%; width:${56 / 448 * 100}%; height:${32 / 40 * 100}%; display:block; background:none; border:0; border-radius:0; }
+.de-turn-art>img.de-turn-plate { position:absolute; inset:0; width:100%; height:100%; image-rendering:pixelated; }
+.de-turn-art>.de-turn-digits { position:absolute; right:${(56 - 48) / 56 * 100}%; top:${19.5 / 32 * 100}%; height:${9.6 / 32 * 100}%; display:flex; }
+.de-turn-digit { position:relative; overflow:hidden; aspect-ratio:6 / 8; height:100%; flex:none; }
+.de-turn-digit>img { position:absolute; top:0; height:100%; width:1100%; max-width:none; image-rendering:pixelated; }
 .de-phase { position:relative; overflow:hidden; display:flex; align-items:center; justify-content:center; font:bold 13px Arial; color:#4a2e00; }
 .de-phase:not(:has(img)) { margin:5px 4px; background:linear-gradient(#fff6a8,#f0b52d); border:1px solid #c27a12; border-radius:4px; opacity:.75; }
 .de-phase-bar.opponent .de-phase:not(:has(img)) { background:linear-gradient(#ffc0cf,#ec4a6d); border-color:#a31f43; color:#fff; }
@@ -147,7 +152,7 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 .de-field-card[data-effect=chain] { outline:3px solid #ffeb69; box-shadow:0 0 16px #ffe87b; }
 .de-field-card[data-effect=attack] { outline:3px solid #ff9d6b; box-shadow:0 0 14px #ff854b; }
 .de-field-card.defense { transform:translate(-50%,-50%) rotate(90deg); }
-.de-duel-bar { position:absolute; left:0; right:0; bottom:0; height:4.1667%; display:flex; align-items:center; gap:6px; z-index:8; background:linear-gradient(#cdefff,#5fb6e8 55%,#2f86c4); border-top:1px solid #e8fbff; }
+.de-duel-bar { position:absolute; left:0; right:0; bottom:0; height:4.1667%; display:flex; align-items:center; gap:6px; z-index:8; background:var(--de-bar-strip); }
 .de-duel-wrench { width:7.8125%; height:100%; padding:0; display:grid; place-items:center; background:linear-gradient(#ffe48a,#f6a313); border:1px solid #b06a00; border-radius:0 6px 0 0; cursor:pointer; }
 .de-duel-wrench.has-art { position:absolute; left:${4 / 1024 * 100}%; top:0; width:${80 / 1024 * 100}%; height:100%; background:none; border:0; border-radius:0; overflow:hidden; display:block; }
 .de-duel-wrench-art { position:absolute; left:0; top:-400%; width:300%; height:600%; pointer-events:none; }
@@ -155,7 +160,11 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 .de-duel-wrench svg { width:20px; height:20px; fill:#1d5fa8; stroke:#fff; stroke-width:.8; }
 /* the result screen (main's result.js boards) covers the card box at the bottom left, as live's does */
 html:has(.yo2r-board) .de-duel-info { display:none; }
-.de-duel-help { position:absolute; left:${388 / 1024 * 100}%; right:${8 / 1024 * 100}%; top:0; bottom:0; overflow:hidden; white-space:nowrap; font:15px Arial,sans-serif; letter-spacing:.04em; color:#0b1f3a; display:flex; align-items:center; }
+.de-duel-bar.de-result-up>.de-duel-wrench, .de-duel-bar.de-result-up .de-duel-help-run { visibility:hidden; }
+@keyframes de-notice-pulse { from { opacity:.55; } to { opacity:.95; } }
+@media (prefers-reduced-motion: reduce) { [data-picture="notice:duel"] { animation:none !important; opacity:.8; } }
+/* the help line scrolls in live's white field (391..1017 x 743..761: a white rim, the inside a little see-through) */
+.de-duel-help { position:absolute; left:${391 / 1024 * 100}%; width:${626 / 1024 * 100}%; top:${7 / 32 * 100}%; height:${18 / 32 * 100}%; box-sizing:border-box; border:1px solid #fff; background:rgba(255,255,255,.88); overflow:hidden; white-space:nowrap; font:14px/16px Arial,sans-serif; letter-spacing:.04em; color:#000; display:flex; align-items:center; }
 /* the ring keeps its own 64 px box: .de-stage canvas (every stage canvas at 100%) stretched it 1024 wide across the bar */
 .de-duel-bar>.de-duel-ring { position:absolute; left:${232 / 1024 * 100}%; top:${-16 / 32 * 100}%; width:${64 / 1024 * 100}%; height:200%; pointer-events:none; }
 .de-duel-help-run { display:inline-block; padding-left:100%; animation:de-help-run 16s linear infinite; }

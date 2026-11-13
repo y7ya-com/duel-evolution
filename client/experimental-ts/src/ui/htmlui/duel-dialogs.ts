@@ -146,7 +146,9 @@ export function duelOkDialog(ids: Ids, key: string, text: string, ok: () => void
   // the server's notices (time up, a lost opponent) come in the wider box live shows for them (550 at 237, 312)
   const w = wide ? 550 : 336, h = 144, b = new WindowBuilder(ids, `duel-ok:${key}`, 'CUOkDialog', { x: 512 - w / 2, y: 312, w, h }, { modal: true, z: 51303 });
   b.add('CWindowTaskFrameBottomThick', 'frame', { x: 0, y: 0, w, h }, { style: 1, band: 32, alpha: 0.7 });
-  b.add('CWindowTaskTextField', 'text', { x: 8, y: 8, w: w - 16, h: 96 }, { text, align: 1, color: [0, 0, 0, 1] });
+  // broken at spaces for the field's text column (w - 32): main's field wraps anywhere (break-all), which cut a number in
+  // two ("You may surrender starting from the 1 / 0th turn.")
+  b.add('CWindowTaskTextField', 'text', { x: 8, y: 8, w: w - 16, h: 96 }, { text: dialogLines(text, w - 32, 6).text, align: 1, color: [0, 0, 0, 1] });
   const c = b.add('CWindowTaskTextSwitch', 'ok', { x: w / 2 - 40, y: 112, w: 80, h: 24 }, { label: 'OK', align: 1, state: 'normal', enabled: true });
   b.on(c, { key: 'duel-notice-ok', label: 'OK', click: ok });
   return b.spec();

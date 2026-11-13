@@ -14,6 +14,8 @@ import type { Picture } from './pictures';
 import { messageDialog } from './windows';
 import dialogYesNo from './templates/dialog-yesno.json';
 import dialogOk from './templates/dialog-ok.json';
+import duelRequestOk from './templates/duel-request-ok.json';
+import duelRequestYesNo from './templates/duel-request-yesno.json';
 
 /** The trade's own state between snapshots: the final Yes sent (the server's answer is the trade's end). */
 export interface TradeLocal { confirmed: boolean }
@@ -30,6 +32,8 @@ export interface TradeDeps {
   reason?: string;
   /** The thinking lamp's frame (trade_icon101_0..3: its bubble's dots, none to three), the page's clock's. */
   thinking?: number;
+  /** The partner's level (the lobby's player record), for the request box ("Lv1 Name"). */
+  partnerLevel?: number;
 }
 /** The thinking lamp's frames (trade_icon101_0..3) and how long each shows: its bubble fills with dots, none to three. */
 export const THINKING_FRAMES = 4, THINKING_FRAME_MS = 400;
@@ -68,12 +72,16 @@ export function tradeWindows(d: TradeDeps): WindowSpec[] {
   const partner = t.partner?.name || (t.partner ? `Player ${t.partner.pid}` : 'another player');
   if (tradeScene(t)) out.push(...scene(d, partner));
   const dialog = (key: string, text: string, buttons: Record<string, [string, () => void]>, yesNo = true) => out.push(messageDialog({ ids: d.ids }, key, yesNo ? dialogYesNo : dialogOk, text, buttons));
-  if (t.phase === 'offered') dialog('trade-offer', `${partner}\nYou have a Trade Request!`, {
-    Yes: ['trade-accept', () => d.dispatch({ type: 'replyTrade', accept: true })], No: ['trade-decline', () => d.dispatch({ type: 'replyTrade', accept: false })] });
+  // the one asked: live's blue lobby box ("Lv1 Name" / "You have a Trade Request!", Yes / No; the asker's portrait at the
+  // right, index.ts syncPortrait), as the duel request's
+  if (t.phase === 'offered') out.push(messageDialog({ ids: d.ids }, 'trade-offer', duelRequestYesNo as unknown as typeof dialogYesNo,
+    `${d.partnerLevel !== undefined ? `Lv${d.partnerLevel} ` : ''}${partner}\nYou have a Trade Request!`, {
+      Yes: ['trade-accept', () => d.dispatch({ type: 'replyTrade', accept: true })], No: ['trade-decline', () => d.dispatch({ type: 'replyTrade', accept: false })] }));
   else if (t.phase === 'requesting' || t.phase === 'waiting') {
-    // one button, Cancel: dialog-ok's OK relabelled
-    const spec = messageDialog({ ids: d.ids }, 'trade-wait', dialogOk, `Waiting for ${partner} to answer…`, { OK: ['trade-cancel-request', () => d.dispatch({ type: 'cancelTrade' })] });
-    for (const c of spec.win.controls) if (c.cls === 'CWindowTaskTextSwitch' && c.label === 'OK') c.label = 'Cancel';
+    // live's sender box: the duel request's own (the blue lobby dialog at 420, 280: "Requesting Trade" / Cancel), the
+    // partner's portrait at the right meanwhile (index.ts syncPortrait)
+    const spec = messageDialog({ ids: d.ids }, 'trade-wait', duelRequestOk as unknown as typeof dialogOk, 'Requesting Trade', { Cancel: ['trade-cancel-request', () => d.dispatch({ type: 'cancelTrade' })] });
+    const h = [...spec.handlers.values()].find(x => x.key === 'trade-cancel-request'); if (h) h.label = 'Cancel the trade request';
     out.push(spec);
   } else if (t.phase === 'closing') {
     const spec = messageDialog({ ids: d.ids }, 'trade-closing', dialogOk, 'Closing the trade…', {});
@@ -100,6 +108,8 @@ function scene(d: TradeDeps, partner: string): WindowSpec[] {
   const side = (mine: boolean) => pieces(mine, w).map(([name, [u, v], x, y, sx, sy]) =>
     sprite(ids, `trade/${mine ? 'mine' : 'partner'}:${name}`, `data/common/window/window_base_01_${mine ? 'c02' : 'c04'}.png`, [u, v, 8, 8], x, y, 51103, sx, sy, { name, cls: 'CSpriteElm' }));
   const frames = { partner: side(false), mine: side(true) }, frame = [...frames.partner, ...frames.mine];
+  // the lamps: live's engine draws them over the white offer area; here their pictures go in a layer over both areas
+  // (as model parts they were holes in the area's plane, the scene's grey showing round the icon)
   const lampX = w === 776 ? 579 : 437;
   const lamps = [
     sprite(ids, 'trade/lamp:thinking', `data/deck/trade_icon101_${(d.thinking ?? 0) % THINKING_FRAMES}_?.png`, [0, 0, 136, 150], lampX, 191, 51123, 1, 1, { a: 0.8, shown: !t.view.otherReady }),
@@ -107,21 +117,24 @@ function scene(d: TradeDeps, partner: string): WindowSpec[] {
     sprite(ids, 'trade/lamp:own', 'data/deck/trade_icon202_0_?.png', [0, 0, 136, 150], 543, 267, 51123, 1, 1, { a: 0.8, shown: ready }),
   ];
   const holder = model.add('CWindowTaskTrade', 'trade', { x: 0, y: 0, w: 0, h: 0 }, { wx: 0, wy: 0, wz: 51103, otherCount: t.view.otherOffer.length, mineCount: t.ownOffer.length, ready,
-    parts: { sprites: [...frame, ...lamps], labels: [], swfs: [] } });
+    parts: { sprites: [...frame], labels: [], swfs: [] } });
   model.add('CWindowTaskText', 'TradeOtherName', { x: 0, y: 8, w, h: 24 }, { parent: holder.id, name: 'TradeOtherName', text: partner, align: 1, fontSize: 24, color: [1, 1, 1, 1], wx: 248, wy: 8, wz: 51104,
     parts: { sprites: [], labels: [{ id: ids.of('trade/name:l'), name: 'TradeOtherName', text: partner, x: 0, y: 0, z: 0, wx: 248, wy: 8, wz: 51104, a: 1, shown: true }], swfs: [] } });
   // the offered cards, one row each, half size; a card of mine is taken back with a click (the original drags it out)
-  const row = (cards: readonly number[], y: number, mine: boolean) => {
-    const pitch = cards.length > 1 ? Math.min(104, (w - 16 - 12 - 100) / (cards.length - 1)) : 104;
+  // the cards cascade, each 40 right and 8 down of the last, the later over the earlier (live: E - Emergency Call,
+  // E - Emergency Call, Wroughtweiler at 262, 52 / 302, 60 / 342, 68)
+  const row = (cards: readonly number[], y0: number, mine: boolean) => {
+    const pitch = cards.length > 1 ? Math.min(40, (w - 16 - 12 - 100) / (cards.length - 1)) : 40;
+    const at = (i: number): [number, number] => [262 + pitch * i, y0 + 8 * i];
     cards.forEach((passcode, i) => {
-      const x = Math.round(262 + pitch * i), face = sprite(ids, `trade/${mine ? 'mine' : 'other'}:${i}:${passcode}`, `data/CARD/${passcode}.png`, [0, 0, 200, 290], x, y, 51105 + i * 0.01, 0.5, 0.5);
+      const [ax, y] = at(i), x = Math.round(ax), face = sprite(ids, `trade/${mine ? 'mine' : 'other'}:${i}:${passcode}`, `data/CARD/${passcode}.png`, [0, 0, 200, 290], x, y, 51105 + i * 0.01, 0.5, 0.5);
       const c = model.add('CWindowTaskTradeCard', `${mine ? 'mine' : 'other'}:${i}`, { x: x - 248, y, w: 100, h: 145 }, { parent: holder.id, card: passcode, dragging: false, wx: x, wy: y, wz: 51105, parts: { sprites: [face], labels: [], swfs: [] } });
       if (mine && editable) model.on(c, { key: `trade-offer:${i}`, label: `Take back ${d.name(passcode)}`, click: () => d.dispatch({ type: 'removeTradeCard', index: i }) });
       pics.push({ key: `trade-card:${mine ? 'm' : 'o'}:${i}`, source: { card: passcode }, x, y, w: 100, h: 145, z: 51105 + i * 0.01, shown: true, label: d.name(passcode) });
     });
   };
   row(t.view.otherOffer, 52, false); row(t.ownOffer, 340, true);
-  for (const l of lamps) pics.push({ key: `trade-${l.name}`, source: { archive: l.tex }, x: l.wx, y: l.wy, w: 136, h: 150, z: l.wz, alpha: 0.8, shown: l.shown });
+  const lampPics: Picture[] = lamps.map(l => ({ key: `trade-${l.name}`, source: { archive: l.tex }, x: l.wx, y: l.wy, w: 136, h: 150, z: l.wz, alpha: 0.8, shown: l.shown }));
   // the areas: their pieces (the model's too: it draws them), the back plane, mine its two switches
   const area = (mine: boolean) => {
     const y0 = mine ? 320 : 0, b = new WindowBuilder(ids, `trade-area:${mine ? 'mine' : 'other'}`, 'CWindowTaskCardArea', { x: 248, y: y0, w: 488, h: 288 },
@@ -138,7 +151,10 @@ function scene(d: TradeDeps, partner: string): WindowSpec[] {
     return b.spec();
   };
   const pictures = new WindowBuilder(ids, 'trade-pictures', 'CEnginePictures', { x: 0, y: 0, w: 1024, h: 768 }, { z: 51102, pics });
-  const out = [pictures.spec(), model.spec(), area(false), area(true)];
+  // (no drawn rect: the cosmetics overlay, main's trade-cosmetics.js, cuts holes for windows in front of the trade
+  // window, and this layer is the engine's own drawing, under that overlay as on live)
+  const lampLayer = new WindowBuilder(ids, 'trade-lamps', 'CEnginePictures', { x: 0, y: 0, w: 1024, h: 768 }, { z: 51205, pics: lampPics, drawn: { x: 0, y: 0, w: 0, h: 0 } });
+  const out = [pictures.spec(), model.spec(), area(false), area(true), lampLayer.spec()];
   // the partner gone (live: the scene stays, the line in the strip between the two areas until EXIT)
   if (partnerLeft(d)) out.push(stripLine(ids, 'Your trade partner left the trade. Nothing was traded.'));
   return out;

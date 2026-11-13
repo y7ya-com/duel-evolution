@@ -47,10 +47,11 @@ describe('result board (main\'s result.js windows)', () => {
     expect(counts(duel({ npcRecord: { name: 'Chumley', wins: 3, losses: 2, draws: 1 } }))).toEqual(['3', '2']);
     expect(counts(duel({}))).toEqual(['1', '0']);
   });
-  it('a PvP duel keeps one record per side and the player\'s score on their own board (no MP row: live shows none)', () => {
+  it('a PvP duel keeps one record per side, WIN / LOSE / SCORE as live\'s, the player\'s score on their own board (no MP row: live shows none)', () => {
     const specs = duelResultWindows({ ids: ids as never, duel: duel({ rewards: { mp: 0, score: -20, level: [9, 9] } }), next: () => {} });
     expect(specs.map(s => s.win.cls).filter(c => c !== 'CEnginePictures')).toEqual(['CWindowResult', 'CWindowResult', 'CWindowResultNext']);
-    expect((specs[0]!.win.nums ?? []).map(n => n.text)).toEqual(['3200', '9', '-20']);
-    expect((specs[1]!.win.nums ?? []).map(n => n.text)).toEqual(['0', '9']);
+    expect((specs[0]!.win.nums ?? []).map(n => n.text)).toEqual(['1', '0', '-20']);
+    expect((specs[1]!.win.nums ?? []).map(n => n.text)).toEqual(['0', '1', '0']);
+    expect(specs[0]!.win.controls.find(c => c.name === 'record')?.text).toBe('Jaden\n\nWIN\n\nLOSE\n\nSCORE');
   });
 });

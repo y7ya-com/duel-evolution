@@ -36,7 +36,12 @@ export class CardGetScene implements DeckDomScene {
     const passcode = cards[this.at]; if (passcode === undefined) { this.ui.shown = 0; return []; }
     this.ui.shown = passcode;
     const c = this.d.card(passcode), out: WindowSpec[] = this.waiting(ids);
-    out.push(detailWindow({ ids, ui: this.ui, deck: null, card: pc => this.d.card(pc), trunk: [], busy: false, yo2: pc => peekTable()?.id(pc) ?? 0, owned: 0 }));
+    // live's card detail here: "[Fairy/LIGHT]" (no Normal kind) and grey (its frame, bars and planes under the scene's
+    // dim; the card's picture, the card layer's, keeps its colours)
+    const plain = (pc: number) => { const c = this.d.card(pc); return c && { ...c, type: (c.type ?? '').split('/').filter(k => k.trim() !== 'Normal').join('/') }; };
+    const detail = detailWindow({ ids, ui: this.ui, deck: null, card: plain, trunk: [], busy: false, yo2: pc => peekTable()?.id(pc) ?? 0, owned: 0 });
+    const after = detail.after; detail.after = root => { after?.(root); root.style.filter = 'brightness(.56)'; };
+    out.push(detail);
     out.push(new WindowBuilder(ids, 'card-get:card', 'CEnginePictures', { x: 0, y: 0, w: 1024, h: 768 }, { z: 51305,
       pics: [{ key: 'card', source: { card: passcode }, ...CARD_GET_CARD, z: 0, shown: true, label: c?.name ?? 'The card' }] }).spec());
     const { x, y, w, h } = CARD_GET_BACK, b = new WindowBuilder(ids, 'card-get:back', 'CWindowResultNext', { x, y, w, h }, { z: 51310 });
