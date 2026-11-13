@@ -40,7 +40,7 @@ export interface WorldRendererOptions {
   room?: Omit<RoomPropsDeps, 'makeCanvas'>;
   /** The blink timer's rand() (tests). */
   random?(): number;
-  /** The PixiJS application on a canvas in `parent` (default: a WebGL Application at 60 fps); null draws nothing. */
+  /** The PixiJS application on a canvas in `parent` (default: a WebGL Application at the screen's rate); null draws nothing. */
   createHost?(parent: HTMLElement): Promise<WorldHost | null>;
   reducedMotion?(): boolean;
   /** Bakes a pose strip (tests); default draws the movie into a canvas atlas. */
@@ -67,13 +67,17 @@ async function defaultTexture(url: string, signal: AbortSignal): Promise<WorldTe
   const source = new ImageSource({ resource: bitmap, scaleMode: 'nearest' }), texture = new Texture({ source });
   return { texture, release() { texture.destroy(false); source.destroy(); bitmap.close(); } };
 }
-/** PixiJS on one canvas: WebGL, transparent over the stage, 60 fps, the pointer left to the page (the hit targets). */
+/** PixiJS on one canvas: WebGL, transparent over the stage, at the screen's rate, the pointer left to the page (the hit targets). */
 async function defaultHost(parent: HTMLElement): Promise<WorldHost | null> {
   if (typeof document === 'undefined' || typeof HTMLCanvasElement === 'undefined') return null;
   const { Application } = await import('pixi.js');
   const app = new Application();
   await app.init({ width: WORLD_VIEW_WIDTH, height: WORLD_VIEW_HEIGHT, backgroundAlpha: 0, antialias: false, resolution: 1, preference: 'webgl', autoDensity: false, eventMode: 'none', eventFeatures: { move: false, globalMove: false, click: false, wheel: false } });
-  app.ticker.maxFPS = 60;
+  // every screen frame (no maxFPS): PixiJS's limiter truncates the frame time to whole ms, so at 60 Hz a 16.6 ms frame
+  // fell under its 16.67 and was skipped (about one frame a second drawn twice as long: a hitch in every walk), and on a
+  // 120 / 144 Hz screen it drew every second or third frame unevenly. The walkers are drawn between their 30 Hz steps,
+  // so each screen frame shows them a little further on.
+  app.ticker.maxFPS = 0;
   const canvas = app.canvas; canvas.className = 'de-world-canvas'; canvas.setAttribute('aria-hidden', 'true'); canvas.dataset.key = 'world-canvas';
   parent.prepend(canvas);
   return { stage: app.stage, canvas, add: tick => app.ticker.add(t => tick(t.deltaMS)), run: on => { if (on) app.ticker.start(); else { app.ticker.stop(); app.render(); } },
