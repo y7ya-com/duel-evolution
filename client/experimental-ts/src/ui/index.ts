@@ -1402,7 +1402,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         ...(state.profileDetail ? [
           { label: 'My Profile', key: 'profile', disabled: blocked || sideboard, run: () => { if (state.scene !== 'lobby') open('lobby'); send({ type: 'profileAction', action: { type: 'open', pid: state.player!.id } }); } },
           // Create Comment edits the player's own profile lines: it opens over that profile (the controller's rule)
-          { label: 'Create Comment', key: 'comment', disabled: blocked || sideboard, run: () => { if (state.scene !== 'lobby') open('lobby'); const p = state.profileDetail; if (p?.selectedPid !== state.player!.id) send({ type: 'profileAction', action: { type: 'open', pid: state.player!.id } }); htmlUiState.comment = [p?.selectedPid === state.player!.id ? p.comments[0] ?? '' : '', p?.selectedPid === state.player!.id ? p.comments[1] ?? '' : '']; showHtml(); } },
+          // (live opens the dialog alone: a profile opened for it stays hidden and closes with it, windows.ts commentBehind)
+          { label: 'Create Comment', key: 'comment', disabled: blocked || sideboard, run: () => { if (state.scene !== 'lobby') open('lobby'); const p = state.profileDetail, mine = p?.selectedPid === state.player!.id;
+            if (!mine) { htmlUiState.commentBehind = { fill: [true, true] }; send({ type: 'profileAction', action: { type: 'open', pid: state.player!.id } }); }
+            htmlUiState.comment = [mine ? p.comments[0] ?? '' : '', mine ? p.comments[1] ?? '' : '']; showHtml(); } },
           // Change Title (CWindowModelTitleConfig), live's My Room menu's, after My Profile
           ...(state.location === 'my-room' && state.titles ? [{ label: 'Change Title', key: 'change-title', disabled: blocked || sideboard, run: () => { titleUi = { selected: -1, top: 0 }; showHtml(); } }] : []),
         ] : []),

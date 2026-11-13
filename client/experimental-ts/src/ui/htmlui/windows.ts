@@ -46,6 +46,13 @@ export interface HtmlUiLocal { discord?: DiscordDuelist[] | null; onDiscordCard?
   comment: [string, string] | null; commentQueue: { line: 0 | 1; text: string }[];
   /** A line was sent: 'sent' until the profile shows it pending, then 'pending' until it is confirmed. */
   commentWait: null | 'sent' | 'pending';
+  /** The own profile opened for Create Comment alone (live opens no My Profile under it): kept hidden and closed once the
+   * dialog is done; `fill`, the lines still to take from the profile as it arrives (untouched by the player). */
+  commentBehind?: { fill: [boolean, boolean] } | null;
+  /** The own profile opened for Change Title alone (the worn title; the server wears a title only for an open profile). */
+  titleBehind?: boolean;
+  /** The comment line sent last (its confirmation is the profile showing its text). */
+  commentSent?: { line: 0 | 1; text: string };
   /** The Main Menu's list window open (Friend / Ignore / Team List) and the row chosen in it. */
   lists: { kind: 'friends' | 'ignore' | 'team'; selected: number; pick?: boolean } | null;
   /** Write Mail open: its recipient and what has been typed. */
@@ -510,7 +517,7 @@ export function placeBanner(ctx: BuildContext): WindowSpec | null {
 const PROFILE_ITEM = 'プロフィールウィンドウの項目名', PROFILE_VALUE = 'プロフィールウィンドウの項目の数値';
 export function profileWindow(ctx: BuildContext): WindowSpec | null {
   // one's own profile (another player's is their card, playerCard)
-  const p = ctx.state.profileDetail; if (!p || p.selectedPid === null || p.selectedPid !== p.selfPid) return null;
+  const p = ctx.state.profileDetail; if (!p || p.selectedPid === null || p.selectedPid !== p.selfPid || ctx.ui.commentBehind || ctx.ui.titleBehind) return null;
   const s = p.summary, d = p.details, self = true;
   const wins = s?.wins ?? 0, losses = s?.losses ?? 0, played = wins + losses;
   // Title: the personal title (comment line 1) when the player wrote one, else the worn title's English name
@@ -558,7 +565,7 @@ export function profileWindow(ctx: BuildContext): WindowSpec | null {
 export function commentDialog(ctx: BuildContext, lines: [string, string]): WindowSpec {
   const b = new WindowBuilder(ctx.ids, 'comment', 'CWindowModelSetComment', { x: 344, y: 269, w: 336, h: 230 }, { z: 51503, modal: true });
   const p = ctx.state.profileDetail, saved = [p?.comments[0] ?? '', p?.comments[1] ?? ''];
-  const close = () => { ctx.ui.comment = null; ctx.rerender(); };
+  const close = () => { ctx.ui.comment = null; saveNextComment(ctx); ctx.rerender(); };
   const ok = () => {
     ctx.ui.commentQueue = ([0, 1] as const).filter(i => lines[i] !== saved[i]).map(line => ({ line, text: lines[line] }));
     ctx.ui.comment = null; saveNextComment(ctx); ctx.rerender();
@@ -570,17 +577,28 @@ export function commentDialog(ctx: BuildContext, lines: [string, string]): Windo
   b.add('CWindowTaskTextSwitch', 'ok', { x: 44, y: 180, w: 80, h: 24 }, { label: 'OK', align: 1, state: 'normal', checked: false, color: [0, 0, 0, 1] }, { key: 'comment-ok', click: ok });
   ([[1, 128, 'comment-duel', 'Duel Message'], [0, 64, 'comment-greeting', 'Greeting']] as const).forEach(([line, y, key, label]) =>
     b.add('CWindowTaskInput', `line${line}`, { x: 8, y, w: 320, h: 32 }, { focused: line === 0, value: lines[line], password: false, caret: null, caretOn: false, maxLen: 31, multiLine: false },
-      { key, label, text: v => { lines[line] = v; }, enter: ok }));
+      { key, label, text: v => { lines[line] = v; if (ctx.ui.commentBehind) ctx.ui.commentBehind.fill[line] = false; }, enter: ok }));
   return b.spec();
 }
 /** The next queued comment line, once the profile has no update pending (the server confirms one at a time). */
 export function saveNextComment(ctx: BuildContext): void {
   const p = ctx.state.profileDetail, ui = ctx.ui;
-  if (ui.commentWait === 'sent') { if (p?.pending) ui.commentWait = 'pending'; else return; }
+  // the profile opened for Create Comment alone: its lines into the dialog as they arrive; closed when all is saved
+  const behind = ui.commentBehind;
+  if (behind && ui.comment && p) ([0, 1] as const).forEach(i => { const v = p.comments[i]; if (behind.fill[i] && v !== null) { ui.comment![i] = v; behind.fill[i] = false; } });
+  if (behind && !ui.comment && !ui.commentQueue.length && ui.commentWait === null) {
+    ui.commentBehind = null;
+    if (p?.selectedPid !== null && p?.selectedPid === p?.selfPid) ctx.send({ type: 'profileAction', action: { type: 'close' } });
+    return;
+  }
+  // (a line the server confirmed before any draw saw it pending is done too: its text is the profile's)
+  const landed = !p?.pending && !!ui.commentSent && p?.comments[ui.commentSent.line] === ui.commentSent.text;
+  if (ui.commentWait === 'sent') { if (p?.pending) ui.commentWait = 'pending'; else if (landed || p?.error) ui.commentWait = null; else return; }
   if (ui.commentWait === 'pending') { if (p?.pending) return; ui.commentWait = null; }
+  if (ui.commentWait === null && behind && !ui.comment && !ui.commentQueue.length) { saveNextComment(ctx); return; }
   const next = ui.commentQueue[0];
   if (!p || !next || p.pending !== null || p.selfPid === null || p.selectedPid !== p.selfPid) return;
-  ui.commentQueue.shift(); ui.commentWait = 'sent';
+  ui.commentQueue.shift(); ui.commentWait = 'sent'; ui.commentSent = next;
   ctx.send({ type: 'profileAction', action: { type: 'editDraft', field: next.line === 0 ? 'comment' : 'title', value: next.text } });
   ctx.send({ type: 'profileAction', action: { type: 'saveComment', line: next.line } });
 }
