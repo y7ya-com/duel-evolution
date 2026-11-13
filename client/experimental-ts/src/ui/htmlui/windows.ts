@@ -13,6 +13,7 @@ import { avatarSwitch, freeChoices, starterLook, FIRST_CATEGORY, type AvatarDeps
 import playerSelectLive from './templates/playerselect-live.json';
 import dialogInput1 from './templates/dialog-input1.json';
 import { wrapDialogText } from './dialog-text';
+import { spacing } from '@htmlui/controls/basic.js';
 export { wrapDialogText };
 import dialogYesNo from './templates/dialog-yesno.json';
 import dialogOk from './templates/dialog-ok.json';
@@ -165,6 +166,9 @@ export function nameDialog(ctx: BuildContext, dialog: Extract<HtmlDialog, { kind
   spec.after = root => {
     const field = root.querySelector('input'); if (!field || FOCUSED.has(field)) return;
     FOCUSED.add(field);
+    // live's field is the engine's: its text spaced as every game text (ui.js spacing), its caret the pink kasoru_01
+    const spaced = () => { field.style.letterSpacing = `${spacing(field.value || 'A')}px`; };
+    field.style.caretColor = 'rgb(255, 70, 166)'; spaced(); field.addEventListener('input', spaced);
     setTimeout(() => { const at = document.activeElement; if (field.isConnected && (!at || !root.contains(at) || at === field)) field.focus({ preventScroll: true }); }, 0);
   };
   return spec;
