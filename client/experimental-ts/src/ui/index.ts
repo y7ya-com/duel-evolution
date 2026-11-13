@@ -1411,7 +1411,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const entries: MenuEntry[] = !state.player ? [] : [
         { label: 'Edit Deck', key: 'deck', disabled: blocked || sideboard, run: go('deck') },
         ...(state.profileDetail ? [
-          { label: 'My Profile', key: 'profile', disabled: blocked || sideboard, run: () => { if (state.scene !== 'lobby') open('lobby'); send({ type: 'profileAction', action: { type: 'open', pid: state.player!.id } }); } },
+          // (a profile opened hidden for Create Comment / Change Title is the one shown now, and stays)
+          { label: 'My Profile', key: 'profile', disabled: blocked || sideboard, run: () => { if (state.scene !== 'lobby') open('lobby'); htmlUiState.commentBehind = null; htmlUiState.titleBehind = false; send({ type: 'profileAction', action: { type: 'open', pid: state.player!.id } }); } },
           // Create Comment edits the player's own profile lines: it opens over that profile (the controller's rule)
           // (live opens the dialog alone: a profile opened for it stays hidden and closes with it, windows.ts commentBehind)
           { label: 'Create Comment', key: 'comment', disabled: blocked || sideboard, run: () => { if (state.scene !== 'lobby') open('lobby'); const p = state.profileDetail, mine = p?.selectedPid === state.player!.id;
