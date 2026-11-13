@@ -160,6 +160,8 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 /* the result screen (main's result.js boards) covers the card box at the bottom left, as live's does */
 html:has(.yo2r-board) .de-duel-info { display:none; }
 .de-duel-bar.de-result-up>.de-duel-wrench, .de-duel-bar.de-result-up .de-duel-help-run { visibility:hidden; }
+@keyframes de-notice-pulse { from { opacity:.55; } to { opacity:.95; } }
+@media (prefers-reduced-motion: reduce) { [data-picture="notice:duel"] { animation:none !important; opacity:.8; } }
 /* the help line scrolls in live's white field (391..1017 x 743..761: a white rim, the inside a little see-through) */
 .de-duel-help { position:absolute; left:${391 / 1024 * 100}%; width:${626 / 1024 * 100}%; top:${7 / 32 * 100}%; height:${18 / 32 * 100}%; box-sizing:border-box; border:1px solid #fff; background:rgba(255,255,255,.88); overflow:hidden; white-space:nowrap; font:14px/16px Arial,sans-serif; letter-spacing:.04em; color:#000; display:flex; align-items:center; }
 /* the ring keeps its own 64 px box: .de-stage canvas (every stage canvas at 100%) stretched it 1024 wide across the bar */
