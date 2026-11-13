@@ -911,7 +911,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (!entry) { entry = { code, load, abort: new AbortController(), images: new Set(), used: true, pending: false, failed: false, lease: null }; art.set(code, entry); }
     entry.used = true; entry.images.add(image);
     const previousError = image.onerror; image.onerror = event => { previousError?.call(image, event); observer?.unobserve(image); entry!.images.delete(image); entry!.failed = true; image.remove(); image.removeAttribute('src'); if (!entry!.images.size) { entry!.lease?.release(); entry!.lease = null; } };
-    if (entry.lease) image.src = entry.lease.url;
+    // a picture already loaded is complete as soon as its src is set: the rebuilt <img> is shown in this frame (its onload:
+    // visible, opaque, the placeholder gone), not hidden until its load event (each render rebuilt the field, the janken
+    // scene and the cards, each with a blank frame or the card's name plate until then)
+    if (entry.lease) { image.src = entry.lease.url; if (image.complete && image.naturalWidth) image.onload?.call(image, new Event('load')); }
     else if (observer) { imageEntries.set(image, entry); observer.observe(image); }
     else startArt(entry);
   };
