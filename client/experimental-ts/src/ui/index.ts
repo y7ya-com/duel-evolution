@@ -367,7 +367,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     open: url => { globalThis.open?.(url, '_blank', 'noopener,noreferrer'); } })] : [];
   let titleUi: TitleConfigUi | null = null;
   const titleSpecs = (): WindowSpec[] => {
-    if (!titleUi || !state.player || !state.titles || state.scene === 'duel' || state.scene === 'title') { titleUi = null; return []; }
     const p = state.profileDetail;
     if (!titleUi || !state.player || !state.titles || state.scene === 'duel' || state.scene === 'title') {
       titleUi = null;
@@ -952,13 +951,16 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     // signed out, every way online starts at the sign-in window (free mode goes online too); an error from before it
     // is not its own (it says only what happens in it)
     if (!state.auth?.signedIn && state.auth && name !== 'options') { loginUi.open = true; loginUi.stale = state.error ?? null; requestRender(); return; }
+    // a session of the other mode still up (Select Player's Back leaves it connected) ends first: live's title starts
+    // either mode from any title
+    const other = (free: boolean) => { if (state.connection === 'online' && (state.mode === 'free') !== free) send({ type: 'disconnect' }); };
     if (name === 'online') {
-      if (state.connection === 'online' && state.mode !== 'free') open('characters'); else send({ type: 'connect', freeMode: false });
+      if (state.connection === 'online' && state.mode !== 'free') open('characters'); else { other(false); send({ type: 'connect', freeMode: false }); }
     } else if (name === 'options') { optionsUi = { kind: 'title' }; showHtml(); }
     else {
       freeTarget = name === 'deck' ? 'deck' : null;
       if (state.connection === 'online' && state.mode === 'free') { if (freeTarget) { freeTarget = null; deckFromTitle = true; open('deck'); } else open(state.player ? 'lobby' : 'characters'); }
-      else send({ type: 'connect', freeMode: true });
+      else { other(true); send({ type: 'connect', freeMode: true }); }
     }
   };
   function renderTitle(): void {
@@ -976,7 +978,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (controller.loadArchiveImage) {
       titleScene ??= new TitleScene(controller.loadArchiveImage.bind(controller));
       n.append(titleScene.element, titleScene.controls); titleScene.show(!!state.settings.reducedMotion);
-      titleScene.wire(titlePress, name => !state.busy && (name === 'options' || name === 'online' || !(state.connection === 'online' && state.mode !== 'free')));
+      titleScene.wire(titlePress, () => !state.busy);
       return;
     }
     // without the game's art: the sign-in window over a plain title
