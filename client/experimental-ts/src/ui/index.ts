@@ -914,8 +914,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     else startArt(entry);
   };
   const drawCard = (card: CardView, showName = true, faceUp = true) => cardTile(card, showName, faceUp, controller.loadCardImage ? loadArt : undefined, controller.loadArchiveImage ? image => loadArchiveArt(CARD_BACK, image) : undefined);
+  const pileDepth = (cards: number) => Math.min(15, Math.floor(cards / 4));
   const pileEdges = (cards: number, side: 0 | 1, rotation: number): string => {
-    const depth = Math.min(15, Math.floor(cards / 4)), turn = rotation * Math.PI / 180, out: string[] = [];
+    const depth = pileDepth(cards), turn = rotation * Math.PI / 180, out: string[] = [];
     for (let k = 1; k <= depth; k++) {
       // the edge's screen offset, turned back into the card's own frame (an upside-down pile's shadow turns with it)
       const sx = side ? k : -k, sy = k, x = Math.round(sx * Math.cos(turn) + sy * Math.sin(turn)), y = Math.round(-sx * Math.sin(turn) + sy * Math.cos(turn));
@@ -925,7 +926,11 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   };
   const placeFieldCard = (node: HTMLElement, card: DuelCardView, handCount: number) => {
     const p = fieldCardPosition(card, handCount), motion = card.motion;
-    node.style.left = `${(motion?.x ?? p.x) / 1024 * 100}%`; node.style.top = `${(motion?.y ?? p.y) / 768 * 100}%`;
+    // a deck / extra pile stands on its zone: its top card sits a pixel up (and right on the player's side, left on the
+    // opponent's) for every four cards under it, as live draws the stack (33 cards: the top card 8 px up and over)
+    const count = node.querySelector?.<HTMLElement>('.de-card-count'), stacked = !!count && (card.zone === 'deck' || card.zone === 'extra');
+    const depth = stacked ? pileDepth(Number(count!.textContent) || 0) : 0;
+    node.style.left = `${((motion?.x ?? p.x) + (card.controller ? -depth : depth)) / 1024 * 100}%`; node.style.top = `${((motion?.y ?? p.y) - depth) / 768 * 100}%`;
     node.style.width = `${p.width / 1024 * 100}%`; node.style.height = `${p.height / 768 * 100}%`;
     node.style.transform = motion ? `translate(-50%,-50%) rotate(${motion.rotation}deg) scaleX(${motion.scaleX})` : '';
     node.style.zIndex = motion?.zIndex === undefined ? '' : String(motion.zIndex);
@@ -934,11 +939,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const badges = node.querySelector?.<HTMLElement>('.de-card-badges');
     if (badges) badges.style.transform = `rotate(${-(motion?.rotation ?? (p.rotate ? 90 : 0))}deg)`;
     // and a pile's count reads upright too (the opponent's piles stand upside down)
-    const count = node.querySelector?.<HTMLElement>('.de-card-count');
-    if (count && (card.zone === 'deck' || card.zone === 'extra')) count.style.transform = `translate(-50%,-50%) rotate(${-(motion?.rotation ?? 0)}deg)`;
+    if (stacked) count!.style.transform = `translate(-50%,-50%) rotate(${-(motion?.rotation ?? 0)}deg)`;
     // a deck / extra pile is live's thick stack: a card edge a pixel for every four cards, beige and its shade in turn,
     // spreading down and away from the field's middle (the player's to the left, the opponent's to the right)
-    if (count && (card.zone === 'deck' || card.zone === 'extra')) node.style.boxShadow = pileEdges(Number(count.textContent) || 0, card.controller, motion?.rotation ?? 0);
+    if (stacked) node.style.boxShadow = pileEdges(Number(count!.textContent) || 0, card.controller, motion?.rotation ?? 0);
   };
   const canSkipRender = (previous: ClientView, next: ClientView) => {
     if (previous.scene !== next.scene || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.relay !== next.relay || previous.sideboarding !== next.sideboarding || previous.match !== next.match || previous.preparation !== next.preparation || previous.unavailable?.[previous.scene] !== next.unavailable?.[next.scene]) return false;
@@ -1228,9 +1232,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const field = el('div', 'de-duel-field'); field.setAttribute('role', 'img'); field.setAttribute('aria-label', 'Duel field'); field.style.backgroundImage = fieldBackground(); board.append(field);
     const archive = controller.loadArchiveImage ? (path: string, className = '') => { const image = el('img', className); image.alt = ''; image.draggable = false; image.decoding = 'async'; image.style.visibility = 'hidden'; image.onload = () => { image.style.visibility = ''; }; loadArchiveArt(path, image); return image; } : null;
     if (archive) {
-      // The original backdrop, then the plain halves of the zone sheet: the opponent's red half above, the player's blue half below.
+      // The original backdrop, then the plain halves of the zone sheet: the opponent's red half above (at 54: live's red lines
+      // at 65 / 170 / 273), the player's blue half below.
       if (duel.background) board.append(archive(duel.background, 'de-duel-bg'));
-      for (const [half, top] of [[1, 50], [0, 282]] as const) { const frames = el('div', 'de-duel-frames'); frames.style.top = `${top / 768 * 100}%`; const sheet = archive(FIELD_SHEET); sheet.style.top = half ? '-100%' : '0'; frames.append(sheet); board.append(frames); }
+      for (const [half, top] of [[1, 54], [0, 282]] as const) { const frames = el('div', 'de-duel-frames'); frames.style.top = `${top / 768 * 100}%`; const sheet = archive(FIELD_SHEET); sheet.style.top = half ? '-100%' : '0'; frames.append(sheet); board.append(frames); }
     }
     const hud = el('div', 'de-duel-hud');
     duelClockNode = null;

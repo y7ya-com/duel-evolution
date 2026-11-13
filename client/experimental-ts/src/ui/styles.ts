@@ -145,6 +145,13 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 .de-card-back>img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
 .de-field-cards { position:absolute; inset:0; pointer-events:none; }
 .de-field-card { position:absolute; transform:translate(-50%,-50%); pointer-events:auto; }
+/* live draws the field's and the hands' cards as their pictures alone (no frame, no padding, no rounding): the picture
+   fills the card, stretched as the engine's texture is, a thin dark edge round it; the player's hand cards a 3 px shadow,
+   the opponent's backs none (de-scratch/hand: live 94 x 138 faces, 100 x 146 backs, 48 x 70 on the field) */
+.de-client button.de-field-card { padding:0; border:0; border-radius:0; background:none; box-shadow:0 0 0 1px rgba(16,18,28,.55); }
+.de-client button.de-field-card img { object-fit:fill; }
+.de-client button.de-field-card[data-zone=hand][data-side=your] { box-shadow:0 0 0 1px rgba(32,25,38,.9), 0 0 0 2px rgba(61,61,80,.7), 0 0 0 3px rgba(102,105,131,.45); }
+.de-client button.de-field-card[data-zone=hand][data-side=opponent] { box-shadow:none; }
 .de-duel-effects { position:absolute; inset:0; pointer-events:none; z-index:6; }
 .de-effect { position:absolute; font:bold 25px Arial,sans-serif; color:#fff49d; text-shadow:0 2px #082b4b,1px 0 #082b4b,-1px 0 #082b4b; white-space:nowrap; }
 .de-effect-damage { color:#ffb2a3; }

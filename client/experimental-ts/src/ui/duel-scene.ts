@@ -191,12 +191,13 @@ export class DuelPresentation {
     this.statsKey = key;
     const glyphs: HTMLElement[] = [], url = `url("${font.url}")`, size = `${font.width / 7 * 100}% ${font.height / 16 * 100}%`;
     for (const card of shown) {
-      const p = fieldCardPosition(card, 0), x = card.motion?.x ?? p.x, y = (card.motion?.y ?? p.y) + 42;
-      // "1800 / 1600": the slash with a few pixels of space each side, centred under the card.
+      // live (de-scratch/hand): "1200/ 800" in 7-px cells, the slash right after the ATK and a cell before the DEF, centred
+      // on the card; under the player's monsters (the digits 41 px under the card's centre), over the opponent's (47 over)
+      const p = fieldCardPosition(card, 0), x = card.motion?.x ?? p.x, y = (card.motion?.y ?? p.y) + (card.controller ? -46 : 42);
       const atk = String(card.attack), def = card.defense === undefined || card.defense === null ? '?' : String(card.defense);
-      const width = (atk.length + def.length + 1) * 7 + 8;
-      let at = x - width / 2;
-      const glyph = (ch: string) => {
+      const text = `${atk}/ ${def}`;
+      let at = Math.round(x - text.length * 7 / 2);
+      for (const ch of text) {
         const g = '0123456789/'.indexOf(ch);
         if (g >= 0) {
           const i = document.createElement('i');
@@ -204,8 +205,7 @@ export class DuelPresentation {
           glyphs.push(i);
         }
         at += 7;
-      };
-      for (const ch of atk) glyph(ch); at += 4; glyph('/'); at += 4; for (const ch of def) glyph(ch);
+      }
     }
     this.statsLayer.replaceChildren(...glyphs);
   }
