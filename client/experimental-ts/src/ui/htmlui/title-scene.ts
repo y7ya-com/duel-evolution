@@ -12,6 +12,8 @@ import { PixiPainter, type PaintSource } from '../pixi-painter';
 import { drawSwfItems } from './start-scene';
 
 export const TITLE_MOVIE = 'data/title/title_flash_01.txt';
+/** How long the movie waits for its pictures before it plays with what it has. */
+const ART_WAIT_MS = 5000;
 /** rt/debrand.cpp TITLE_DROP in free mode (live): KONAMI 21, copyright 23, QUIT 25 (CLEAR 29 and WEB 33 stay). */
 export const TITLE_DROP_DEPTHS: readonly number[] = [21, 23, 25];
 export type TitleButton = 'online' | 'options' | 'deck' | 'free';
@@ -70,9 +72,13 @@ export class TitleScene {
   private movie: SwfMovie | null = null; private loading = false; private instance: SwfInstance | null = null;
   private readonly images = new Map<string, PaintSource | null>();
   private timer: ReturnType<typeof setInterval> | null = null; private disposed = false; private reducedMotion = false; private shown = false; private active = true;
+  /** The movie's pictures still loading: it starts once all are in (live's engine loads them before the scene plays), so
+   * its fade-in and flash are seen whole instead of its pieces popping in as they decode; after ART_WAIT_MS it starts
+   * with what it has. */
+  private pending = 0; private waited = false; private waitTimer: ReturnType<typeof setTimeout> | null = null;
   constructor(private readonly load: ArchiveLoader) {
     // the movie starts once both it and Pixi are up, so its first frame is seen
-    this.ctx = new PixiPainter({ width: 1024, height: 768, className: 'de-title-scene', ready: () => { if (this.movie && !this.instance && this.shown) this.start(); else this.draw(); } });
+    this.ctx = new PixiPainter({ width: 1024, height: 768, className: 'de-title-scene', ready: () => this.startWhenReady() });
     this.element = this.ctx.element;
     Object.assign(this.element.style, { position: 'absolute', left: '0', top: '0', width: '100%', height: '100%', pointerEvents: 'none', zIndex: '0' });
     this.controls = document.createElement('div'); this.controls.className = 'de-title-buttons';
@@ -113,7 +119,7 @@ export class TitleScene {
     if (this.disposed) return;
     this.reducedMotion = reducedMotion; this.shown = true; this.ctx.start();
     if (!this.movie) { this.loadMovie(); return; }
-    if (!this.instance) this.start();
+    if (!this.instance) this.startWhenReady();
   }
   /** Hidden: the next show plays the movie from its start again. */
   hide(): void {
@@ -122,6 +128,11 @@ export class TitleScene {
     // the button never saw it leave
     this.states.clear();
     for (const el of this.buttons.values()) if (el.ownerDocument?.activeElement === el) el.blur();
+  }
+  /** Starts the movie once it, Pixi and its pictures are up (or the wait for the pictures is over); else draws what is. */
+  private startWhenReady(): void {
+    if (this.disposed) return;
+    if (this.movie && !this.instance && this.shown && this.ctx.ready && (!this.pending || this.waited)) this.start(); else this.draw();
   }
   private start(): void {
     const movie = this.movie; if (!movie || !this.ctx.ready) return;
@@ -145,7 +156,9 @@ export class TitleScene {
         const movie = parseSwfText(filterTitleMovie(new TextDecoder().decode(await (await fetch(lease.url)).arrayBuffer())));
         this.captions();
         for (const file of movie.files) if (!FREE_CAPTION.test(file)) this.image(titleImagePath(file));
-        this.movie = movie; if (!this.disposed && this.shown) this.start();
+        this.movie = movie;
+        if (this.pending && !this.waitTimer) this.waitTimer = setTimeout(() => { this.waitTimer = null; this.waited = true; this.startWhenReady(); }, ART_WAIT_MS);
+        this.startWhenReady();
       } finally { lease.release(); }
     }).catch(e => { this.loading = false; console.warn('title movie', e); this.plainButtons(); });
   }
@@ -162,13 +175,14 @@ export class TitleScene {
   }
   private image(path: string): void {
     if (this.images.has(path)) return;
-    this.images.set(path, null);
+    this.images.set(path, null); this.pending++;
+    const done = () => { this.pending--; this.startWhenReady(); };
     this.load(path, this.abort.signal).then(lease => {
       const img = new Image(); img.decoding = 'async';
-      img.onload = () => { this.images.set(path, img); lease.release(); this.draw(); };
-      img.onerror = () => { lease.release(); console.warn('title image', path); };
+      img.onload = () => { this.images.set(path, img); lease.release(); done(); };
+      img.onerror = () => { lease.release(); console.warn('title image', path); done(); };
       img.src = lease.url;
-    }, e => console.warn('title image', path, e));
+    }, e => { console.warn('title image', path, e); done(); });
   }
   // rt/freetitle.cpp: rows 3 and 4's captions (normal, hover, pressed) rebuilt from the five rows' art as DECK EDITOR
   // and FREE DUEL, here at run time from the player's own archive, under the movie's file names
@@ -176,6 +190,7 @@ export class TitleScene {
     const paths: string[] = [];
     for (let state = 1; state <= 3; state++) for (let row = 1; row <= 5; row++) paths.push(`data/title/title_botton_0${row}_0${state}_e.png`);
     for (let state = 1; state <= 3; state++) for (const row of [3, 4]) this.images.set(`data/title/title_botton_0${row}_0${state}_e.png`, null);
+    this.pending++;
     Promise.all(paths.map(path => this.load(path, this.abort.signal).then(lease => new Promise<ImageData | null>(done => {
       const img = new Image();
       img.onload = () => { lease.release(); const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const x = c.getContext('2d'); if (!x) return done(null); x.drawImage(img, 0, 0); done(x.getImageData(0, 0, c.width, c.height)); };
@@ -192,8 +207,7 @@ export class TitleScene {
           this.images.set(`data/title/title_botton_0${3 + k}_0${state}_e.png`, c);
         });
       }
-      this.draw();
-    }, e => console.warn('title captions', e));
+    }, e => console.warn('title captions', e)).finally(() => { this.pending--; this.startWhenReady(); });
   }
   private draw(): void {
     const ctx = this.ctx, movie = this.movie, instance = this.instance; if (this.disposed) return;
@@ -215,7 +229,7 @@ export class TitleScene {
       el.tabIndex = ready ? 0 : -1;
     }
   }
-  dispose(): void { this.disposed = true; this.abort.abort(); if (this.timer) clearInterval(this.timer); this.timer = null; this.ctx.destroy(); this.controls.remove(); }
+  dispose(): void { this.disposed = true; this.abort.abort(); if (this.timer) clearInterval(this.timer); this.timer = null; if (this.waitTimer) clearTimeout(this.waitTimer); this.waitTimer = null; this.ctx.destroy(); this.controls.remove(); }
 }
 
 // ---- rt/freetitle.cpp, ported: a caption = row 1's empty bar + glyph fill masks lifted from the English captions +

@@ -52,6 +52,7 @@ import { TradeTrunk, isTradeTrunk, TRADE_DROP } from './htmlui/trade-trunk';
 import { SideSwap, isSideSwap, SIDE_SWAP_ZONES } from './htmlui/side-swap';
 import { CardGetScene, isCardGet } from './htmlui/card-get';
 import { npcWaistUpSet } from './npc-waistup';
+import { AnimationCarry } from './anim-carry';
 import { deckBackdrop } from '@htmlui/screens/deck.js';
 import { PictureArt } from './htmlui/art';
 import { setPictureResolver, disposePictures } from './htmlui/pictures';
@@ -300,7 +301,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // a tunnel resume underneath (reconnecting) keeps it, its tab and an open pack reveal in place.
   const useCardShop = () => state.scene === 'shop' && state.mode !== 'free';
   const pictureArt = new PictureArt({ ...(controller.loadArchiveImage ? { loadArchiveImage: controller.loadArchiveImage.bind(controller) } : {}), ...(controller.loadCardImage ? { loadCardImage: controller.loadCardImage.bind(controller) } : {}) });
-  setPictureResolver(pictureArt.resolve);
+  setPictureResolver(pictureArt.resolve, pictureArt.eyes);
   // main's Wardrobe previews and card shop faces read the game's files through lazyfs's Module.yo2Lazy on live
   if (controller.readGameFile) installLazyShim(controller.readGameFile.bind(controller), controller.readCardArt?.bind(controller), controller.gameArchiveUrl, controller.passcodeTableUrl);
   // the nation flag before a name over the head (nation-flag.ts: CNationFlag's small atlas cell), the atlas from the archive
@@ -874,6 +875,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   let renderedIdentity = '';
   let renderedNpcIdentity = '';
   const art = new Map<string, ArtEntry>();
+  // looping CSS animations carried over each rebuild of the stage (anim-carry.ts)
+  const animCarry = new AnimationCarry();
   const imageEntries = new WeakMap<Element, ArtEntry>();
   const startArt = (entry: ArtEntry) => {
     if (disposed || entry.pending || entry.failed || entry.lease) return;
@@ -903,7 +906,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (!entry) { entry = { code, load, abort: new AbortController(), images: new Set(), used: true, pending: false, failed: false, lease: null }; art.set(code, entry); }
     entry.used = true; entry.images.add(image);
     const previousError = image.onerror; image.onerror = event => { previousError?.call(image, event); observer?.unobserve(image); entry!.images.delete(image); entry!.failed = true; image.remove(); image.removeAttribute('src'); if (!entry!.images.size) { entry!.lease?.release(); entry!.lease = null; } };
-    if (entry.lease) image.src = entry.lease.url;
+    // a picture already loaded is complete as soon as its src is set: the rebuilt <img> is shown in this frame (its onload:
+    // visible, opaque, the placeholder gone), not hidden until its load event (each render rebuilt the field, the janken
+    // scene and the cards, each with a blank frame or the card's name plate until then)
+    if (entry.lease) { image.src = entry.lease.url; if (image.complete && image.naturalWidth) image.onload?.call(image, new Event('load')); }
     else if (observer) { imageEntries.set(image, entry); observer.observe(image); }
     else startArt(entry);
   };
@@ -1496,7 +1502,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       header.replaceChildren(el('h1', '', 'Duel Evolution'));
       const status = el('div', 'de-status', el('span', `de-connection ${state.connection}`), state.player ? `${state.player.name}${state.player.level ? ` · Lv ${state.player.level}` : ''} · ` : '', state.mode === 'free' ? 'Free Duel · ' : '', state.status);
       status.setAttribute('role', 'status');
-      stage.replaceChildren(); stage.setAttribute('aria-busy', String(!!state.busy)); host.dataset.scene = state.scene; host.dataset.motion = state.settings.reducedMotion ? 'reduced' : 'full';
+      animCarry.carry(stage); stage.replaceChildren(); stage.setAttribute('aria-busy', String(!!state.busy)); host.dataset.scene = state.scene; host.dataset.motion = state.settings.reducedMotion ? 'reduced' : 'full';
       if (state.scene !== 'shop') { leaveShop = false; cardShop.dispose(); }
       else if (leaveShop && !state.busy) { leaveShop = false; queueMicrotask(() => open('lobby')); }
       if (state.scene !== 'title') titleScene?.hide();
@@ -1626,7 +1632,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         host.querySelector<HTMLElement>('.de-card-target:not(:disabled), .de-zone-target:not(:disabled), .de-field-card[data-side="your"][aria-haspopup="menu"]')?.focus({ preventScroll: true });
       trackedActionsFor = actionsFor;
       if (focusNpc) Array.from(host.querySelectorAll<HTMLElement>('[data-key]')).find(x => x.dataset.key?.startsWith('npc:') && !(x as HTMLButtonElement).disabled)?.focus({ preventScroll: true });
-    } finally { pruneArt(); rendering = false; }
+    } finally { try { animCarry.resume(stage); } catch { /* an animation never stops a render */ } pruneArt(); rendering = false; }
     showHtml();
   }
   host.onkeydown = e => {

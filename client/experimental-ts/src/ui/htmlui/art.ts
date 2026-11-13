@@ -1,9 +1,9 @@
 // The rewrite's art for pictures.ts (what the engine draws on main): archive textures, card faces by passcode, the
 // player's waist-up portrait (duel-portrait.ts WaistUpComposer) and the shop's clerk, composed from the original's NPC
 // picture (data/avatar/npc/<id>.csv: its id, place and a 3 x 3 grid of 256-pixel tiles, '****' an empty one).
-import { WaistUpComposer, canvasUrl } from '../duel-portrait';
+import { WaistUpComposer, canvasUrl, type EyeFrame } from '../duel-portrait';
 import { npcWaistUpCanvases } from '../npc-waistup';
-import type { PictureResolver, PictureSource } from './pictures';
+import type { PictureEyes, PictureResolver, PictureSource } from './pictures';
 
 type Lease = { url: string; release(): void };
 export interface ArtLoaders {
@@ -43,6 +43,19 @@ export class PictureArt {
     if (kind === 'npc') return this.picture(await this.npcPicture(arg, signal));
     if (kind === 'itemline') return this.picture(itemLineCanvas(decodeURIComponent(arg)));
     throw new Error('Unknown picture.');
+  };
+  /** A waist-up talk picture's eye frames (open, half shut, shut: the same picture with its eyes changed), so it blinks
+   * as live's CWaistUpNpc / CWaistUpAvatar does in the talk (the duel's portraits, duel-scene.ts, blink the same way):
+   * a famous NPC's csv frames 1..3, another NPC's portrait from its parts. null for a picture that does not blink. */
+  readonly eyes: PictureEyes = async (source, signal) => {
+    if (!('canvas' in source)) return null;
+    const [kind, arg = ''] = source.canvas.split(':'), load = this.loaders.loadArchiveImage;
+    let frames: (HTMLCanvasElement | undefined)[];
+    if (kind === 'npc' && load) frames = await npcWaistUpCanvases(load, arg, [1, 2, 3], signal);
+    else if (kind === 'portrait' && this.composer) { const f = await this.composer.composeFrames(Uint8Array.from(arg.split('.').map(Number)), 0, signal); frames = ([1, 2, 3] as EyeFrame[]).map(e => f[e]); }
+    else return null;
+    if (frames.some(f => !f)) return null;
+    return Promise.all(frames.map(f => this.picture(f!)));
   };
   /** A famous NPC's talk picture as live draws it (npc-waistup.ts: its csv's tiles with the base at 874 - x, 0; Alexis
    * Rhodes' a03, x 396, at 478), on a 1024 x 768 screen. */

@@ -50,7 +50,7 @@ export interface WorldRendererOptions {
 interface FrameSprites { frame: SceneFrame; sprites: Sprite[]; paths: Set<string>; count: number }
 interface TextureEntry { tex: WorldTexture; url: string }
 /** One way to draw an avatar: its pose strip's key and what loads it. */
-interface Look { key: string; parts: Uint8Array; request: PoseRequest; walking: boolean; npcArt?: string }
+interface Look { key: string; parts: Uint8Array; request: PoseRequest; walking: boolean; npcArt?: string; partsKey?: string }
 const NO_PARTS = new Uint8Array(16);
 const viewportKey = (v: Viewport) => `${v.x}/${v.y}/${v.width}/${v.height}`;
 function contains(outer: Viewport, inner: Viewport): boolean { return inner.x >= outer.x + 16 && inner.y >= outer.y + 16 && inner.x + inner.width <= outer.x + outer.width - 16 && inner.y + inner.height <= outer.y + outer.height - 16; }
@@ -348,8 +348,8 @@ export class WorldRenderer {
   private lookFor(actor: AvatarActor, a: LobbyAvatar, walking: boolean, direction: number): Look | null {
     const world = a.world ?? 0, motion = walking ? 'walk' as const : 'stand' as const, looks: Look[] = [];
     if (a.npcArt) looks.push({ key: npcPoseKey(a.npcArt, 'stand', direction), parts: NO_PARTS, request: { npc: { set: a.npcArt }, direction }, walking: false, npcArt: a.npcArt });
-    else if (a.parts?.length === 16) looks.push({ key: poseKey(actor.partsKey(a.parts), world, motion, direction), parts: a.parts, request: { world, motion, direction }, walking });
-    if (a.npc) { const parts = defaultAvatar(0, world); looks.push({ key: poseKey(parts.join(','), world, motion, direction), parts, request: { world, motion, direction }, walking }); }
+    else if (a.parts?.length === 16) { const partsKey = actor.partsKey(a.parts); looks.push({ key: poseKey(partsKey, world, motion, direction), parts: a.parts, request: { world, motion, direction }, walking, partsKey }); }
+    if (a.npc) { const parts = defaultAvatar(0, world), partsKey = parts.join(','); looks.push({ key: poseKey(partsKey, world, motion, direction), parts, request: { world, motion, direction }, walking, partsKey }); }
     if (!looks.length) return null;
     const look = looks.find(l => !this.poses!.failed(l.key)) ?? looks[looks.length - 1]!;
     if (look !== looks[0] && !actor.fellBack) { actor.fellBack = true; console.warn('npc art: drawing', a.name, 'in the default look; its own art failed:', looks[0]!.key); }
@@ -367,16 +367,20 @@ export class WorldRenderer {
     if (!strip) return;   // the old pose stays on screen until the new one is in
     if (actor.strip) this.poses.release(actor.strip);
     actor.show(strip, t);
-    if (look.npcArt) this.wantBlink(actor, look.npcArt, motion.direction); else this.dropBlink(actor);
+    if (!look.walking) this.wantBlink(actor, look, motion.direction); else this.dropBlink(actor);
   }
-  /** A famous NPC's blink strip (cn_t, this facing), taken once it is in; its first blink after the idle counter. */
-  private wantBlink(actor: AvatarActor, set: string, direction: number): void {
-    const key = npcPoseKey(set, 'blink', direction);
+  /** The standing look's blink strip (this facing), taken once it is in; its first blink after the idle counter. Every
+   * chibi blinks (CChibiAvatarElm's idle timer asks for motion 3 whoever wears it): a famous NPC its own cn_t, a player
+   * or an NPC drawn from parts the parts' cm_t. */
+  private wantBlink(actor: AvatarActor, look: Look, direction: number): void {
+    const set = look.npcArt, world = look.request.world ?? 0;
+    const key = set ? npcPoseKey(set, 'blink', direction) : poseKey(look.partsKey ?? '', world, 'blink', direction);
+    const request: PoseRequest = set ? { npc: { set, blink: true }, direction } : { world, motion: 'turn', direction };
     if (actor.blink?.key === key || actor.blinkWanted === key || !this.poses) return;
     this.dropBlink(actor); actor.blinkWanted = key;
     const take = (): void => {
       if (this.closed || actor.blinkWanted !== key || this.actors.get(actor.id) !== actor || !this.poses) return;
-      const strip = this.poses.acquire(key, NO_PARTS, { npc: { set, blink: true }, direction }, take);
+      const strip = this.poses.acquire(key, set ? NO_PARTS : look.parts, request, take);
       if (!strip) return;
       actor.blink = strip; actor.blinkWanted = ''; actor.blinkAt = null; actor.nextBlink = this.now() + npcBlinkDelay(this.random, true);
     };

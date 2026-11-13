@@ -36,7 +36,16 @@ const FRAME = 1000 / 60;
 export const ATTACK = { aim: 8 * FRAME, hit: 16 * FRAME, movie: 700 };
 const BANNERS = new Set<DuelCue['kind']>(['phase', 'turn', 'field']);
 
-interface Anim { cue: DuelCue; start: number; duration: number; draw(ctx: PixiPainter, t: number): void }
+interface Anim { cue: DuelCue; start: number; duration: number; draw(ctx: PixiPainter, t: number): void;
+  /** Held at its first frame while this says its art is still loading (at most ART_HOLD ms after it was cued). */
+  ready?: () => boolean; cued?: number; begun?: boolean }
+/** How long a cue whose whole picture matters (START DUEL) waits for its art before it plays with what it has. */
+const ART_HOLD = 2500;
+/** The duel's opening (CDuelStartTask: data/y/duel/effect/duel_ef_start_a01_j, 48 frames at 30 fps on the 1024 x 768
+ * stage: the light line sweeping, then "START DUEL" in its sparks, flashing white as it goes) before the first turn. */
+const START_MOVIE = `${E}duel_ef_start_a01_j.txt`;
+/** The dim under it: to `dim` black over `in` ms, held to `hold`, back by `out` (the cue's length; live's frames). */
+const START = { dim: 0.5, in: 700, hold: 1300, out: 2300 };
 interface Art { image: HTMLImageElement | null; failed: boolean; lease: { release(): void } | null }
 type Point = { x: number; y: number; w: number; h: number };
 
@@ -50,6 +59,8 @@ export class DuelFx {
   private readonly ringCtx: PixiPainter;
   private ringFrom = 0;
   private readonly ctx: PixiPainter;
+  /** The screen darkened under START DUEL (live: to half its brightness and back, measured on its frames). */
+  private readonly dim: HTMLDivElement;
   private readonly abort = new AbortController();
   private readonly art = new Map<string, Art>();
   private readonly movies = new Map<string, SwfMovie | null>();
@@ -75,6 +86,7 @@ export class DuelFx {
 
   constructor(private readonly load: ArchiveLoader | null, options: DuelFxOptions = {}) {
     this.element = document.createElement('div'); this.element.className = 'de-duel-fx'; this.element.setAttribute('aria-hidden', 'true');
+    this.dim = document.createElement('div'); this.dim.className = 'de-duel-fx-dim'; this.element.append(this.dim);
     const ready = () => this.schedule();
     this.ctx = new PixiPainter({ width: 1024, height: 768, className: 'de-duel-fx-layer', ready }); this.element.append(this.ctx.element);
     this.ringCtx = new PixiPainter({ width: 64, height: 64, className: 'de-duel-ring', ready }); this.ringElement = this.ringCtx.element;
@@ -95,7 +107,7 @@ export class DuelFx {
     this.schedule();
   }
   /** A new duel: drop running effects and chain plaques. */
-  clear(): void { this.anims = []; this.chain.clear(); this.bannerFree = 0; this.schedule(); }
+  clear(): void { this.anims = []; this.chain.clear(); this.bannerFree = this.bannersAfter = 0; this.schedule(); }
   dispose(): void {
     this.disposed = true; this.abort.abort(); if (this.frame) this.cancelFrame(this.frame); this.frame = 0;
     this.ctx.destroy(); this.ringCtx.destroy();
@@ -140,7 +152,7 @@ export class DuelFx {
    * lost to loading (a few dozen small archive entries). */
   private preload(): void {
     const sides = ['b', 'r'];
-    this.want(`${E}duel_ef_attack_a.txt`, `${E}duel_ef_break_a.txt`, `${E}duel_ef_break_a_yoko.txt`, `${E}duel_ef_kouka_mon_a.txt`, `${E}duel_ef_kouka_mgc_a.txt`,
+    this.want(START_MOVIE, `${E}duel_ef_attack_a.txt`, `${E}duel_ef_break_a.txt`, `${E}duel_ef_break_a_yoko.txt`, `${E}duel_ef_kouka_mon_a.txt`, `${E}duel_ef_kouka_mgc_a.txt`,
       `${E}duel_ef_kouka_trp_a.txt`, `${E}eff_rainbow.png`, `${E}card_pika_h.png`, 'data/y/duel/font/damage00.png', 'data/y/duel/font/damage01.png',
       ...['y', 'b'].flatMap(c => [`${E}eff_set_${c}.png`, `${E}eff_star0_${c}.png`, `${E}eff_star1_${c}.png`]),
       ...sides.flatMap(c => [...Object.values(PHASE_ART).map(p => `data/y/duel/phase_name/e_${p}_${c}.png`), `data/y/duel/phase_name/nex_e_${c}.png`,
@@ -162,9 +174,12 @@ export class DuelFx {
   // ---- cues ----
   /** When the banner line (phase names, next turn, field titles) is free again: banners play one after another. */
   private bannerFree = 0;
+  /** Nothing before this (START DUEL plays first): kept apart from bannerFree, whose backlog is caught up. */
+  private bannersAfter = 0;
   private push(cue: DuelCue, duration: number, draw: Anim['draw']): void {
     this.played[cue.kind] = (this.played[cue.kind] ?? 0) + 1;
-    let start = this.now();
+    // (everything cued with START DUEL plays after it, as the original's duel begins once its opening is over)
+    let start = Math.max(this.now(), this.bannersAfter);
     if (BANNERS.has(cue.kind)) {
       // Phases the server sends back to back show in turn; far behind (a fast opponent turn), the line catches up.
       if (this.bannerFree - start > 1600) { this.anims = this.anims.filter(a => !BANNERS.has(a.cue.kind)); this.bannerFree = start; }
@@ -176,7 +191,17 @@ export class DuelFx {
   private play(cue: DuelCue): void {
     const mine = cue.player === 0, side = mine ? 'b' : 'r';
     switch (cue.kind) {
-      case 'start': this.clear(); return;
+      case 'start': {
+        this.clear();
+        if (this.reduced) return;
+        this.want(START_MOVIE);
+        const duration = START.out;
+        // the turn's cues wait for it (bannersAfter), as live plays them only once the duel has begun
+        this.push(cue, duration, (ctx, t) => this.playMovie(ctx, START_MOVIE, t, 0, 0, 1));
+        const anim = this.anims[this.anims.length - 1]!; anim.ready = () => this.movieReady(START_MOVIE); anim.cued = anim.start;
+        this.bannersAfter = anim.start + duration;
+        return;
+      }
       case 'phase': {
         if (!cue.phase) return;
         const base = `data/y/duel/phase_name/e_${PHASE_ART[cue.phase]}_${side}`, sparkle = cue.phase === 'battle' ? Array.from({ length: 7 }, (_, i) => `${base}${i + 1}.png`) : [];
@@ -303,6 +328,17 @@ export class DuelFx {
     const ctx = this.ctx; if (this.disposed) return;
     const now = this.now();
     ctx.begin();
+    // a cue that waits for its art plays from its first frame once that is in (or ART_HOLD has passed) and Pixi draws (a
+    // cue before Pixi is up is not lost), and the cues after it wait with it
+    const holding = new Set<Anim>();
+    for (const a of this.anims) {
+      if (!a.ready || a.cued === undefined || a.begun) continue;
+      // (not before the layer is on the page: the duel's first cues come while the janken scene still shows its hands)
+      if (!this.element.isConnected) a.cued = now;
+      const waiting = !this.element.isConnected || now - a.cued < ART_HOLD && !a.ready(), shift = now - a.start;
+      if (shift > 0) { a.start = now; this.bannersAfter += shift; for (const b of this.anims) if (b !== a) b.start += shift; }
+      if (waiting) holding.add(a); else a.begun = true;
+    }
     this.anims = this.anims.filter(a => now - a.start < a.duration);
     let animating = this.anims.length > 0;
     {
@@ -325,12 +361,19 @@ export class DuelFx {
       animating = this.plaque(ctx, link, c, now) || animating;
     }
     for (const a of this.anims) {
-      if (now < a.start) continue;
+      if (holding.has(a) || now < a.start) continue;
       ctx.save();
       try { a.draw(ctx, now - a.start); } catch { /* a broken asset never stops the duel */ }
       ctx.restore();
     }
     ctx.end();
+    // START DUEL: the screen dimmed under it, the layer over the plates and bar while it plays (live dims them all)
+    const start = this.anims.find(a => a.cue.kind === 'start' && !holding.has(a) && now >= a.start), st = start ? now - start.start : -1;
+    const dim = st < 0 ? 0 : START.dim * (st < START.in ? st / START.in : st < START.hold ? 1 : 1 - clamp((st - START.hold) / (START.out - START.hold)));
+    const front = !!start || this.anims.some(a => a.cue.kind === 'start');
+    if (this.element.classList.contains('front') !== front) this.element.classList.toggle('front', front);
+    const op = dim > 0.001 ? dim.toFixed(3) : '';
+    if (this.dim.style.opacity !== op) this.dim.style.opacity = op;
     const active = [...new Set([...this.anims.filter(a => now >= a.start).map(a => a.cue.kind), ...this.chain.size ? ['chain'] : []])].join(' ');
     if (this.element.dataset.active !== active) this.element.dataset.active = active;
     if (animating) this.schedule();
@@ -429,6 +472,12 @@ export class DuelFx {
     }
   }
   /** One original SWF movie at its frame rate around (x, y). Missing pieces draw nothing. */
+  /** Whether a movie and every bitmap it draws are loaded (a failed one counts as done). */
+  private movieReady(path: string): boolean {
+    const movie = this.movie(path); if (!movie) return false;
+    const dir = path.replace(/[^/]+$/, '');
+    return movie.files.every(f => { this.image(dir + f); const a = this.art.get(dir + f); return !a || !!a.image || a.failed; });
+  }
   private playMovie(ctx: PixiPainter, path: string, t: number, x: number, y: number, scale: number, rot = 0): void {
     const movie = this.movie(path); if (!movie || t < 0) return;
     const frame = Math.floor(t * movie.frameRate / 1000);

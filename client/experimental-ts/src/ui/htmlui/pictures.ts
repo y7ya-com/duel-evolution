@@ -5,6 +5,7 @@
 // other, draws them from the original art, each where its sprite says (world position, source rect, scale).
 // One window, class CEnginePictures, its `pics` the list back to front (built from the same sprite objects the other
 // windows carry, so a picture switch's hover sprite shows here as the pointer moves).
+import { blinkSchedule } from '../duel-portrait';
 
 /** Where a picture's pixels come from: an archive texture, a card's face by passcode, or a picture the rewrite composes. */
 export type PictureSource = { archive: string } | { card: number } | { canvas: string };
@@ -20,10 +21,12 @@ export interface Picture {
 }
 /** A picture's URL (an archive lease, a card face, a composed picture's object URL). */
 export type PictureResolver = (source: PictureSource, signal: AbortSignal) => Promise<string>;
+/** A waist-up picture's three eye frames (open, half shut, shut) as URLs, or null if it does not blink. */
+export type PictureEyes = (source: PictureSource, signal: AbortSignal) => Promise<string[] | null>;
 
-let resolver: PictureResolver | null = null;
-/** The rewrite's art loaders (index.ts: the archive, card faces, composed portraits). */
-export function setPictureResolver(fn: PictureResolver | null): void { resolver = fn; }
+let resolver: PictureResolver | null = null, eyesOf: PictureEyes | null = null;
+/** The rewrite's art loaders (index.ts: the archive, card faces, composed portraits); `eyes` the blinking pictures' frames. */
+export function setPictureResolver(fn: PictureResolver | null, eyes: PictureEyes | null = null): void { resolver = fn; eyesOf = fn ? eyes : null; }
 
 const sourceKey = (s: PictureSource) => 'archive' in s ? `a:${s.archive}` : 'card' in s ? `c:${s.card}` : `v:${s.canvas}`;
 const looks = new Map<string, Promise<string | null>>();
@@ -43,7 +46,38 @@ function look(source: PictureSource): Promise<string | null> {
 /** A picture's URL for a screen that draws it itself (option-dlg.ts: sprites as CSS backgrounds); null if it can't load. */
 export const pictureUrl = (source: PictureSource): Promise<string | null> => look(source);
 
-interface Drawn { el: HTMLElement; inner: HTMLElement | null; source: string; natural: [number, number] | null }
+interface Drawn { el: HTMLElement; inner: HTMLElement | null; source: string; natural: [number, number] | null; abort: AbortController; blink?: ReturnType<typeof setTimeout> | null }
+const eyeLooks = new Map<string, Promise<string[] | null>>();
+/** The talk's waist-up pictures (an NPC's own, or one composed from its parts) blink as the duel's portraits do
+ * (duel-portrait.ts blinkSchedule: open a random 0.3-9 s, then half shut, shut, half shut); the frames are <img>s over
+ * the open one, decoded before they show, and the blink stops with the window (or reduced motion). */
+function blink(d: Drawn, source: PictureSource, signal: AbortSignal): void {
+  if (!eyesOf || !('canvas' in source) || !/^(npc|portrait):/.test(source.canvas)) return;
+  const key = sourceKey(source);
+  let p = eyeLooks.get(key);
+  if (!p) { p = eyesOf(source, abort.signal).catch(() => null); eyeLooks.set(key, p); void p.then(v => { if (!v) eyeLooks.delete(key); }); }
+  void p.then(async urls => {
+    if (!urls || signal.aborted || !d.inner) return;
+    const frames = await Promise.all(urls.slice(1).map(async url => {
+      const img = document.createElement('img'); img.alt = ''; img.draggable = false; img.src = url;
+      Object.assign(img.style, { position: 'absolute', display: 'block', left: '0', top: '0', width: '100%', height: '100%', visibility: 'hidden' });
+      await img.decode().catch(() => {}); return img;
+    }));
+    if (signal.aborted) return;
+    d.el.append(...frames);
+    const reduced = () => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true || !!d.el.closest?.('[data-motion="reduced"]');
+    const show = (eyes: 1 | 2 | 3) => frames.forEach((img, i) => { img.style.visibility = i + 2 === eyes ? '' : 'hidden'; });
+    const steps = (): [1 | 2 | 3, number][] => blinkSchedule(Math.random);
+    const run = (list: [1 | 2 | 3, number][], i: number): void => {
+      if (signal.aborted) { show(1); return; }
+      if (i >= list.length) { run(steps(), 0); return; }
+      const [eyes, ms] = list[i]!; show(reduced() ? 1 : eyes);
+      d.blink = setTimeout(() => run(list, i + 1), ms);
+    };
+    signal.addEventListener('abort', () => { if (d.blink) clearTimeout(d.blink); d.blink = null; }, { once: true });
+    run(steps(), 0);
+  });
+}
 function place(d: Drawn, p: Picture): void {
   if (p.label) { if (d.el.title !== p.label) { d.el.title = p.label; d.el.setAttribute('role', 'img'); d.el.setAttribute('aria-label', p.label); } }
   else if (d.el.title) { d.el.removeAttribute('title'); d.el.removeAttribute('role'); d.el.removeAttribute('aria-label'); }
@@ -59,7 +93,7 @@ function draw(p: Picture, signal: AbortSignal): Drawn {
   el.className = 'pic';
   el.dataset.picture = p.key;
   Object.assign(el.style, { position: 'absolute', overflow: 'hidden', pointerEvents: 'none' });
-  const d: Drawn = { el, inner: null, source: sourceKey(p.source), natural: null };
+  const d: Drawn = { el, inner: null, source: sourceKey(p.source), natural: null, abort: new AbortController() };
   void look(p.source).then(v => {
     if (!v || signal.aborted) return;
     const inner = document.createElement('img'); inner.alt = ''; inner.draggable = false; inner.decoding = 'async';
@@ -67,6 +101,7 @@ function draw(p: Picture, signal: AbortSignal): Drawn {
     inner.src = v;
     Object.assign(inner.style, { position: 'absolute', display: 'block' });
     d.inner = inner; el.append(inner); place(d, current.get(d) ?? p);
+    blink(d, p.source, d.abort.signal);
   });
   return d;
 }
@@ -85,16 +120,16 @@ export const pictures: HtmlUiScreen = {
     pics.forEach((p, i) => {
       seen.add(p.key);
       let d = s.drawn.get(p.key);
-      if (d && d.source !== sourceKey(p.source)) { d.el.remove(); d = undefined; }
+      if (d && d.source !== sourceKey(p.source)) { d.abort.abort(); d.el.remove(); d = undefined; }
       if (!d) { d = draw(p, s.abort.signal); s.drawn.set(p.key, d); }
       current.set(d, p);
       d.el.style.zIndex = String(i);
       if (d.el.parentNode !== root) root.append(d.el);
       place(d, p);
     });
-    for (const [k, d] of s.drawn) if (!seen.has(k)) { d.el.remove(); s.drawn.delete(k); }
+    for (const [k, d] of s.drawn) if (!seen.has(k)) { d.abort.abort(); d.el.remove(); s.drawn.delete(k); }
   },
-  unmount(root, st) { const s = st as State; s.abort.abort(); s.drawn.clear(); root.replaceChildren(); },
+  unmount(root, st) { const s = st as State; s.abort.abort(); for (const d of s.drawn.values()) d.abort.abort(); s.drawn.clear(); root.replaceChildren(); },
 };
 /** The page's client went away: loads in flight stop, nothing is kept. */
-export const disposePictures = (): void => { abort.abort(); abort = new AbortController(); looks.clear(); };
+export const disposePictures = (): void => { abort.abort(); abort = new AbortController(); looks.clear(); eyeLooks.clear(); };
