@@ -423,7 +423,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // speaks once main's result boards are left (Next) and the lobby is back (not under the scene-loading veil), as live.
   // Then the reward pack pick (npc-pack.ts) and what the duel gave (npc-itemget.ts), each over everything.
   // live's "which avatar?" list (htmlui/avatar-list.ts): a click on avatars lists them; a pick opens the card or the talk
-  let avatarList: AvatarListOpen | null = null;
+  let avatarList: (AvatarListOpen & { map?: number }) | null = null;
   const avatarPick = (id: number): void => {
     avatarList = null; showHtml();
     const avatar = state.lobby?.avatars.find(a => a.id === id); if (!avatar) return;
@@ -431,7 +431,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     send({ type: 'interact', playerId: id });
   };
   const avatarListSpecs = (): WindowSpec[] => {
-    if (state.scene !== 'lobby' || !state.lobby || npcTalkStage(state.npc)) avatarList = null;
+    if (state.scene !== 'lobby' || !state.lobby || state.lobby.mapId !== avatarList?.map || npcTalkStage(state.npc)) avatarList = null;
     const w = avatarListWindow(avatarList, { ids: htmlIds, pick: avatarPick, close: () => { avatarList = null; showHtml(); } });
     return w ? [w] : [];
   };
@@ -444,7 +444,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const under = new Set((document.elementsFromPoint?.(e.clientX, e.clientY) ?? []).flatMap(n => { const k = (n as HTMLElement).dataset?.key; return n.classList?.contains('de-avatar') && k?.startsWith('avatar:') ? [Number(k.slice(7))] : []; }));
     const rows = lobby.avatars.filter(a => !a.self && under.has(a.id)).map(a => ({ id: a.id, name: a.name }));
     if (!rows.length) return;
-    avatarList = { x: p.x, y: p.y, rows }; showHtml();
+    avatarList = { x: p.x, y: p.y, rows, map: lobby.mapId }; showHtml();
   };
   const npcTalkSpecs = (): WindowSpec[] => {
     const npc = state.npc; if (state.scene !== 'lobby' || !npcTalkStage(npc) || sceneVeilUp() || rewardScene()) return [];
