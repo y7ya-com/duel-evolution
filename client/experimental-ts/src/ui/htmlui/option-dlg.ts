@@ -14,7 +14,14 @@ type Sprite = { tex: string; src: [number, number, number, number] };
 type Slider = HtmlControl & { value: number; max: number; travel: number; tex: string; rail: number[]; railY: number; thumb: number[][] };
 interface State { back: HTMLElement; items: Map<number, { el: HTMLElement; sig: string }>; hover: number; pressed: number; drag: boolean; win: HtmlWindow | null;
   /** The help of the switch the pointer was on last (the engine keeps it in the help text once the pointer leaves). */
-  lastHelp?: string }
+  lastHelp?: string;
+  /** The plane drawn last (planes stack in the snapshot's order over the back). */
+  lastPlane?: HTMLElement }
+/** A plane or picture under the controls, after the ones before it (the window's back first): drawn in the snapshot's order. */
+function plane(root: HTMLElement, s: State, el: HTMLElement): void {
+  const after = s.lastPlane?.isConnected ? s.lastPlane : s.back;
+  root.insertBefore(el, after.nextSibling); s.lastPlane = el;
+}
 /** The engine's scroll bar sheet (data/common/window/scroll_01_c00.png: 16 x 16 arrows, normal / hover / pressed). */
 const SCROLL_SHEET = 'data/common/window/scroll_01_c00.png';
 
@@ -79,11 +86,11 @@ export const optionDlgScreen: HtmlUiScreen = {
     const w = win as HtmlWindow, s = st as State; s.win = w;
     if (w.back) paint(s.back, String(w.back), [0, 0]);
     // a duel-style window's frame (main's skin.js duelWindow) or a plain one (`plain`: its border and body colours)
-    const frame = w.controls.some(c => !c.parent && c.cls === 'CWindowTaskFrameDuel'), plain = w.plain as { border: string; body: string } | undefined;
+    const frame = w.controls.some(c => !c.parent && c.cls === 'CWindowTaskFrameDuel'), plain = w.plain as { border: string; body: string; width?: number } | undefined;
     if ((frame || plain) && s.back.dataset.frame !== `${w.w}x${w.h}`) {
       s.back.dataset.frame = `${w.w}x${w.h}`; s.back.replaceChildren();
       if (frame) duelWindow(s.back, { w: w.w, h: w.h });
-      else if (plain) Object.assign(s.back.style, { boxSizing: 'border-box', border: `4px solid ${plain.border}`, background: plain.body, borderRadius: '2px' });
+      else if (plain) Object.assign(s.back.style, { boxSizing: 'border-box', border: `${plain.width ?? 4}px solid ${plain.border}`, background: plain.body, borderRadius: '2px' });
     }
     const seen = new Set<number>();
     // a switch's help (the Duel Log's plates): shown in the window's help text while the pointer is on the switch
@@ -110,12 +117,12 @@ export const optionDlgScreen: HtmlUiScreen = {
         // a piece of an archive picture (Change Title's well drawn over its window's blue box)
         let it = s.items.get(c.id); const sig = `pic:${c.x},${c.y},${c.w},${c.h},${c.tex},${String(c.src)}`;
         if (it?.sig !== sig) { it?.el.remove(); const el = document.createElement('i'); el.className = 'opt-dlg-sprite'; Object.assign(el.style, { left: c.x + 'px', top: c.y + 'px', width: c.w + 'px', height: c.h + 'px', pointerEvents: 'none' });
-          paint(el, c.tex, c.src as number[]); root.insertBefore(el, s.back.nextSibling); it = { el, sig }; s.items.set(c.id, it); }
+          paint(el, c.tex, c.src as number[]); plane(root, s, el); it = { el, sig }; s.items.set(c.id, it); }
       } else if (c.cls === 'CWindowTaskBackPlane' && c.band) {
         // a band of the well (the Duel Log list's dark header)
         let it = s.items.get(c.id); const sig = `p:${c.x},${c.y},${c.w},${c.h}`;
         if (it?.sig !== sig) { it?.el.remove(); const el = document.createElement('div'); Object.assign(el.style, { position: 'absolute', left: c.x + 'px', top: c.y + 'px', width: c.w + 'px', height: c.h + 'px', background: String(c.band), pointerEvents: 'none' });
-          root.insertBefore(el, s.back.nextSibling); it = { el, sig }; s.items.set(c.id, it); }
+          plane(root, s, el); it = { el, sig }; s.items.set(c.id, it); }
       } else if (c.cls === 'CWindowTaskListbox') {
         // a list's rows: 16-pixel striped rows (live's Duel Log list), the chosen one lit; a row pressed is the list's
         // click at that row's game point
@@ -157,6 +164,8 @@ export const optionDlgScreen: HtmlUiScreen = {
       } else if (c.cls === 'CWindowTaskButtonDuel') {
         const sig = `b:${c.label}:${c.w}:${c.state}`; let it = s.items.get(c.id);
         if (it?.sig !== sig) { it?.el.remove(); const id = c.id, el = duelButton(root, { x: c.x, y: c.y, w: c.w, h: c.h, label: String(c.label ?? ''), state: c.state === 'disabled' ? 'disabled' : null });
+          // a list's row of names (the Duel Log's server list): white names with a shadow, as live's
+          if (c.light) for (const t of el.querySelectorAll<HTMLElement>('.txt')) Object.assign(t.style, { color: '#fff', textShadow: '1px 1px 0 #000, 1px 0 0 rgba(0,0,0,.6), 0 1px 0 rgba(0,0,0,.6)' });
           el.addEventListener('click', () => { void api.click(id); }); it = { el, sig }; s.items.set(c.id, it); }
       } else if (c.cls === 'CWindowTaskPictureSwitch') {
         let it = s.items.get(c.id);

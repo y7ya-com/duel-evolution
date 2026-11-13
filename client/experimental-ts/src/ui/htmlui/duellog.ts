@@ -182,12 +182,18 @@ export const DUELLOG_SERVERS = ['Japanese', 'English', 'German', 'Italian', 'Fre
 export function duellogServerPicker(ids: Ids, ui: DuellogUi, d: DuellogDeps): WindowSpec | null {
   if (ui.view !== 'server') return null;
   const open = (src: DuellogSource) => { ui.source = src; ui.view = 'list'; ui.selected = -1; ui.op = false; ui.page = 1; ui.message = undefined; ui.search = emptySearch(); d.load(ui.search, 1); };
-  // live: 364, 180, 290 x 182 (its green frame), eight grey rows 250 wide from 22, 25.5 apart (live's list runs past the
-  // frame's foot on live), its close X at the top right
-  const W2 = 290, H2 = 224, b = new WindowBuilder(ids, 'duellog:servers', 'CWindowModelDuellogServerSelect', { x: 364, y: 180, w: W2, h: H2 }, { z: 51503, modal: true, plain: { border: '#5ee14a', body: 'rgba(190,192,200,.92)' } });
-  DUELLOG_SERVERS.forEach((name, i) => b.add('CWindowTaskButtonDuel', `server:${i}`, { x: 10, y: 18 + 25.5 * i, w: 250, h: 22 }, { label: name, align: 1, state: 'normal', color: [0, 0, 0, 1] },
+  // live: 364, 178, a green frame under a lime header strip (its yellow close X at the right), a pale list well with a
+  // pale scroll column at its right, eight grey rows 258 wide, 26 apart, their names white with a shadow (live's frame
+  // holds seven: its "World" runs out under the frame, a bug not copied: the frame encloses the eight)
+  const W2 = 298, H2 = 236, b = new WindowBuilder(ids, 'duellog:servers', 'CWindowModelDuellogServerSelect', { x: 364, y: 178, w: W2, h: H2 }, { z: 51503, modal: true, plain: { border: '#7be342', body: 'rgba(122,229,40,.9)', width: 3 } });
+  const band = (name: string, x: number, y: number, w: number, h: number, css: string) => b.add('CWindowTaskBackPlane', name, { x, y, w, h }, { band: css });
+  band('header', 0, 0, W2, 20, 'linear-gradient(#c9e9d1, #9de38e 30%, #7ae528)');
+  band('wellEdge', 6, 20, W2 - 12, H2 - 26, 'rgb(121, 128, 123)');
+  band('well', 7, 21, W2 - 14, H2 - 28, 'linear-gradient(rgb(150, 205, 236), rgb(176, 220, 242))');
+  band('column', W2 - 26, 21, 18, H2 - 28, 'rgba(226, 236, 240, .75)');
+  DUELLOG_SERVERS.forEach((name, i) => b.add('CWindowTaskButtonDuel', `server:${i}`, { x: 11, y: 21 + 26 * i, w: 258, h: 22 }, { label: name, align: 1, state: 'normal', color: [1, 1, 1, 1], light: true },
     { key: `duellog-server:${name}`, label: `${name} server`, click: () => open('server') }));
-  b.add('CWindowTaskIconHide', 'close', { x: W2 - 22, y: 2, w: 16, h: 14 }, { pressed: false, label: '✕' }, { key: 'duellog-server-close', label: 'Close', click: () => { ui.view = 'top'; d.rerender(); } });
+  b.add('CWindowTaskIconHide', 'close', { x: W2 - 24, y: 3, w: 15, h: 14 }, { pressed: false, label: '✕', closeX: true }, { key: 'duellog-server-close', label: 'Close', click: () => { ui.view = 'top'; d.rerender(); } });
   return b.spec();
 }
 // the plates' sprite (duel_btn_02_c01: the glossy plate, normal at 0, the pink pressed / chosen one at 32)
@@ -211,11 +217,16 @@ export function duellogWindow(ids: Ids, ui: DuellogUi, d: DuellogDeps): WindowSp
       // Server Duel Logs asks which server first (live: the language list)
       const press = () => { if (src === 'server') { ui.view = 'server'; d.rerender(); } else open(src); };
       b.add('CWindowTaskPictureSwitch', `plate:${src}`, { x, y, w: 224, h: 32 }, { label: '', state: 'normal', enabled: true, checked: false, help: HELP[src],
-        art: { normal: PLATE(0), hover: PLATE(32), pressed: PLATE(32), checked: PLATE(32) } }, { key: `duellog-${src}`, label: DUELLOG_TEXT[src], click: press });
-      b.add('CWindowTaskShadowText', `label:${src}`, { x: x - 50, y: y + 8, w: 324, h: 16 }, { text: DUELLOG_TEXT[src], align: 1, fontSize: 16, color: [1, 1, 1, 1], shadow: SHADOW });
+        art: { normal: PLATE(0), hover: PLATE(0), pressed: PLATE(32), checked: PLATE(32) } }, { key: `duellog-${src}`, label: DUELLOG_TEXT[src], click: press });
+      // YOC's name is longer than its plate (live lets it run out of the window: not copied): two lines on the plate
+      if (src === 'yoc') (['YOC FINAL TOURNAMENT', 'DUEL LOGS'] as const).forEach((t, i) => b.add('CWindowTaskShadowText', `label:${src}:${i}`, { x, y: y + 2 + 14 * i, w: 224, h: 14 }, { text: t, align: 1, fontSize: 14, color: [1, 1, 1, 1], shadow: SHADOW }));
+      else b.add('CWindowTaskShadowText', `label:${src}`, { x: x - 50, y: y + 8, w: 324, h: 16 }, { text: DUELLOG_TEXT[src], align: 1, fontSize: 16, color: [1, 1, 1, 1], shadow: SHADOW });
     };
     plate('latest', 22, 53); plate('server', 246, 53); plate('collection', 22, 109); plate('yoc', 246, 109);
-    b.add('CWindowTaskShadowText', '説明', { x: 30, y: 176, w: 424, h: 208 }, { text: '', align: 0, fontSize: 16, color: [1, 1, 1, 1], shadow: SHADOW, scroll: true, helpSlot: true });
+    // the help of the plate the pointer was on last (it stays when the pointer leaves; behind the server list, Server Duel
+    // Logs'), scrolled with the engine's scroll bar (white track and arrows) in the box's right column
+    b.add('CWindowTaskShadowText', '説明', { x: 30, y: 176, w: 424, h: 208 }, { text: ui.view === 'server' ? HELP.server : '', align: 0, fontSize: 16, color: [1, 1, 1, 1], shadow: SHADOW, scroll: true, helpSlot: true,
+      bar: { x: 455, y: 168, h: 232 } });
     button('close', 176, 140, 'Close', 'duellog-close', close, 420);
     return b.spec();
   }
@@ -231,6 +242,8 @@ export function duellogWindow(ids: Ids, ui: DuellogUi, d: DuellogDeps): WindowSp
     b.add('CWindowTaskShadowText', 'title', { x: 0, y: 36, w: LW, h: 16 }, { text: DUELLOG_TEXT[ui.source], align: 1, fontSize: 16, color: [0.2, 1, 0.2, 1], shadow: SHADOW });
     const items = status ? [status] : shown.map(r => r.line);
     const list = b.add('CWindowTaskListbox', 'list', { x: 13, y: 75, w: LW - 26, h: 16 * LROWS }, { items, selected: ui.selected, top: 0, topLine: 0, rows: LROWS });
+    // under the ten rows the well's grey foot (live), not more stripes
+    b.add('CWindowTaskBackPlane', 'foot', { x: 13, y: 75 + 16 * LROWS, w: LW - 26, h: 33 }, { band: 'rgb(147, 162, 182)' });
     const turn = (p: number) => { if (p >= 1 && p <= pages && p !== page) { ui.page = p; ui.selected = -1; ui.op = false; d.rerender(); } };
     b.on(list, { label: DUELLOG_TEXT[ui.source], click: point => { if (!point || status) return; const i = Math.floor((point[1] - LY - 75) / 16); if (i >= 0 && i < shown.length) { ui.selected = i; ui.op = true; ui.comment = null; d.rerender(); } },
       wheel: delta => turn(page + (delta > 0 ? 1 : -1)) });
