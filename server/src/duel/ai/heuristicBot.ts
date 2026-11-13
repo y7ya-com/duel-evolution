@@ -204,7 +204,7 @@ interface Action { prompt: Prompt; resp: Json }
  *  (CLEARS_BACKROW), and whether it negates the link below it. */
 interface ChainLink { code: number; controller: number; location: number; sequence: number; targets: string[]; clears: boolean; negates: boolean }
 
-interface OppMon { seq: number; code: number; level: number; atk: number; def: number; battleProof: boolean; afterlife: number; faceDown: boolean; attackPos: boolean; known: boolean; flipRisk: number;
+interface OppMon { seq: number; code: number; level: number; atk: number; def: number; battleProof: boolean; afterlife: number; faceDown: boolean; attackPos: boolean; known: boolean; flipRisk: number; effectThreat: number;
   /** Taken from the other player until the End Phase (Brain Control): it goes back, so it is the first tribute. */
   stolen: boolean;
   /** A face-up lock stops it attacking (#attackLocked). */
@@ -649,11 +649,20 @@ export class HeuristicBot {
         noAttack: false,
         battleTrigger: !!c.code && BATTLE_TRIGGER.has(c.code),
         revenge: !!c.code && REVENGE.has(c.code),
+        effectThreat: this.#readyRemovalValue(c, who),
       });
     });
     const locks = this.#faceUpLocks();
     if (locks.size > 0) for (const m of out) m.noAttack = this.#attackLocked(m, p === this.#me() ? this.seat : 1 - this.seat, locks);
     return out;
+  }
+
+  /** A face-up attack-position Lyla can take a backrow card next Main Phase. Count that visible
+   * threat when comparing an equal-ATK trade; never inspect an opposing set card's identity. */
+  #readyRemovalValue(c: BoardCard, who: number): number {
+    if (isFaceDown(c.position) || !(c.position & POS.ATTACK) || this.#nameOf(c.code) !== "lyla, lightsworn sorceress") return 0;
+    if (this.#board?.players.some(p => p.szone.some(s => s && !isFaceDown(s.position) && this.#nameOf(s.code) === "skill drain"))) return 0;
+    return this.#board?.players[1 - who]?.szone.some(Boolean) ? 1000 : 0;
   }
 
   /** The battle locks face-up on the field, by name, with the player who controls each. */
@@ -1486,7 +1495,7 @@ export class HeuristicBot {
     const base = this.#battlePosition();
     const toPlan = (o: OppMon): PlanMon => ({ atk: o.atk, def: o.faceDown && !o.known ? Math.max(o.def, UNKNOWN_WALL) : o.def, faceDown: o.faceDown,
       attackPos: o.attackPos, known: o.known, flipRisk: o.flipRisk, battleProof: o.battleProof, afterlife: o.afterlife, seq: o.seq, noAttack: o.noAttack,
-      battleTrigger: o.battleTrigger, revenge: o.revenge });
+      battleTrigger: o.battleTrigger, revenge: o.revenge, effectThreat: o.effectThreat });
     const locks = this.#faceUpLocks();
     const my = this.#monstersOf(this.#me()).map((m) => {
       const up = !m.faceDown || raised.has(m.seq);
@@ -1499,7 +1508,18 @@ export class HeuristicBot {
     const lent = new Set(this.#monstersOf(this.#me()).filter((m) => m.stolen).map((m) => m.seq));
     const attackers: PlanAttacker[] = my.filter((m) => !m.faceDown && m.atk > 0 && !m.noAttack && !this.#ruleNoAttack(m.seq))
       .map((m) => { const code = this.#me()?.mzone[m.seq]?.code ?? 0; return { index: m.seq, seq: m.seq, atk: m.atk, canDirect: DIRECT.has(code), bounces: this.#bounces(code), lent: lent.has(m.seq), pierce: PIERCE.has(code) }; });
-    return { base, my, opp: this.#monstersOf(this.#opp()).map(toPlan), attackers };
+    return { base, my, opp: this.#monstersOf(this.#opp()).map(toPlan), attackers, oppAttackNegates: this.#publicAttackNegates() };
+  }
+
+  /** Usable public answers only: no assumption about the opponent's hand or set cards. */
+  #publicAttackNegates(): number {
+    const me = this.#me(), opp = this.#opp();
+    if (!me || !opp) return 0;
+    const visible = this.#board?.players.flatMap(p => [...p.szone, ...p.mzone]) ?? [];
+    if (visible.some(c => c && !isFaceDown(c.position)
+      && /^(necrovalley|imperial iron wall|soul drain|the end of anubis)$/.test(this.#nameOf(c.code)))) return 0;
+    if (me.mzone.some(c => c && !isFaceDown(c.position) && this.#nameOf(c.code) === "kycoo the ghost destroyer")) return 0;
+    return opp.grave.filter(c => this.#nameOf(c) === "necro gardna").length;
   }
 
   /** The attackers of the battle plan as it stood at my turn's first main-phase decision (Master Duel stores it then). */
@@ -1890,7 +1910,7 @@ export class HeuristicBot {
     const toEval = (o: OppMon): EvalMon => ({
       atk: o.atk, def: o.faceDown && !o.known ? Math.max(o.def, UNKNOWN_WALL) : o.def,
       faceDown: o.faceDown, attackPos: o.attackPos, known: o.known, flipRisk: o.flipRisk, battleProof: o.battleProof,
-      afterlife: o.afterlife, noAttack: o.noAttack, battleTrigger: o.battleTrigger, revenge: o.revenge,
+      afterlife: o.afterlife, noAttack: o.noAttack, battleTrigger: o.battleTrigger, revenge: o.revenge, effectThreat: o.effectThreat,
     });
     return {
       myMon: this.#monstersOf(me).map(toEval), oppMon: this.#monstersOf(opp).map(toEval),
@@ -1980,7 +2000,7 @@ export class HeuristicBot {
       // Lethal this Battle Phase (the whole phase planned, battlePlan.ts): its first attack. Otherwise Master Duel's
       // decision: the one attack that gains the most, or none (nextAttack); decided again after it resolves.
       const { input, plan } = this.#planBattle(ev);
-      const first = plan.outcome.lethal ? plan.attacks[0] : nextAttack(input);
+      const first = plan.outcome.lethal || input.oppAttackNegates > 0 ? plan.attacks[0] : nextAttack(input);
       if (first) { bestIdx = first.index; bestAtk = first.atk; this.#plannedTarget = first.target; }
     }
     // no way out of the battle (the opponent's card makes every monster attack): the least bad attack, not a refused End
@@ -2017,7 +2037,7 @@ export class HeuristicBot {
       if (this.#deadAttackers.has(a.sequence) || this.#ruleNoAttack(a.sequence)) return;
       attackers.push({ index, seq: a.sequence, atk: me?.mzone[a.sequence]?.attack ?? this.#stat(a.code).atk, canDirect: a.directAttackable, bounces: this.#bounces(a.code), lent: lent.has(a.sequence), pierce: PIERCE.has(a.code) });
     });
-    const input = { base, my: withSeq(me, base.myMon), opp: withSeq(opp, base.oppMon), attackers };
+    const input = { base, my: withSeq(me, base.myMon), opp: withSeq(opp, base.oppMon), attackers, oppAttackNegates: this.#publicAttackNegates() };
     return { input, plan: planBattle(input, this.#planOpts()) };
   }
 

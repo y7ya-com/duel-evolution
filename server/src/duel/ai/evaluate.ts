@@ -25,6 +25,9 @@ export interface EvalMon {
   battleTrigger?: boolean;
   /** Destroyed, it destroys a monster (Newdoria: battleProof.json revenge): its killer goes with it. */
   revenge?: boolean;
+  /** Public, ready removal effect with a target on the other side (Lyla versus backrow).
+   * Its value is additional to the body, so trading equal ATK can remove a real threat. */
+  effectThreat?: number;
 }
 export interface Position {
   myMon: EvalMon[];
@@ -57,6 +60,7 @@ export function evaluate(p: Position): number {
   s += power(p.myMon) * POWER * stick - power(p.oppMon) * POWER;
   s += bestBody(p.myMon) * stick * BEST - bestBody(p.oppMon) * BEST;
   s += (p.myMon.length - p.oppMon.length) * PRESENCE;
+  s += p.myMon.reduce((n, m) => n + (m.effectThreat ?? 0), 0) - p.oppMon.reduce((n, m) => n + (m.effectThreat ?? 0), 0);
   s += (p.myLp - p.oppLp) * 0.05;
   return s;
 }

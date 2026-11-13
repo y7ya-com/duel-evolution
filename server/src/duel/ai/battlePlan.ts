@@ -52,6 +52,9 @@ export interface PlanInput {
   my: PlanMon[];
   opp: PlanMon[];
   attackers: PlanAttacker[];
+  /** Public, usable single-attack negations in the defender's graveyard (Necro Gardna).
+   * Hidden cards are never counted. The defender may spend one now or save it for a later attack. */
+  oppAttackNegates?: number;
 }
 
 export interface PlanOpts {
@@ -117,7 +120,7 @@ function resolve(s: State, a: PlanAttacker, t: PlanMon | null, bit: number): Sta
 }
 
 /** Monster value lost (what the reply ply's attacker aims for). */
-const bodyValue = (m: EvalMon): number => 1000 + Math.max(m.atk, m.def) * 0.4;
+const bodyValue = (m: EvalMon): number => 1000 + Math.max(m.atk, m.def) * 0.4 + (m.effectThreat ?? 0);
 
 /**
  * The opponent's next Battle Phase against this board, shallowly: its face-up attack-position monsters, strongest
@@ -240,6 +243,7 @@ export function compareOutcomes(a: Outcome, b: Outcome): number {
 
 /** The best plan for this Battle Phase (an empty plan = attack no more). */
 export function planBattle(input: PlanInput, opts: PlanOpts = PLAN_DEFAULTS): BattlePlan {
+  if ((input.oppAttackNegates ?? 0) > 0) return planWithNegation(input, opts);
   const openDirect = input.opp.length === 0;
   let best: BattlePlan | null = null;
   let nodes = 0;
@@ -266,6 +270,40 @@ export function planBattle(input: PlanInput, opts: PlanOpts = PLAN_DEFAULTS): Ba
   return best!;
 }
 
+/** A visible attack answer changes the whole attack order. For each attack, compare the defender
+ * allowing it with negating it, then take their stronger response. Replan after the real response.
+ * The search has the same node ceiling as ordinary combat; an exhausted search stops conservatively. */
+function planWithNegation(input: PlanInput, opts: PlanOpts): BattlePlan & { end: Position } {
+  let nodes = 0;
+  const solve = (s: State, negates: number, attacks: PlannedAttack[]): BattlePlan & { end: Position } => {
+    const outcome = outcomeOf(input, s, attacks, opts);
+    // An unused, public graveyard answer remains an opposing card resource. Without pricing it,
+    // a guaranteed negation ties with passing, so the NPC never makes the opponent spend it.
+    outcome.value -= negates * 1000;
+    let best: BattlePlan & { end: Position } = { attacks, outcome, end: { ...input.base, myLp: s.myLp, oppLp: s.oppLp, myMon: s.my, oppMon: s.opp } };
+    if (++nodes > opts.maxNodes || s.myLp <= 0 || s.oppLp <= 0) return best;
+    for (let i = 0; i < input.attackers.length; i++) {
+      const a = input.attackers[i]!, bit = 1 << i;
+      if ((s.used & bit) || !s.my.some(m => m.seq === a.seq)) continue;
+      const targets: (PlanMon | null)[] = [...s.opp, ...(s.opp.length === 0 || a.canDirect ? [null] : [])];
+      for (const t of targets) {
+        if (nodes >= opts.maxNodes) return best;
+        const next = [...attacks, { index: a.index, seq: a.seq, atk: a.atk, target: t?.seq ?? null }];
+        const allowed = solve(resolve(s, a, t, bit), negates, next);
+        const denied = negates > 0 ? solve({ ...s, used: s.used | bit }, negates - 1, next) : null;
+        const worst = denied && compareOutcomes(denied.outcome, allowed.outcome) < 0 ? denied : allowed;
+        // If the guaranteed result is equal, offer the less valuable attacker first: the defender
+        // may spend its answer on it, preserving the stronger attack without risking a worse board.
+        const cmp = compareOutcomes({ ...worst.outcome, lead: 0 }, { ...best.outcome, lead: 0 });
+        if (cmp > 0 || (cmp === 0 && worst.outcome.lead < best.outcome.lead)) best = worst;
+      }
+    }
+    return best;
+  };
+  return solve({ myLp: input.base.myLp, oppLp: input.base.oppLp, my: input.my, opp: input.opp, used: 0, flipCost: 0 },
+    Math.max(0, Math.floor(input.oppAttackNegates ?? 0)), []);
+}
+
 // ---- Master Duel's attack decision ---------------------------------------------------------------------------------
 // Master Duel's CPU never compares "attack" with "don't attack" end boards: it commits one attack at a time. Every
 // attacker against every target is resolved, each single attack gets a result class, the best class wins (attacker
@@ -278,7 +316,7 @@ export function planBattle(input: PlanInput, opts: PlanOpts = PLAN_DEFAULTS): Ba
  *  them more than it costs us (an equal trade is not made), 2 damage with the attacker kept, 3 a kill with the attacker kept, 7 lethal. */
 export const ATTACK_CLASS = { NOTHING: 0, TRADE: 1, DAMAGE: 2, KILL: 3, LETHAL: 7 } as const;
 
-const bodyWorth = (m: EvalMon): number => 1000 + Math.max(m.atk, m.def) * 0.4 + (m.afterlife ? -m.afterlife : 0);
+const bodyWorth = (m: EvalMon): number => 1000 + Math.max(m.atk, m.def) * 0.4 + (m.effectThreat ?? 0) - (m.afterlife ?? 0);
 
 /** The class of one attack on this board (`t` null = direct). */
 export function attackClass(input: PlanInput, a: PlanAttacker, t: PlanMon | null): number {
@@ -316,6 +354,7 @@ export function attackerOrder(input: PlanInput): PlanAttacker[] {
 
 /** The attack to make now, Master Duel's way, or null: no attack gains anything (go to Main Phase 2). */
 export function nextAttack(input: PlanInput): PlannedAttack | null {
+  if ((input.oppAttackNegates ?? 0) > 0) return planWithNegation(input, PLAN_DEFAULTS).attacks[0] ?? null;
   const openDirect = input.opp.length === 0;
   let best: { attack: PlannedAttack; cls: number; gain: number; order: number; worth: number } | null = null;
   const s0: State = { myLp: input.base.myLp, oppLp: input.base.oppLp, my: input.my, opp: input.opp, used: 0, flipCost: 0 };
@@ -341,6 +380,7 @@ export function nextAttack(input: PlanInput): PlannedAttack | null {
 /** The attacks Master Duel's CPU would make this Battle Phase on this board: nextAttack, resolved, again (at most 10).
  *  Its attackers are "the plan": only they are raised to attack position before the battle. */
 export function planAttacks(input: PlanInput): PlannedAttack[] {
+  if ((input.oppAttackNegates ?? 0) > 0) return planWithNegation(input, PLAN_DEFAULTS).attacks;
   const out: PlannedAttack[] = [];
   let cur = input;
   for (let n = 0; n < 10; n++) {
@@ -397,6 +437,10 @@ export function stealValue(input: PlanInput, take: PlanMon): number {
 
 /** The board after planAttacks' Battle Phase on this one: the attacks and the end position (for comparing plays). */
 export function planEnd(input: PlanInput): { attacks: PlannedAttack[]; end: Position } {
+  if ((input.oppAttackNegates ?? 0) > 0) {
+    const plan = planWithNegation(input, PLAN_DEFAULTS);
+    return { attacks: plan.attacks, end: plan.end };
+  }
   let cur = input;
   const attacks: PlannedAttack[] = [];
   for (let n = 0; n < 10; n++) {

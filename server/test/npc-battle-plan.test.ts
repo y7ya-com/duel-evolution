@@ -1,7 +1,7 @@
 // The battle planner (src/duel/ai/battlePlan.ts): whole Battle Phase plans compared by survival, lethal, the
 // opponent's reply, the board, then the fewest attacks.
 import { describe, expect, it } from "vitest";
-import { compareVerdicts, nextAttack, outcomeScore, planBattle, replyPosition, UNKNOWN_WALL, type PlanAttacker, type PlanMon } from "../src/duel/ai/battlePlan.ts";
+import { compareVerdicts, nextAttack, outcomeScore, planBattle, planEnd, replyPosition, UNKNOWN_WALL, type PlanAttacker, type PlanMon } from "../src/duel/ai/battlePlan.ts";
 import type { Position } from "../src/duel/ai/evaluate.ts";
 
 const up = (seq: number, atk: number, def = 0): PlanMon => ({ seq, atk, def, faceDown: false, attackPos: true, known: true, flipRisk: 0 });
@@ -16,6 +16,36 @@ function plan(my: PlanMon[], opp: PlanMon[], o: { myLp?: number; oppLp?: number 
 }
 
 describe("battle planner", () => {
+  const guarded = (my: PlanMon[], opp: PlanMon[], negates: number, oppLp = 8000) => ({
+    base: { myMon: my, oppMon: opp, myLp: 8000, oppLp, myHand: 3, myBackrow: 0, oppBackrow: 0 },
+    my, opp, attackers: my.map((m, i) => atk(i, m)), oppAttackNegates: negates,
+  });
+
+  it("plays around public attack negation instead of wasting its strongest attack (duel 911)", () => {
+    const input = guarded([up(0, 2500), up(1, 1700)], [{ ...up(2, 1700), effectThreat: 1000 }], 1);
+    expect(planBattle(input).attacks[0]).toMatchObject({ target: 2 });
+    // If Gardna negates Horn, Hunter still trades for the removal threat instead of passing.
+    expect(nextAttack({ ...input, oppAttackNegates: 0, attackers: [input.attackers[1]!] })).toMatchObject({ seq: 1, target: 2 });
+    expect(planEnd(input).end.oppMon).toHaveLength(0);
+  });
+
+  it("does not promise lethal through a public negation unless the remaining attacks also win", () => {
+    expect(planBattle(guarded([up(0, 2500)], [], 1, 2400)).outcome.lethal).toBe(false);
+    expect(planBattle(guarded([up(0, 2500), up(1, 2500)], [], 1, 2400)).outcome.lethal).toBe(true);
+    expect(planBattle(guarded([up(0, 2500), up(1, 2500)], [], 2, 2400)).outcome.lethal).toBe(false);
+  });
+
+  it("makes the defender spend an answer instead of passing forever", () => {
+    expect(nextAttack(guarded([up(0, 2500)], [], 1))).toMatchObject({ seq: 0, target: null });
+  });
+
+  it("allows the opponent to save its answer rather than assuming it will negate a bad attack", () => {
+    expect(nextAttack(guarded([up(0, 1000)], [up(1, 3000)], 1))).toBeNull();
+  });
+
+  it("keeps the ordinary strongest-first decision when no public answer remains", () => {
+    expect(nextAttack(guarded([up(0, 2500), up(1, 1700)], [up(2, 1700)], 0))).toMatchObject({ seq: 0 });
+  });
   it("takes lethal with the fewest attacks", () => {
     const a = up(0, 2500), b = up(1, 1800), c = up(2, 1200);
     const p = plan([a, b, c], [], { oppLp: 2400 });

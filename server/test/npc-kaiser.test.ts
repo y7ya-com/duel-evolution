@@ -7,7 +7,7 @@ import { npcDeck, toCodes } from "../src/duel/data.ts";
 import { deckNpc } from "../src/duel/npcRules.ts";
 import { nrThreshold } from "../src/game/npcs.ts";
 import { check } from "../src/duel/deckCheck.ts";
-import { leftField, msgs, npcActivated, play, attacker } from "./npcScenario.ts";
+import { leftField, msgs, npcActivated, play, attacker, passive, code } from "./npcScenario.ts";
 
 describe.skipIf(!existsSync(join(ENGINE_DATA_DIR, "scripts.pack")))("Hell Kaiser on the real engine", () => {
   let dc: DuelCore;
@@ -118,6 +118,34 @@ describe.skipIf(!existsSync(join(ENGINE_DATA_DIR, "scripts.pack")))("Hell Kaiser
     });
     expect(msgs(p, "SPSUMMONING", "Hunter Dragon")).toHaveLength(0);
     expect(leftField(p, "Wulf, Lightsworn Beast")).toBe(true);
+  });
+
+  it.each([false, true])("removes Lyla whichever attack Gardna stops: decline first attack = %s", saveGardna => {
+    let attackWindows = 0;
+    const p = play(dc, {
+      npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Cyberdark Horn"], mzone: ["Hunter Dragon"], grave: ["Hunter Dragon"], szone: ["Mirror Force"] },
+      player: { mzone: ["Lyla, Lightsworn Sorceress"], grave: ["Necro Gardna"] },
+      player_policy: sel => {
+        if (sel.type === "SELECT_CHAIN" && (Number(sel.hint_timing_other) & 4096)) {
+          const i = (sel.selects as any[]).findIndex(c => c.code === code("Necro Gardna"));
+          if (i >= 0 && (!saveGardna || attackWindows++ > 0)) return { type: "SELECT_CHAIN", index: i };
+        }
+        return passive(sel);
+      },
+    });
+    const first = p.npc.find(d => d.sel.type === "SELECT_BATTLECMD" && d.resp?.action === "SELECT_BATTLE")!;
+    expect(first).toBeDefined();
+    expect(leftField(p, "Lyla, Lightsworn Sorceress")).toBe(true);
+  });
+
+  it.each([false, true])("does not invent Lyla's removal threat with no usable effect: Skill Drain = %s", skillDrain => {
+    const p = play(dc, {
+      npcId: 80, first: "player", turns: 2,
+      npc: { mzone: ["Hunter Dragon"], szone: skillDrain ? [["Skill Drain", "up"]] : [] },
+      player: { mzone: ["Lyla, Lightsworn Sorceress"] },
+    });
+    expect(leftField(p, "Lyla, Lightsworn Sorceress")).toBe(false);
   });
 
   it("plays all three Pots of Greed even when another copy moves into the same hand slot", () => {
