@@ -3,7 +3,7 @@
 // (dialog.js: mock/dialog-ok.json), the last OK ending the talk. The pack's cards (the server's 0x4803 receipt), the
 // gift's cards and items (0x5205). A claim the server refused or that could not be delivered says so in main's error
 // dialog first. Nothing else: no panel of receipts, statuses or refresh keys (live has none).
-import type { NpcState } from '../../features/npc';
+import { npcTalkClosable, type NpcState } from '../../features/npc';
 import { npcPackOpen } from './npc-pack';
 import { stockDialog } from './windows';
 import type { Ids, WindowSpec } from './snapshot';
@@ -29,10 +29,8 @@ export const npcItemGetReady = (npc: Readonly<NpcState> | null | undefined): npc
   !!npc?.npc && npc.result !== null && (npc.stage === 'done' || npc.stage === 'claiming') && !npcPackOpen(npc)
   && npc.packStatus !== 'pending' && npc.giftStatus !== 'pending';
 
-/** The controller lets the talk end (features/npc.ts close): nothing pending or uncertain about eligibility or contact
- * (the world's eligibility check starts as the talk is done: the end waits for it). */
-export const npcClosable = (npc: Readonly<NpcState> | null | undefined): boolean => !!npc && npc.stage === 'done' && !npc.eligibility.refreshing
-  && !['pending', 'uncertain'].includes(npc.eligibility.status) && !['pending', 'uncertain'].includes(npc.firstContactStatus);
+/** The controller lets the talk end (features/npc.ts close, the same rule). */
+export const npcClosable = (npc: Readonly<NpcState> | null | undefined): boolean => !!npc && npc.stage === 'done' && npcTalkClosable(npc);
 
 export function npcItemMessages(npc: Readonly<NpcState>, d: Pick<NpcItemGetDeps, 'cardName' | 'itemName'>): NpcItemMessage[] {
   const out: NpcItemMessage[] = [];

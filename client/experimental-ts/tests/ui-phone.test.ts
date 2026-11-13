@@ -79,7 +79,7 @@ describe('phone stage (live stage.js)', () => {
   });
 });
 
-describe('hold to walk (live: the avatar steers at the held cursor)', () => {
+describe('hold to walk (live: the right button held follows the cursor)', () => {
   const ev = (e: Record<string, unknown>) => ({ pointerId: 1, pointerType: 'touch', button: 0, clientX: 100, clientY: 100, target: null, preventDefault() {}, ...e });
   it('a finger held still walks to it, steered by moving, and the release is not also a click', () => {
     vi.useFakeTimers(); const el = target(), step = vi.fn(), w = holdToWalk(el as never, step);
@@ -95,15 +95,15 @@ describe('hold to walk (live: the avatar steers at the held cursor)', () => {
     el.fire('pointerdown', ev({})); el.fire('pointermove', ev({ clientX: 130 })); vi.advanceTimersByTime(HOLD_MS * 2); expect(step).not.toHaveBeenCalled();
     w.dispose(); vi.useRealTimers();
   });
-  it('a mouse button held walks at once, re-aimed every STEER_MS, and stops on release; refused targets never', () => {
+  it('the right button held follows the mouse at once, re-aimed every STEER_MS, and stops on release; the left button is a click; refused targets never', () => {
     vi.useFakeTimers(); const el = target(), step = vi.fn(), w = holdToWalk(el as never, step, t => t !== 'button');
     el.fire('pointerdown', ev({ pointerId: 2, target: 'button' })); vi.advanceTimersByTime(HOLD_MS * 2); expect(step).not.toHaveBeenCalled();
     el.fire('pointerup', ev({ pointerId: 2 }));
-    el.fire('pointerdown', ev({ pointerId: 3, pointerType: 'mouse', button: 0 })); expect(step).toHaveBeenCalledOnce();
+    el.fire('pointerdown', ev({ pointerId: 5, pointerType: 'mouse', button: 0 })); vi.advanceTimersByTime(HOLD_MS * 2); expect(step).not.toHaveBeenCalled();
+    el.fire('pointerup', ev({ pointerId: 5, pointerType: 'mouse' })); expect(w.consumeClick()).toBe(false);
+    el.fire('pointerdown', ev({ pointerId: 3, pointerType: 'mouse', button: 2 })); expect(step).toHaveBeenCalledOnce();
     el.fire('pointermove', ev({ pointerId: 3, pointerType: 'mouse', clientX: 400, clientY: 50 })); vi.advanceTimersByTime(STEER_MS); expect(step).toHaveBeenLastCalledWith(400, 50);
     el.fire('pointerup', ev({ pointerId: 3, pointerType: 'mouse' })); const n = step.mock.calls.length; vi.advanceTimersByTime(STEER_MS * 4); expect(step.mock.calls.length).toBe(n);
-    expect(w.consumeClick()).toBe(true);
-    el.fire('pointerdown', ev({ pointerId: 4, pointerType: 'mouse', button: 2 })); expect(step.mock.calls.length).toBe(n + 1);
     w.dispose(); vi.useRealTimers();
   });
 });

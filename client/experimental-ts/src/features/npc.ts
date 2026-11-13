@@ -167,7 +167,7 @@ export class NpcController {
    * nothing was claimed, so nothing waits on the server. A first meeting still being confirmed stays. */
   dismiss(): boolean {
     const s = this.value;
-    if (this.disposed || !['opening', 'ask', 'greeting'].includes(s.stage) || ['pending', 'uncertain'].includes(s.firstContactStatus)) return false;
+    if (this.disposed || !['opening', 'ask', 'greeting'].includes(s.stage) || !npcTalkClosable({ ...s, stage: 'done' })) return false;
     this.patch({ stage: 'done', dialogue: null });
     return this.close();
   }
@@ -247,15 +247,20 @@ export class NpcController {
   }
   /** Dismiss completed presentation without forgetting per-session contact attempts. */
   close(): boolean {
-    if (this.disposed || !['idle', 'done'].includes(this.value.stage) ||
-      ['pending', 'uncertain'].includes(this.value.firstContactStatus) || this.value.eligibility.refreshing || ['pending', 'uncertain'].includes(this.value.eligibility.status) ||
-      this.value.giftStatus === 'pending' || this.value.packStatus === 'pending' ||
-      (this.value.packs.length > 0 && this.value.packStatus === 'idle')) return false;
+    // live never holds the player in a talk for a background check: the world's eligibility check and a first contact's
+    // acknowledgement go on after it (eligibility is kept across the close, contacts by NPC id); only a reward the
+    // server is still settling, or a pack still to pick, keeps the talk open
+    if (this.disposed || !npcTalkClosable(this.value)) return false;
     this.generation++; this.refreshToken++; this.refreshing = false; this.refreshAgain = false; this.presentReceived = false;
     this.value = { ...initial(), eligibility: this.value.eligibility }; this.emit(); return true;
   }
   reset(): void { if (this.disposed) return; this.generation++; this.refreshToken++; this.refreshing = false; this.refreshAgain = false; this.presentReceived = false; this.contacts.clear(); this.openingBlocked = false; this.authFlags = 0; this.value = initial(); this.emit(); }
   dispose(): void { this.reset(); this.disposed = true; }
+}
+
+/** The talk may end now (close): it is said and done, and no reward is waiting on the server or on the player's pick. */
+export function npcTalkClosable(s: Readonly<Pick<NpcState, 'stage' | 'giftStatus' | 'packStatus' | 'packs'>>): boolean {
+  return ['idle', 'done'].includes(s.stage) && s.giftStatus !== 'pending' && s.packStatus !== 'pending' && !(s.packs.length > 0 && s.packStatus === 'idle');
 }
 
 function readGrant(data: Uint8Array): { bits: number[]; cards: number[] } {

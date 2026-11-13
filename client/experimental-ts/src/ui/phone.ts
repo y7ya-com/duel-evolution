@@ -8,8 +8,8 @@
 // - fullscreen of the whole page (not the client: main's HTML layer lives on <body>, and fullscreen hides everything but
 //   the fullscreen element's subtree; live's 3f3c77c) on the first tap, then a landscape lock where the browser allows;
 //   a corner fullscreen button and Alt+Enter;
-// - a finger held still on the world for HOLD_MS walks there, steered by moving, as does a mouse button held (at once,
-//   as live: the avatar steers at the held cursor); a tap is the DOM's own click. The game's text boxes are real <input>s here (main's
+// - a finger held still on the world for HOLD_MS walks there, steered by moving, as does the right mouse button held (at
+//   once, as live: the avatar follows the held cursor); a left click walks to the point once; a tap is the DOM's own click. The game's text boxes are real <input>s here (main's
 //   HTML UI), so a tap on one brings up the keyboard by itself, and the fitted frame keeps it in view.
 export const W = 1024, H = 768, HOLD_MS = 400, SLOP = 10, WALK_MS = 200, STEER_MS = 50;
 /** A window too small for the rewrite's desktop layout (its stage is at least 640x480): framed as on a phone. */
@@ -192,8 +192,9 @@ export function mountPhoneStage(o: PhoneStageOptions): PhoneStage {
 const BROWSER_TIMERS = { set: ((f: () => void, ms?: number) => setTimeout(f, ms)) as typeof setTimeout, clear: ((t?: ReturnType<typeof setTimeout>) => clearTimeout(t)) as typeof clearTimeout,
   every: ((f: () => void, ms?: number) => setInterval(f, ms)) as typeof setInterval, stop: ((t?: ReturnType<typeof setInterval>) => clearInterval(t)) as typeof clearInterval };
 export interface HoldWalk { /** True once for the click that ends a walk (the walk was the press; it is not also a click). */ consumeClick(): boolean; dispose(): void; }
-/** A finger held still (or a mouse button held) on el walks toward the pointer until it lifts, steered by moving (the
- * mouse re-aims every STEER_MS, a finger every WALK_MS). A finger moved past SLOP before HOLD_MS is a drag, not a walk. */
+/** A finger held still (or the right mouse button held) on el walks toward the pointer until it lifts, steered by moving
+ * (the mouse re-aims every STEER_MS, a finger every WALK_MS). A finger moved past SLOP before HOLD_MS is a drag, not a
+ * walk. The left button is the DOM's click (a walk to the point, once). */
 export function holdToWalk(el: HTMLElement, step: (clientX: number, clientY: number) => void, accept: (target: EventTarget | null) => boolean = () => true, timers: { set: typeof setTimeout; clear: typeof clearTimeout; every: typeof setInterval; stop: typeof clearInterval } = BROWSER_TIMERS): HoldWalk {
   let id: number | null = null, sx = 0, sy = 0, lx = 0, ly = 0, walking = false, swallow = false;
   let hold: ReturnType<typeof setTimeout> | undefined, tick: ReturnType<typeof setInterval> | undefined;
@@ -201,9 +202,9 @@ export function holdToWalk(el: HTMLElement, step: (clientX: number, clientY: num
   const walk = (ms = WALK_MS) => { walking = true; step(lx, ly); tick = timers.every(() => step(lx, ly), ms); };
   const down = (e: PointerEvent) => {
     const touch = e.pointerType === 'touch' || e.pointerType === 'pen';
-    if (id !== null || !(touch && e.button <= 0 || !touch && (e.button === 0 || e.button === 2)) || !accept(e.target)) return;
+    if (id !== null || !(touch && e.button <= 0 || e.button === 2) || !accept(e.target)) return;
     id = e.pointerId; sx = lx = e.clientX; sy = ly = e.clientY; swallow = false;
-    if (!touch) { if (e.button === 2) e.preventDefault(); walk(STEER_MS); return; }   // a mouse button held walks at once, as on live
+    if (e.button === 2) { e.preventDefault(); walk(STEER_MS); return; }   // the right button held follows the mouse at once, as on live
     hold = timers.set(() => { hold = undefined; walk(); }, HOLD_MS);
   };
   const move = (e: PointerEvent) => {
