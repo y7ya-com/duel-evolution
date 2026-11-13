@@ -142,10 +142,13 @@ export const optionDlgScreen: HtmlUiScreen = {
           // the thumb's left edge follows the pointer (game px: the layer's own scale)
           const at = (e: PointerEvent) => { const k = cur(); if (!k) return; const r = el.getBoundingClientRect(), scale = r.width / k.w || 1;
             api.setValue(id, Math.round(((e.clientX - r.left) / scale - 8) / (k.travel / k.max))); };
-          el.addEventListener('pointerenter', () => { s.hover = id; again(); });
+          // the thumb lights (its hover frame) only with the pointer on the thumb itself, as the engine's
+          const onThumb = (e: PointerEvent) => { const k = cur(); if (!k) return false; const r = el.getBoundingClientRect(), scale = r.width / k.w || 1, x = (e.clientX - r.left) / scale, t = Math.round(k.value * k.travel / k.max);
+            return x >= t && x < t + (k.thumb[0]?.[2] ?? 16); };
+          const hover = (e: PointerEvent) => { const on = onThumb(e); if (on !== (s.hover === id)) { s.hover = on ? id : s.hover === id ? 0 : s.hover; again(); } };
           el.addEventListener('pointerleave', () => { if (s.hover === id) s.hover = 0; again(); });
           el.addEventListener('pointerdown', e => { if (e.button !== 0) return; s.drag = true; s.pressed = id; el.setPointerCapture?.(e.pointerId); at(e); again(); });
-          el.addEventListener('pointermove', e => { if (s.drag) at(e); });
+          el.addEventListener('pointermove', e => { if (s.drag) at(e); else hover(e); });
           const end = () => { if (!s.drag) return; s.drag = false; s.pressed = 0; again(); };
           el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
           el.addEventListener('keydown', e => { const k = cur(); if (!k) return;

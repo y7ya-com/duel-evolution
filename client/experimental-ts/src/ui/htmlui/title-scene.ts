@@ -17,6 +17,21 @@ export const TITLE_DROP_DEPTHS: readonly number[] = [21, 23, 25];
 export type TitleButton = 'online' | 'options' | 'deck' | 'free';
 /** titleEntry.h kTitleDimmed: the title's colour while its OPTIONS window is up. */
 export const TITLE_DIMMED = 0.75;
+/** What live's screen shows under OPTIONS (measured on its frames: every channel 0.562 of the title's plus a dark
+ * grey-blue 9, 22, 36): kTitleDimmed and the dialog's veil together, a darker, greyer title than brightness alone. */
+export const TITLE_DIM_MATRIX = '0.562 0 0 0 0.035  0 0.562 0 0 0.086  0 0 0.562 0 0.141  0 0 0 1 0';
+const DIM_FILTER = 'de-title-dim';
+/** The dim as an SVG colour matrix in the document (a CSS filter can only scale, not add the veil's colour). */
+function dimFilter(): string {
+  if (typeof document === 'undefined') return `brightness(${TITLE_DIMMED})`;
+  if (!document.getElementById(DIM_FILTER)) {
+    const ns = 'http://www.w3.org/2000/svg', svg = document.createElementNS(ns, 'svg'), f = document.createElementNS(ns, 'filter'), m = document.createElementNS(ns, 'feColorMatrix');
+    svg.setAttribute('aria-hidden', 'true'); Object.assign(svg.style, { position: 'absolute', width: '0', height: '0', overflow: 'hidden' });
+    f.id = DIM_FILTER; f.setAttribute('color-interpolation-filters', 'sRGB'); m.setAttribute('type', 'matrix'); m.setAttribute('values', TITLE_DIM_MATRIX);
+    f.append(m); svg.append(f); document.body.append(svg);
+  }
+  return `url(#${DIM_FILTER})`;
+}
 /** The movie's buttons, top to bottom: their depth and caption row (title_botton_<row>_<state>_?.png). */
 export const TITLE_BUTTONS: readonly { name: TitleButton; depth: number; row: number; label: string }[] = [
   { name: 'online', depth: 40, row: 1, label: 'ONLINE' }, { name: 'options', depth: 37, row: 2, label: 'OPTIONS' },
@@ -89,7 +104,7 @@ export class TitleScene {
   setActive(active: boolean): void {
     if (this.active === active) return;
     this.active = active;
-    this.element.style.filter = active ? '' : `brightness(${TITLE_DIMMED})`;
+    this.element.style.filter = active ? '' : dimFilter();
     if (!active) this.states.clear();
     this.draw();
   }
@@ -101,7 +116,13 @@ export class TitleScene {
     if (!this.instance) this.start();
   }
   /** Hidden: the next show plays the movie from its start again. */
-  hide(): void { if (this.timer) clearInterval(this.timer); this.timer = null; this.instance = null; this.shown = false; }
+  hide(): void {
+    if (this.timer) clearInterval(this.timer); this.timer = null; this.instance = null; this.shown = false;
+    // the plate pressed last (ONLINE, DECK EDITOR) comes back unlit, as live's: the title left under the pointer, so
+    // the button never saw it leave
+    this.states.clear();
+    for (const el of this.buttons.values()) if (el.ownerDocument?.activeElement === el) el.blur();
+  }
   private start(): void {
     const movie = this.movie; if (!movie || !this.ctx.ready) return;
     this.instance = new SwfInstance(movie, movie.timeline, false);

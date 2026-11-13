@@ -47,6 +47,8 @@ export interface BrowserAudioOptions {
   revokeObjectURL?: (url: string) => void;
   onError?: (error: unknown) => void;
   maxDecodedBytes?: number;
+  /** The effects' volume before any is set or restored (default 1). */
+  sound?: number;
 }
 interface Decoded { buffer: AudioBuffer; bytes: number; refs: number; }
 interface Voice { source: AudioBufferSourceNode; entry: Decoded; }
@@ -96,6 +98,7 @@ export class BrowserAudioManager {
     this.budget = options.maxDecodedBytes ?? 16 * MiB;
     if (!Number.isSafeInteger(this.budget) || this.budget < 1 || this.budget > 64 * MiB) throw new RangeError('Invalid decoded audio budget');
     this.archive = options.archive;
+    if (options.sound !== undefined && Number.isFinite(options.sound) && options.sound >= 0 && options.sound <= 1) this.soundVolume = options.sound;
     let storage: AudioStorage | undefined;
     try {
       storage = options.storage === false ? undefined : options.storage ?? (globalThis.indexedDB ? new IndexedDBAudioStorage() : undefined);

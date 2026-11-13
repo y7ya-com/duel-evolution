@@ -69,7 +69,8 @@ const sceneLoads = new SceneLoadTracker(loading => overlay?.set(loading), dev ? 
   const now = assets?.stats ?? lastStats, network = now.network - lastStats.network, persisted = now.persisted - lastStats.persisted; lastStats = now;
   console.info(`[scene-load] ${name} ${ms.toFixed(0)} ms ${network ? 'cold' : 'warm'} (network ${network}, persisted ${persisted}, memory ${(assets?.cacheBytes ?? 0) >> 10} KiB)`);
 } : undefined);
-const audio = new BrowserAudioManager(assetBase !== null ? { soundArchiveUrl: new URL(assetBase.replace(/\/?$/, '/') + 'Sound.dat', location.href).href } : {});
+// a new player's sound volume is live's: the title OPTIONS knob in the middle of its 15 steps (8)
+const audio = new BrowserAudioManager({ sound: 8 / 15, ...(assetBase !== null ? { soundArchiveUrl: new URL(assetBase.replace(/\/?$/, '/') + 'Sound.dat', location.href).href } : {}) });
 // Deferred audio (live: ovr/sedefer.c): startup waits for the stored audio pack only when the stored settings lack the
 // volumes; otherwise it restores in the background.
 const audioRestore = audio.restore().catch(() => false);
