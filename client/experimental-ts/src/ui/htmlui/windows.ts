@@ -448,10 +448,14 @@ export function menuBar(ctx: BuildContext, menu: MenuView): WindowSpec {
   if (menu.keys) {
     const key = (name: string, x: number, v: number, run: (() => void) | undefined, dataKey: string, label: string, checked = false) =>
       b.add('CWindowTaskPictureSwitch', name, { x, y: 0, w: 80, h: 32 }, { state: run ? 'normal' : 'disabled', checked, art: pictureArt(v) }, { key: dataKey, label, click: () => run?.() });
-    key('MENUBAR_MENU_MAIN', 0, 0, () => { ctx.ui.menu = !ctx.ui.menu; ctx.rerender(); }, 'main-menu', 'Main Menu', ctx.ui.menu || !!menu.mainOpen?.());
+    // one bar window at a time, as live: while the Main Menu (or a window it opened), the Duel menu or the Move list is up,
+    // the other keys do nothing (each key still closes its own window)
+    const mainOpen = ctx.ui.menu || !!menu.mainOpen?.(), duelOpen = !!menu.duelOpen?.(), moveOpen = !!menu.moveOpen?.();
+    const only = (open: boolean, others: boolean, run: (() => void) | undefined) => run && (() => { if (open || !others) run(); });
+    key('MENUBAR_MENU_MAIN', 0, 0, only(mainOpen, duelOpen || moveOpen, () => { ctx.ui.menu = !ctx.ui.menu; ctx.rerender(); }), 'main-menu', 'Main Menu', mainOpen);
     if (!menu.room) {
-      key('MENUBAR_MENU_DUEL', 80, 32, menu.duel, 'menubar-duel', 'Duel', !!menu.duelOpen?.());
-      key('MENUBAR_MENU_MOVE', 160, 96, menu.move, 'menubar-move', 'Move', !!menu.moveOpen?.());
+      key('MENUBAR_MENU_DUEL', 80, 32, only(duelOpen, mainOpen || moveOpen, menu.duel), 'menubar-duel', 'Duel', duelOpen);
+      key('MENUBAR_MENU_MOVE', 160, 96, only(moveOpen, mainOpen || duelOpen, menu.move), 'menubar-move', 'Move', moveOpen);
     }
   }
   return b.spec();
