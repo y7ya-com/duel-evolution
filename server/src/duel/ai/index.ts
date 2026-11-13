@@ -28,7 +28,7 @@ export { activeRules, buildRules, setActiveRules, type RuleSet } from "./ruleSet
 export type Tier = "easy" | "hard" | "elite";
 
 /** Which AI played, in the duel record (npcDuelLog.ts): one more whenever the AI's play changes. */
-export const NPC_AI_REV = 10;
+export const NPC_AI_REV = 11;
 
 /** Per-NPC personalities (NPC id -> style). */
 export const STYLE_BY_NPC: Record<number, BotStyle> = {};

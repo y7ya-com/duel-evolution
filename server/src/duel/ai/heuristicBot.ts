@@ -337,6 +337,20 @@ export class HeuristicBot {
   /** Public duel messages (ev.ev === "msg"): chain boundaries reset the per-window guard. */
   observe(ev: Json): void {
     switch (ev.type) {
+      case "MOVE": {
+        const from = ev.from as Json | undefined;
+        if (Number(from?.controller) === this.seat && (Number(from?.location) & LOCATION.HAND) !== 0) {
+          // Hand slots are compacted when a card leaves. Another copy of a freely usable
+          // spell can now occupy the same code/slot as the previous one (three Pots of Greed).
+          // Its legality comes from the engine; keep the loop guards for unchanged field cards.
+          for (const key of this.#activatedThisTurn) {
+            const parts = key.split(":");
+            const location = parts[0] === "eff" ? parts[4] : parts[0] === "b" ? parts[2] : parts[1];
+            if (Number(location) === LOCATION.HAND) this.#activatedThisTurn.delete(key);
+          }
+        }
+        break;
+      }
       case "CHAIN_END": this.#chainedThisWindow.clear(); this.#chainTop = null; this.#links = []; this.#solving = 0; this.#answeredAt = 0; this.#stacking = false; break;
       case "CHAIN_SOLVING": this.#solving = Number(ev.chain_size ?? 0); break;
       case "CHAIN_SOLVED": this.#solving = 0; break;
@@ -1920,7 +1934,15 @@ export class HeuristicBot {
       const a = ev.activatable[i]!;
       const key = `b:${a.code}:${a.location}:${a.sequence}:${a.description}`;
       if (this.#activatedThisTurn.has(key)) continue;
-      if (!this.#ruleFor(a.code)?.battleActivate?.(this.#withSelf(ctx, a.code, a, { prompt: ev, resp: respBattle("SELECT_CHAIN", i) }))) continue;
+      if (this.#nameOf(a.code) === "limiter removal") {
+        // Count only Machines that the engine still lets attack. The old sum included spent
+        // attackers and non-Machines, promising lethal then destroying our board at End Phase.
+        const { input } = this.#planBattle(ev);
+        const machines = new Set(this.#me()?.mzone.flatMap((m, seq) => m && ((this.#cards.brain.get(m.code)?.race ?? 0) & 0x20) ? [seq] : []) ?? []);
+        const boosted = { ...input, my: input.my.map(m => machines.has(m.seq) ? { ...m, atk: m.atk * 2 } : m),
+          attackers: input.attackers.map(m => machines.has(m.seq) ? { ...m, atk: m.atk * 2 } : m) };
+        if (!planBattle(boosted, this.#planOpts()).outcome.lethal) continue;
+      } else if (!this.#ruleFor(a.code)?.battleActivate?.(this.#withSelf(ctx, a.code, a, { prompt: ev, resp: respBattle("SELECT_CHAIN", i) }))) continue;
       this.#activatedThisTurn.add(key);
       this.#activated(a.code);
       return respBattle("SELECT_CHAIN", i);
@@ -2309,6 +2331,9 @@ export class HeuristicBot {
 
   #selectUnselect(ev: P<"selectUnselectCard">): Json {
     if (ev.selectable.length === 0) return respUnselect(null);
+    // Eight Machines give Chimeratech 6400 ATK and eight monster attacks. Keep the
+    // rest of the deck instead of dumping every remaining monster for Future Fusion.
+    if (this.#nameOf(this.#pickSubject()) === "future fusion" && ev.finishable && ev.unselectable.length >= 8) return respUnselect(null);
     // the asking card's pick rule: its best card still offered, until it is satisfied
     const rule = this.#ruleFor(this.#pickSubject())?.pick;
     if (rule && !this.#style.fool) {

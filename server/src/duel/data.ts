@@ -6,6 +6,7 @@ import TJ from "../../gamedata/translator.json";
 import BC from "../../gamedata/brain_cards.json";
 import NP from "../../gamedata/npc_profiles.json";
 import DJ from "../../gamedata/duel.json";
+import { HELL_KAISER_DECKS } from "./hellKaiserDecks.ts";
 import { CardMap, type TranslatorData } from "./translator/cardmap.ts";
 import { CardDB, type BrainCardsJson, type NpcProfilesJson } from "./brain/index.ts";
 import type { DuelCore } from "./engine/core.ts";
@@ -22,8 +23,8 @@ export function brainDb(): CardDB {
 }
 
 export const NPC_PROFILES = NP as unknown as NpcProfilesJson;
-/** research/ia/npc_decks.json, by passcode (scripts/passcode_gamedata.py) */
-export const NPC_DECKS = (DJ as unknown as { npc_decks: Record<string, Deck> }).npc_decks;
+/** Official recipes by passcode, with the owner's tuned Hell Kaiser boss recipes. */
+export const NPC_DECKS = { ...(DJ as unknown as { npc_decks: Record<string, Deck> }).npc_decks, ...HELL_KAISER_DECKS };
 /** research/ia/cards_yo2.csv, by passcode: the 2008 client's cards -> [csv kind, 2008 limit, name] */
 export const DECK_CARDS = (DJ as unknown as { cards: Record<string, [number, number, string]> }).cards;
 
@@ -32,7 +33,7 @@ let CORE: DuelCore | null = null;
 export const duelCore = (): DuelCore | null => CORE;
 export function setDuelCore(dc: DuelCore | null): void { CORE = dc; }
 
-/** py ocg_duel.npc_deck: the NPC's official deck (passcodes), or null (NPC_DECKS_EXTRA is off). */
+/** py ocg_duel.npc_deck: the NPC's recipe (passcodes), or null (NPC_DECKS_EXTRA is off). */
 export function npcDeck(npcId: number): Deck | null {
   const d = NPC_DECKS[String(npcId)];
   if (!d || !d.main || !d.main.length) return null;
