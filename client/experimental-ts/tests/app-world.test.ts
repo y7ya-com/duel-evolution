@@ -52,6 +52,19 @@ describe('ClientApp collision-aware world lifecycle', () => {
     for (let i = 0; i < 100 && f.tick(); i++) { /* drain */ }
     expect(self().x).toBe(70); f.app.dispose();
   });
+  it('lets a held walk go (walkRelease) without a later re-aim, still waiting, restarting it', async () => {
+    const f = fixture(); await f.enter();
+    const app = f.app as unknown as { world: { release(): void }; worldRuntime: unknown; runtimeLoad: Promise<void> | null };
+    const release = vi.spyOn(app.world, 'release');
+    // the collision tiles still loading: the re-aim waits on them
+    let loaded!: () => void; app.runtimeLoad = new Promise<void>(r => { loaded = r; });
+    app.worldRuntime = { definition: {}, status: { error: null }, retry() {}, prepare: async () => {}, dispose() {} };
+    const pending = f.app.dispatch({ type: 'move', x: 70, y: 30 });
+    await f.app.dispatch({ type: 'walkRelease' }); loaded(); await pending;
+    expect(release).toHaveBeenCalledOnce(); expect(f.frames.size).toBe(0);   // the let-go re-aim never started a walk
+    app.runtimeLoad = null; await f.app.dispatch({ type: 'move', x: 70, y: 30 }); expect(f.frames.size).toBe(1);
+    app.worldRuntime = null; f.app.dispose();
+  });
   it('cancels walking when opening another scene and can start a fresh route after returning', async () => {
     const f = fixture(); await f.enter(); await f.app.dispatch({ type: 'move', x: 70, y: 30 }); for (let i = 0; i < 4; i++) f.tick();
     const before = f.game.move.mock.calls.length; expect(f.frames.size).toBeGreaterThan(0); await f.app.dispatch({ type: 'openScene', scene: 'deck' }); expect(f.cancelFrame).toHaveBeenCalled(); expect(f.tick()).toBe(false); expect(f.game.move).toHaveBeenCalledTimes(before);

@@ -20,6 +20,8 @@ export class WorldNavigator {
   private elapsed = 0;
   /** The position before the last 30 Hz step: what is drawn lies between it and the current one (see `drawn`). */
   private previous: Point | null = null;
+  /** The held button let go: no more way to go, the step eases out (0.9 a frame) to a stop (`release`). */
+  private coasting = false;
   private disposed = false;
   private sent: WorldPosition | null = null;
   private waitingForPixels = false;
@@ -41,7 +43,7 @@ export class WorldNavigator {
   }
   /** The walk has ended but its last step is still being drawn (callers keep updating until this is false). */
   get settling(): boolean { return !this.disposed && !this.moving && this.previous !== null; }
-  get moving(): boolean { return !this.disposed && this.routeIndex < this.route.length; }
+  get moving(): boolean { return !this.disposed && (this.routeIndex < this.route.length || this.coasting); }
   get waiting(): boolean { return this.waitingForPixels; }
   get walking(): boolean { return this.actuallyWalking && this.moving && !this.waiting; }
   get error(): string | null { return this.issue; }
@@ -77,7 +79,15 @@ export class WorldNavigator {
     if (!path) return false;
     this.route = path; return true;
   }
-  cancel(): void { this.routeGeneration++; this.route = []; this.routeIndex = 0; this.step = { x: 0, y: 0 }; this.elapsed = 0; this.previous = null; this.waitingForPixels = false; this.actuallyWalking = false; this.stillTicks = 3; this.issue = null; }
+  /** The held button (or finger) let go: live's avatar stops steering and glides to a stop, its step easing out as the
+   * exe's mover does with no way to go (0.9 of the last step a frame, none of 1.2 px or less: about half a second from
+   * full pace; measured on live 2026-11-13), not on to the cursor's last point. The wall solver and the exits still
+   * apply. Without the pixel physics (the grid walk) the walk goes on to its point. */
+  release(): void {
+    if (this.disposed || !this.moving || !this.options.physics || this.coasting) return;
+    this.route = []; this.routeIndex = 0; this.coasting = true;
+  }
+  cancel(): void { this.coasting = false; this.routeGeneration++; this.route = []; this.routeIndex = 0; this.step = { x: 0, y: 0 }; this.elapsed = 0; this.previous = null; this.waitingForPixels = false; this.actuallyWalking = false; this.stillTicks = 3; this.issue = null; }
   /** The walk arrived: the route ends, its last step is still drawn over the next step's time (`settling`). */
   private finish(): void { const previous = this.previous, elapsed = this.elapsed; this.cancel(); this.previous = previous; this.elapsed = elapsed; }
   dispose(): void { if (this.disposed) return; this.cancel(); this.disposed = true; this.map = null; this.current = null; this.sent = null; }
@@ -126,15 +136,16 @@ export class WorldNavigator {
   }
   private tickPhysics(physics: WorldPhysics): void {
     const p = this.current!;
-    if (this.passWaypoint(p)) return;
-    const target = this.route[this.routeIndex], generation = this.routeGeneration;
-    const input = { x: target.x - p.x, y: target.y - p.y }, length = Math.hypot(input.x, input.y);
-    const result = physics.step(p, input, this.step, { snap: length < 6 });
+    if (!this.coasting && this.passWaypoint(p)) return;
+    const target = this.coasting ? null : this.route[this.routeIndex]!, generation = this.routeGeneration;
+    const input = target ? { x: target.x - p.x, y: target.y - p.y } : { x: 0, y: 0 }, length = Math.hypot(input.x, input.y);
+    const result = physics.step(p, input, this.step, { snap: !!target && length < 6 });
     // a tick or two without a step (one under 1.2 px dropped while turning) keeps the walk pose: no stand/walk flicker
     this.waitingForPixels = result.waiting; this.stillTicks = result.moved ? 0 : this.stillTicks + 1; this.actuallyWalking = this.stillTicks < 3;
     if (result.waiting) return; // Preserve target, route, position and smoothing across streaming waits.
     this.step = result.step; this.current = result.position;
-    if (length < 6 && Math.hypot(target.x - result.position.x, target.y - result.position.y) < 1e-6) { this.routeIndex++; this.step = { x: 0, y: 0 }; }
+    if (target && length < 6 && Math.hypot(target.x - result.position.x, target.y - result.position.y) < 1e-6) { this.routeIndex++; this.step = { x: 0, y: 0 }; }
+    if (this.coasting && !result.moved) this.coasting = false;   // the glide is over
     const rounded = this.round(result.position);
     if ((!physics.canPublish || physics.canPublish(rounded)) && (!this.sent || rounded.x !== this.sent.x || rounded.y !== this.sent.y || rounded.direction !== this.sent.direction)) {
       this.sent = rounded; this.send({ ...rounded });

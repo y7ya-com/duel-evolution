@@ -60,6 +60,20 @@ describe('navigator with streamed source foot physics', () => {
     nav.update(WORLD_TICK_MS); expect(nav.settling).toBe(false); expect(nav.drawn!.x).toBe(400);
     nav.dispose(); runtime.dispose();
   });
+  it('glides to a stop when the held button lets go (the step eases out at 0.9 a frame), not on to the cursor point', async () => {
+    const runtime = physics(); await runtime.load(map, spawn);
+    const nav = new WorldNavigator({ send() {}, physics: runtime }); nav.reset(map, spawn); nav.moveTo({ x: 500, y: 64 });
+    await tick(nav, 45); const at = nav.position!.x;
+    nav.release(); expect(nav.moving).toBe(true);
+    const steps: number[] = []; let last = at;
+    for (let i = 0; i < 40 && nav.moving; i++) { nav.update(WORLD_TICK_MS); await flush(); steps.push(nav.position!.x - last); last = nav.position!.x; }
+    expect(nav.moving).toBe(false); expect(nav.walking).toBe(false);
+    expect(steps[0]).toBeCloseTo(5.9 * 0.9, 0); for (let i = 1; i < steps.length; i++) expect(steps[i]!).toBeLessThanOrEqual(steps[i - 1]!);
+    expect(steps.filter(x => x > 0).length).toBeLessThan(17);   // about half a second
+    expect(nav.position!.x - at).toBeGreaterThan(30); expect(nav.position!.x - at).toBeLessThan(60); expect(nav.position!.x).toBeLessThan(400);
+    // a new press picks the glide's momentum up
+    nav.moveTo({ x: 64, y: 64 }); expect(nav.moving).toBe(true); nav.dispose(); runtime.dispose();
+  });
   it('retains the route and momentum while collision loading pauses movement, then resumes without a new click', async () => {
     let release!: () => void; const wait = new Promise<void>(r => { release = r; });
     const runtime = physics(() => 0x00ffffff, () => wait), sent: WorldPosition[] = [];

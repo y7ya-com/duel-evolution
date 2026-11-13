@@ -193,12 +193,13 @@ const BROWSER_TIMERS = { set: ((f: () => void, ms?: number) => setTimeout(f, ms)
   every: ((f: () => void, ms?: number) => setInterval(f, ms)) as typeof setInterval, stop: ((t?: ReturnType<typeof setInterval>) => clearInterval(t)) as typeof clearInterval };
 export interface HoldWalk { /** True once for the click that ends a walk (the walk was the press; it is not also a click). */ consumeClick(): boolean; dispose(): void; }
 /** A finger held still (or the right mouse button held) on el walks toward the pointer until it lifts, steered by moving
- * (the mouse re-aims every STEER_MS, a finger every WALK_MS). A finger moved past SLOP before HOLD_MS is a drag, not a
- * walk. The left button is the DOM's click (a walk to the point, once). */
-export function holdToWalk(el: HTMLElement, step: (clientX: number, clientY: number) => void, accept: (target: EventTarget | null, button: number) => boolean = () => true, timers: { set: typeof setTimeout; clear: typeof clearTimeout; every: typeof setInterval; stop: typeof clearInterval } = BROWSER_TIMERS): HoldWalk {
+ * (the mouse re-aims every STEER_MS, a finger every WALK_MS); the lift calls `release` (live's avatar glides to a stop).
+ * A finger moved past SLOP before HOLD_MS is a drag, not a walk. The left button is the DOM's click (a walk to the point,
+ * once). */
+export function holdToWalk(el: HTMLElement, step: (clientX: number, clientY: number) => void, accept: (target: EventTarget | null, button: number) => boolean = () => true, timers: { set: typeof setTimeout; clear: typeof clearTimeout; every: typeof setInterval; stop: typeof clearInterval } = BROWSER_TIMERS, release: () => void = () => {}): HoldWalk {
   let id: number | null = null, sx = 0, sy = 0, lx = 0, ly = 0, walking = false, swallow = false;
   let hold: ReturnType<typeof setTimeout> | undefined, tick: ReturnType<typeof setInterval> | undefined;
-  const stop = () => { timers.clear(hold); hold = undefined; if (tick !== undefined) timers.stop(tick); tick = undefined; if (walking) swallow = true; walking = false; id = null; };
+  const stop = (lifted = false) => { timers.clear(hold); hold = undefined; if (tick !== undefined) timers.stop(tick); tick = undefined; if (walking) swallow = true; if (walking && lifted) release(); walking = false; id = null; };
   const walk = (ms = WALK_MS) => { walking = true; step(lx, ly); tick = timers.every(() => step(lx, ly), ms); };
   const down = (e: PointerEvent) => {
     const touch = e.pointerType === 'touch' || e.pointerType === 'pen';
@@ -212,7 +213,7 @@ export function holdToWalk(el: HTMLElement, step: (clientX: number, clientY: num
     lx = e.clientX; ly = e.clientY;
     if (!walking && hold !== undefined && Math.hypot(lx - sx, ly - sy) > SLOP) { timers.clear(hold); hold = undefined; id = null; }
   };
-  const up = (e: PointerEvent) => { if (e.pointerId === id) stop(); };
+  const up = (e: PointerEvent) => { if (e.pointerId === id) stop(true); };
   const menu = (e: Event) => { if (accept(e.target, 2)) e.preventDefault(); };   // a long press is not the browser's context menu
   el.addEventListener('pointerdown', down as EventListener);
   el.addEventListener('pointermove', move as EventListener);

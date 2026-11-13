@@ -231,6 +231,8 @@ export type ClientCommand =
   | { type: 'selectCharacter'; slot: number }
   | { type: 'openScene'; scene: Scene }
   | { type: 'move'; x: number; y: number }
+  /** The held button (or finger) that steered the walk let go: the avatar glides to a stop (WorldNavigator.release). */
+  | { type: 'walkRelease' }
   | { type: 'moveArea'; area: number; block: number }
   /** The Main Menu's Return to your Room (enter: the private My Room lobby) and its door back to the world. */
   | { type: 'myRoom'; enter: boolean }

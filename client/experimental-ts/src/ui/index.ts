@@ -876,7 +876,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     // door, it still walks there); a finger on an avatar is its tap
     const e = t as Element | null; if (!e?.closest) return false;
     if (e.closest('[data-key^="avatar:"]') ? button !== 2 : e.closest('button, input, textarea, a')) return false;
-    return !!e.closest('[data-key="lobby-map"]') || !!worldRenderer?.element.contains(e); }) : null;
+    return !!e.closest('[data-key="lobby-map"]') || !!worldRenderer?.element.contains(e); }, undefined, () => send({ type: 'walkRelease' })) : null;
   const drafts = new Map<string, string>();
   const expanded = new Map<string, boolean>();
   let renderedIdentity = '';
