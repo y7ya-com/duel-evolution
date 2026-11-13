@@ -3,7 +3,8 @@
 // (CWindowModelBalloon: the speaker's name, the line, the next mark; a click goes on), the green card with the NPC's
 // record (Win%, Wins / Losses, Deck Name) on the left and, once the NPC has said yes, the "Start Duel?" question
 // (CUYesNoDialog: Yes / No). Places measured from live's capture (live-npc-talk2 / live-npc-next, 2048 x 1536 = 2x).
-// The ways out live has: No, Escape (index.ts) and the balloon's own clicks to the end of a line run.
+// The ways out live has: the balloon's clicks to the end of its lines, and No (then the NPC's decline line); Escape does
+// nothing (index.ts).
 import type { NpcState } from '../../features/npc';
 import type { ClientCommand } from '../contracts';
 import { portraitLeft } from '../duel-scene';
@@ -14,9 +15,6 @@ import { npcWaistUpSet } from '../npc-waistup';
 /** The stages the talk draws: before a duel (its lines and the question) and the lines after it. */
 const TALK = ['opening', 'ask', 'greeting', 'after-duel', 'won', 'lost', 'item'] as const;
 export const npcTalkStage = (npc: Readonly<NpcState> | null | undefined): boolean => !!npc?.npc && (TALK as readonly string[]).includes(npc.stage);
-/** The talk before a duel: Escape and No leave it. */
-export const npcTalkDismissable = (npc: Readonly<NpcState> | null | undefined): boolean =>
-  !!npc?.npc && ['opening', 'ask', 'greeting'].includes(npc.stage) && !['pending', 'uncertain'].includes(npc.firstContactStatus);
 
 /** The talk's commands (the app's NPC controller). */
 export type NpcCommand = Extract<ClientCommand, { type: 'npcAnswer' | 'npcAdvance' | 'npcDismiss' | 'npcClose' | 'npcRefreshInventory' | 'npcSelectPack' }>;

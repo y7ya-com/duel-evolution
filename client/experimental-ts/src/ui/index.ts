@@ -30,7 +30,7 @@ import type { CardActions, MailBox, MenuEntry, MenuView, SocialLists } from './h
 import type { HtmlUiLayer } from './htmlui/layer';
 import { GameCursor } from './htmlui/cursor';
 import { fetchPackCompletion, npcPackOpen, npcPackSelect, npcPackUi } from './htmlui/npc-pack';
-import { npcTalkWindows, npcTalkStage, npcTalkDismissable } from './htmlui/npc-talk';
+import { npcTalkWindows, npcTalkStage } from './htmlui/npc-talk';
 import { DeckScene } from './htmlui/deck-scene';
 import { DeckDom } from './htmlui/deck-dom';
 import { cardShopHost } from './htmlui/card-shop';
@@ -426,9 +426,11 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const parts = state.lobby?.avatars.find(a => a.npc && Math.abs(a.id) === npc!.npc!.id)?.parts ?? state.lobby?.avatars.find(a => a.npc && a.name === npc!.npc!.name)?.parts ?? null;
     return npcTalkWindows(npc, { ids: htmlIds, busy: !!state.busy, parts, send: command => { if (controller.getState().npc === npc) send(command); } });
   };
+  // Escape does nothing while an NPC talks, as live (its balloon and its "Start Duel?" stay: the talk ends with its
+  // lines, or No); it closes nothing under the talk either
   const npcEscape = (e: KeyboardEvent): boolean => {
-    if (e.key !== 'Escape' || state.scene !== 'lobby' || !htmlUi || !npcTalkDismissable(state.npc)) return false;
-    e.preventDefault(); send({ type: 'npcDismiss' }); return true;
+    if (e.key !== 'Escape' || state.scene !== 'lobby' || !htmlUi || !npcTalkStage(state.npc)) return false;
+    e.preventDefault(); return true;
   };
   // live's reward scenes come first after the result board (Next): the pack pick (CCardGetPackScene: the checker backdrop,
   // the pack's cover, the list, the pack described in the bar's help line), then the card get scene for each card the
