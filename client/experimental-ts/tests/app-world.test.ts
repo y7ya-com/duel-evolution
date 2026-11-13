@@ -42,6 +42,16 @@ describe('ClientApp collision-aware world lifecycle', () => {
     let previous = { x: 30, y: 30 }; for (const [x, y, direction] of calls) { expect(Math.hypot(x - previous.x, y - previous.y)).toBeLessThanOrEqual(7.1); expect(direction).toBeGreaterThanOrEqual(0); expect(direction).toBeLessThan(8); previous = { x, y }; }
     f.emit(); expect(f.app.getState().lobby?.avatars.find(a => a.self)?.x).toBe(70); expect(f.frames.size).toBe(0); f.app.dispose();
   });
+  it('draws its own avatar where the walk is, between steps, and a packet mid-walk does not jump it back to the last wire point', async () => {
+    const f = fixture(); await f.enter(); await f.app.dispatch({ type: 'move', x: 70, y: 30 });
+    for (let i = 0; i < 6; i++) f.tick();
+    const self = () => f.app.getState().lobby!.avatars.find(a => a.self)!;
+    const drawn = self().x, sent = f.game.move.mock.calls.at(-1)![0];
+    expect(drawn).toBeGreaterThan(30); expect(drawn).not.toBe(sent);   // drawn between the 30 Hz points, not the wire's
+    f.emit(); expect(self().x).toBe(drawn); expect(self().motion).toBe('walk');
+    for (let i = 0; i < 100 && f.tick(); i++) { /* drain */ }
+    expect(self().x).toBe(70); f.app.dispose();
+  });
   it('cancels walking when opening another scene and can start a fresh route after returning', async () => {
     const f = fixture(); await f.enter(); await f.app.dispatch({ type: 'move', x: 70, y: 30 }); for (let i = 0; i < 4; i++) f.tick();
     const before = f.game.move.mock.calls.length; expect(f.frames.size).toBeGreaterThan(0); await f.app.dispatch({ type: 'openScene', scene: 'deck' }); expect(f.cancelFrame).toHaveBeenCalled(); expect(f.tick()).toBe(false); expect(f.game.move).toHaveBeenCalledTimes(before);

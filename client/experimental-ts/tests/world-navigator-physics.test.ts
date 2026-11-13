@@ -30,6 +30,36 @@ describe('navigator with streamed source foot physics', () => {
     let previous = spawn; for (const p of sent) { expect(Math.hypot(p.x - previous.x, p.y - previous.y)).toBeLessThan(8); previous = p; }
     expect(sent.length).toBeGreaterThan(10); nav.dispose(); runtime.dispose();
   });
+  it('walks 6 px a 30 Hz frame (180 px/s) once under way, re-aimed every 50 ms or not (the step clock goes on across a re-aim)', async () => {
+    const run = async (reaimMs: number | null) => {
+      const runtime = physics(); await runtime.load(map, spawn);
+      const nav = new WorldNavigator({ send() {}, physics: runtime }); nav.reset(map, spawn); nav.moveTo({ x: 500, y: 64 });
+      let t = 0, next = reaimMs ?? Infinity; const at: number[] = [];
+      for (let frame = 0; frame < 120; frame++) {   // 2 s at 60 Hz
+        nav.update(1000 / 60); t += 1000 / 60; if (frame % 5 === 0) await flush();
+        if (t >= next) { nav.moveTo({ x: 500, y: 64 }); next += reaimMs!; }
+        at.push(nav.position!.x);
+      }
+      nav.dispose(); runtime.dispose(); return at;
+    };
+    const once = await run(null), steered = await run(50);
+    expect(steered[119]).toBeCloseTo(once[119]!, 0);
+    expect(once[119]! - once[89]!).toBeGreaterThan(88); expect(once[119]! - once[89]!).toBeLessThanOrEqual(90.01);   // the last half second: 6 px x 15
+  });
+  it('is drawn between its 30 Hz steps at the screen rate, never ahead of the walk, and settles on the last step', async () => {
+    const runtime = physics(); await runtime.load(map, spawn);
+    const nav = new WorldNavigator({ send() {}, physics: runtime }); nav.reset(map, spawn); nav.moveTo({ x: 400, y: 64 });
+    await tick(nav, 30);
+    const drawn: number[] = [];
+    for (let i = 0; i < 8; i++) { nav.update(1000 / 120); drawn.push(nav.drawn!.x); expect(nav.drawn!.x).toBeLessThanOrEqual(nav.position!.x); }
+    expect(new Set(drawn).size).toBe(8);   // a new point every 120 Hz frame
+    for (let i = 1; i < drawn.length; i++) expect(drawn[i]!).toBeGreaterThan(drawn[i - 1]!);
+    for (let i = 0; i < 200 && nav.moving; i++) { nav.update(1000 / 60); await flush(); }
+    expect(nav.moving).toBe(false); expect(nav.position!.x).toBe(400);
+    expect(nav.settling).toBe(true); expect(nav.drawn!.x).toBeLessThan(400);
+    nav.update(WORLD_TICK_MS); expect(nav.settling).toBe(false); expect(nav.drawn!.x).toBe(400);
+    nav.dispose(); runtime.dispose();
+  });
   it('retains the route and momentum while collision loading pauses movement, then resumes without a new click', async () => {
     let release!: () => void; const wait = new Promise<void>(r => { release = r; });
     const runtime = physics(() => 0x00ffffff, () => wait), sent: WorldPosition[] = [];

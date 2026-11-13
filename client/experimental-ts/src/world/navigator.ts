@@ -18,6 +18,8 @@ export class WorldNavigator {
   private routeIndex = 0;
   private step: Point = { x: 0, y: 0 };
   private elapsed = 0;
+  /** The position before the last 30 Hz step: what is drawn lies between it and the current one (see `drawn`). */
+  private previous: Point | null = null;
   private disposed = false;
   private sent: WorldPosition | null = null;
   private waitingForPixels = false;
@@ -28,6 +30,17 @@ export class WorldNavigator {
   private readonly send: (position: WorldPosition) => void;
   constructor(private readonly options: WorldNavigatorOptions) { this.send = options.send; }
   get position(): WorldPosition | null { return this.current && { ...this.current }; }
+  /** Where to draw the avatar now: the logic steps at 30 Hz, the screen at its own rate (60 Hz and up), so the drawing
+   * goes from the previous step's point to the current one as the next step's time passes (one step behind at most),
+   * never a point the walk has not reached. The wire and the collision only ever see the 30 Hz steps. */
+  get drawn(): WorldPosition | null {
+    const p = this.current, q = this.previous; if (!p) return null;
+    if (!q) return { ...p };
+    const a = Math.min(1, this.elapsed / WORLD_TICK_MS);
+    return { x: q.x + (p.x - q.x) * a, y: q.y + (p.y - q.y) * a, direction: p.direction };
+  }
+  /** The walk has ended but its last step is still being drawn (callers keep updating until this is false). */
+  get settling(): boolean { return !this.disposed && !this.moving && this.previous !== null; }
   get moving(): boolean { return !this.disposed && this.routeIndex < this.route.length; }
   get waiting(): boolean { return this.waitingForPixels; }
   get walking(): boolean { return this.actuallyWalking && this.moving && !this.waiting; }
@@ -41,7 +54,10 @@ export class WorldNavigator {
     if (this.disposed) return false;
     // a new target while walking (the button held, steered by the cursor) keeps the walk's momentum
     const momentum = this.moving && this.options.physics ? this.step : null, walking = this.actuallyWalking;
-    this.cancel();
+    // the step clock and the drawing's last point go on: a re-aim every few frames must not lose the time toward the next
+    // 30 Hz step (the held walk went at two thirds of its pace), nor jump the drawing to the logic point
+    const previous = this.previous, elapsed = this.elapsed;
+    this.cancel(); this.previous = previous; this.elapsed = elapsed;
     if (!this.current || !this.map) return false;
     if (this.options.physics) {
       const width = this.options.physics.definition?.width ?? this.map.width ?? 65535, height = this.options.physics.definition?.height ?? this.map.height ?? 65535;
@@ -61,15 +77,20 @@ export class WorldNavigator {
     if (!path) return false;
     this.route = path; return true;
   }
-  cancel(): void { this.routeGeneration++; this.route = []; this.routeIndex = 0; this.step = { x: 0, y: 0 }; this.elapsed = 0; this.waitingForPixels = false; this.actuallyWalking = false; this.stillTicks = 3; this.issue = null; }
+  cancel(): void { this.routeGeneration++; this.route = []; this.routeIndex = 0; this.step = { x: 0, y: 0 }; this.elapsed = 0; this.previous = null; this.waitingForPixels = false; this.actuallyWalking = false; this.stillTicks = 3; this.issue = null; }
+  /** The walk arrived: the route ends, its last step is still drawn over the next step's time (`settling`). */
+  private finish(): void { const previous = this.previous, elapsed = this.elapsed; this.cancel(); this.previous = previous; this.elapsed = elapsed; }
   dispose(): void { if (this.disposed) return; this.cancel(); this.disposed = true; this.map = null; this.current = null; this.sent = null; }
   /** Clamp long background frames to 250 ms. Never accumulate a later catch-up burst. */
   update(deltaMs: number): void {
     if (!Number.isFinite(deltaMs) || deltaMs < 0) throw new RangeError('Invalid world delta');
-    if (!this.moving) return;
+    if (!this.moving) {
+      if (this.previous) { this.elapsed += Math.min(deltaMs, 250); if (this.elapsed >= WORLD_TICK_MS) { this.previous = null; this.elapsed = 0; } }
+      return;
+    }
     this.elapsed += Math.min(deltaMs, 250);
     for (let ticks = 0; ticks < 8 && this.elapsed + 1e-8 >= WORLD_TICK_MS && this.moving; ticks++) {
-      this.elapsed = Math.max(0, this.elapsed - WORLD_TICK_MS); this.tick();
+      this.elapsed = Math.max(0, this.elapsed - WORLD_TICK_MS); this.previous = this.current && { x: this.current.x, y: this.current.y }; this.tick();
     }
   }
   private round(p: WorldPosition): WorldPosition {
@@ -101,7 +122,7 @@ export class WorldNavigator {
     if (segmentWalkable(grid, this.current, rounded) && (!this.sent || rounded.x !== this.sent.x || rounded.y !== this.sent.y || rounded.direction !== this.sent.direction)) {
       this.sent = rounded; this.send({ ...rounded });
     }
-    if (!this.moving) this.cancel();
+    if (!this.moving) this.finish();
   }
   private tickPhysics(physics: WorldPhysics): void {
     const p = this.current!;
@@ -125,13 +146,13 @@ export class WorldNavigator {
       catch (error) { this.report(error); }
       return;
     }
-    if (!this.moving) this.cancel();
+    if (!this.moving) this.finish();
   }
   /** 0x009d9f70: a path step under 20 px away is passed (momentum kept); the clicked point itself is walked to exactly.
    * The exe has this follower for NPCs only: the A* (0x00a04a30, thunk 0x401a78) is called from 0x009d8a20 and
    * 0x009d9f70 (CNpcChibiAvatar's vtable slot 0x40c87e -> 0x009d9ce0 -> 0x009d9dc0) and from a debug dump of the grid
    * (0x0063c390); CPlChibiAvatar's vtable has no such slot. The player steers straight at the cursor held down: each
-   * frame FUN_009cd5c0 runs the radial wall solver, caps the step at 3 px (6.0f * 0.5f) and drops one under 1.2 px
+   * frame FUN_009cd5c0 runs the radial wall solver, caps a step that hit a wall at 3 px (6.0f * 0.5f) and drops one under 1.2 px
    * (6.0f * 0.2f); FUN_009cd4e0 snaps a target under 6 px away. The rewrite's click walk borrows the NPC's 20 px reach. */
   private passWaypoint(p: Point): boolean {
     while (this.routeIndex < this.route.length - 1) {
