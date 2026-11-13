@@ -191,6 +191,10 @@ export interface DeckContext {
   yo2(pc: number): number;
   /** Every card the trunk holds, the deck's copies too (CWindowTaskKabanNumber: trunkTotal, live's count box). */
   owned: number;
+  /** The trunk as the engine draws it outside the deck editor (Card Swap: no search panel over its header): the
+   * 'Rearrange' title under 'Trunk' and the list's own scroll bar (CWindowTaskKabanScroll, live's snapshot in a trade)
+   * beside the rows it shows (Card Swap: 9). */
+  engine?: number;
 }
 export const ROW_H = 56;
 const WZ = { detail: 51103, kaban: 51153, deck: 51203 };
@@ -257,6 +261,7 @@ export function kabanWindow(ctx: DeckContext): WindowSpec {
   t.sprite(bar, 'TitleTop', 'data/deck/deck_moji_01_?.png', [0, 84, 160, 28], 744, 0, z + 14);
   // (the 'Rearrange' title under it: main's search panel stands over that row on live, its plate hiding the title; drawn
   // here it came out over the search field)
+  if (ctx.engine) t.sprite(bar, 'TitleUnder', 'data/deck/deck_moji_01_?.png', [0, 112, 160, 28], 744, 28, z + 14);
   control(b, ids, 'bar', 'CWindowTaskDeckBar', 'Bar', { x: 736, y: 0, z: z + 7 }, { parts: bar });
   const total = ctx.owned;
   const num = t.parts(); t.swf(num, 'KabanCountBtn', 944, 4, z + 10); t.label(num, 'KabanCountNumber', `@9${total}`, 1000 - 8 * (String(total).length - 1), 6, z + 16);
@@ -269,7 +274,19 @@ export function kabanWindow(ctx: DeckContext): WindowSpec {
   ui.top = Math.max(0, Math.min(ui.top, maxTop));
   control(b, ids, 'list', 'CWindowTaskKabanList', 'KabanList', { x: 744, y: 88, z: z + 9 }, { rowCount: ROWS, category: ui.filter.cat, top: ui.top, hits, pool: `${hits}` });
   for (let r = 0; r < ROWS; r++) trunkRow(b, t, ids, r, ctx.trunk[ui.top + r], deck, z, ctx.yo2);
+  if (ctx.engine) trunkScroll(b, t, ids, ctx.engine, ui.top, Math.max(0, hits - ctx.engine), hits, z);
   return b.spec();
+}
+// The list's scroll bar as live's engine draws it in Card Swap (its snapshot: CWindowTaskKabanScroll at 1000, 88, 16 x
+// 56 rows): the track (scroll_01_c00 48,0 stretched), the up / down arrows (0,0 / 0,16), the thumb (top 0,32 8 px, middle
+// 0,40 stretched, bottom 0,48), 16 px long at the top while the list is at its first row, moved down the track as it scrolls.
+function trunkScroll(b: WindowBuilder, t: Tree, ids: Ids, rows: number, top: number, maxTop: number, hits: number, z: number): void {
+  const x = 1000, y = 88, h = ROW_H * rows + 8, tex = 'data/common/window/scroll_01_c00.png', p = t.parts();
+  const len = h - 32, thumb = 16, at = y + 16 + (maxTop > 0 ? Math.round((len - thumb) * top / maxTop) : 0);
+  t.sprite(p, 'track', tex, [48, 0, 16, 16], x, y, z + 15, { sy: h / 16 });
+  t.sprite(p, 'up', tex, [0, 0, 16, 16], x, y, z + 16); t.sprite(p, 'down', tex, [0, 16, 16, 16], x, y + h - 16, z + 16);
+  t.sprite(p, 'barTop', tex, [0, 32, 16, 8], x, at, z + 16); t.sprite(p, 'barMid', tex, [0, 40, 16, 8], x, at + 8, z + 16, { sy: 0 }); t.sprite(p, 'barBottom', tex, [0, 48, 16, 8], x, at + 8, z + 16);
+  control(b, ids, 'scroll', 'CWindowTaskKabanScroll', 'Scroll', { x, y, w: 16, h, z: z + 15 }, { value: top, max: maxTop, page: rows, maxTop, total: hits, parts: p });
 }
 // A trunk row (CWindowTaskKabanListBtn, 744, 88 + 56 r): its frame's left column in the card kind's colour
 // (deck_carddai_01_c0<KLB>), the rest of the frame (c01; an empty row c00's "nothing"), the mini picture (759, +3, at

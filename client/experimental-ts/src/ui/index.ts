@@ -46,7 +46,7 @@ import { barReserve, onBarReserve } from '@htmlui/screens/lobby_icons.js';
 import { titleName } from '../features/titles';
 import { tradeLocal, tradeWindows, tradeScene, trunkOpen, partnerLeft, THINKING_FRAME_MS } from './htmlui/trade';
 import { cardSwapMenu } from './htmlui/card-swap-menu';
-import { TradeTrunk, isTradeTrunk } from './htmlui/trade-trunk';
+import { TradeTrunk, isTradeTrunk, TRADE_DROP } from './htmlui/trade-trunk';
 import { SideSwap, isSideSwap, SIDE_SWAP_ZONES } from './htmlui/side-swap';
 import { CardGetScene, isCardGet } from './htmlui/card-get';
 import { npcWaistUpSet } from './npc-waistup';
@@ -350,7 +350,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (thinking && thinkingTimer === null) thinkingTimer = setInterval(() => { if (!disposed) showHtml(); }, THINKING_FRAME_MS);
     else if (!thinking && thinkingTimer !== null) { clearInterval(thinkingTimer); thinkingTimer = null; }
     const out = tradeWindows({ trade: sd.trade, ui: tradeUi, ids: htmlIds, dispatch: action => send({ type: 'socialAction', action }), rerender: showHtml, thinking: Math.floor(Date.now() / THINKING_FRAME_MS),
-      name: passcode => socialOptions().card?.(passcode).name ?? `Card ${passcode}`, status: sd.status, ...(reason ? { reason } : {}) });
+      name: passcode => socialOptions().card?.(passcode).name ?? `Card ${passcode}`, status: sd.status, ...(reason ? { reason } : {}),
+      ...(() => { const lv = sd.trade.partner ? state.lobby?.avatars.find(a => a.id === sd.trade.partner!.pid)?.level : undefined; return lv !== undefined ? { partnerLevel: lv } : {}; })() });
     // Card Swap's columns: the menu (CARD SWAP, EXIT) and the card detail at the left, the trunk at the right (open while
     // this side may offer, and after the partner left, as live), over the trade's scene windows, under its dialogs
     const scene = tradeScene(sd.trade), left = partnerLeft({ trade: sd.trade, status: sd.status, ...(reason ? { reason } : {}) });
@@ -653,19 +654,19 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (disposed) return;
     if (!deckDom && state.scene === 'deck' && typeof globalThis.document !== 'undefined') deckDom = new DeckDom(host, deckScene, { art: '/ui/', ...cardArt(), owns: w => !isTradeTrunk(w) && !isSideSwap(w) && !isCardGet(w) });
     const trading = !!state.socialDetail && tradeScene(state.socialDetail.trade);
-    if (!tradeDom && trading && typeof globalThis.document !== 'undefined') tradeDom = new DeckDom(htmlUi?.host ?? host, tradeTrunk, { art: htmlUi ? new URL('/ui/', location.href).href : '/ui/', ...cardArt(), owns: isTradeTrunk });
+    if (!tradeDom && trading && typeof globalThis.document !== 'undefined') tradeDom = new DeckDom(htmlUi?.host ?? host, tradeTrunk, { art: htmlUi ? new URL('/ui/', location.href).href : '/ui/', ...cardArt(), owns: isTradeTrunk, engineKeys: true, zones: TRADE_DROP, sideButtons: [] });
     const swapping = state.scene === 'duel' && !!state.sideboarding;
     if (!swapDom && swapping && typeof globalThis.document !== 'undefined') swapDom = new DeckDom(htmlUi?.host ?? host, sideSwap, { art: htmlUi ? new URL('/ui/', location.href).href : '/ui/', ...cardArt(), owns: isSideSwap, zones: SIDE_SWAP_ZONES, sideButtons: [] });
     const gettingCard = cardGetUp();
     if (!cardGetDom && gettingCard && typeof globalThis.document !== 'undefined') cardGetDom = new DeckDom(htmlUi?.host ?? host, cardGet, { art: htmlUi ? new URL('/ui/', location.href).href : '/ui/', ...cardArt(), owns: isCardGet, zones: {}, sideButtons: [] });
-    if (!htmlUi) { const specs = deckDom || tradeDom || swapDom ? buildHtml() : []; if (deckDom) { const d = deckScene.stageView(); deckDom.show(specs, d.detail, d.drag); } tradeDom?.show(specs, tradeTrunk.detailView(), null); swapDom?.show(specs, sideSwap.detailView(), sideSwap.dragView()); syncPortrait(); return; }
+    if (!htmlUi) { const specs = deckDom || tradeDom || swapDom ? buildHtml() : []; if (deckDom) { const d = deckScene.stageView(); deckDom.show(specs, d.detail, d.drag); } tradeDom?.show(specs, tradeTrunk.detailView(), tradeTrunk.dragView()); swapDom?.show(specs, sideSwap.detailView(), sideSwap.dragView()); syncPortrait(); return; }
     const specs = buildHtml(), deck = deckScene.stageView();
     // the title under its OPTIONS window: the movie and the backdrop at kTitleDimmed, the movie's buttons inactive
     const titleDialog = state.scene === 'title' && optionsUi?.kind === 'title';
     titleScene?.setActive(!titleDialog);
     htmlUi.show(specs, ['title', 'characters'].includes(state.scene), engineScene(), titleDialog ? TITLE_DIMMED : 1);
     deckDom?.show(specs, deck.detail, deck.drag);
-    tradeDom?.show(specs, tradeTrunk.detailView(), null);
+    tradeDom?.show(specs, tradeTrunk.detailView(), tradeTrunk.dragView());
     swapDom?.show(specs, sideSwap.detailView(), sideSwap.dragView());
     cardGetDom?.show(specs, gettingCard ? cardGet.detailView() : null, null);
     syncPortrait();
@@ -678,7 +679,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const avatar = d?.kind === 'avatar' && state.scene !== 'characters' ? d : null;
     // a duel request's other duelist (live keeps their bust at the right while its box is up: asked, asking, refused)
     const lobby = state.scene === 'lobby' ? state.lobby : undefined, refused = lobby?.refused && lobby.refused.id > refusedSeen ? lobby.refused : undefined;
-    const request = lobby?.invitation?.parts ?? lobby?.outgoing?.parts ?? refused?.parts ?? null;
+    // (and a trade request's partner while this side waits for the answer: live keeps their bust beside "Requesting Trade")
+    const trade = state.socialDetail?.trade, tradeAsk = trade && (trade.phase === 'requesting' || trade.phase === 'waiting' || trade.phase === 'offered') && trade.partner ? lobby?.avatars.find(a => a.id === trade.partner!.pid)?.parts : undefined;
+    const request = lobby?.invitation?.parts ?? lobby?.outgoing?.parts ?? refused?.parts ?? (tradeAsk ? Array.from(tradeAsk) : null);
     // a player's card: live shows that player's bust where the Discord card's stands (BUST_AT)
     const card = state.scene === 'lobby' && state.profileDetail && state.profileDetail.selectedPid !== null && state.profileDetail.selectedPid !== state.profileDetail.selfPid
       ? state.lobby?.avatars.find(a => a.id === state.profileDetail!.selectedPid)?.parts : null;

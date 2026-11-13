@@ -39,7 +39,16 @@ export interface DeckDomOptions {
   zones?: Partial<Record<'main' | 'side' | 'extra' | 'trunk', readonly [number, number, number, number]>>;
   /** The side menu's buttons it gives the mouse (default: all five). */
   sideButtons?: readonly string[];
+  /** The trunk's header keys as the engine draws them outside the editor (Card Swap: main's search panel isn't over
+   * them): the six Rearrange colour keys (sort_btn1..6) and the nine filter icons (search_btn1..9), and no deck window
+   * needed for its drop zones (the trade's own offer area takes the drop; no Main / Fusion tabs). */
+  engineKeys?: boolean;
 }
+/** The trunk's swf keys (deck.ts kabanWindow order / search) and their art (data/deck, main's ui/ folder), first frame. */
+const KEY_ART: Record<string, string> = Object.fromEntries([
+  ...['MagicBtn', 'TrapBtn', 'NormalBtn', 'EffectBtn', 'RitualBtn', 'FusionBtn'].map((n, i) => [`29:${n}`, `sort_btn${i + 1}_0_j.png`]),
+  ...['AtkBtn', 'DefBtn', 'TypeBtn', 'AttrBtn', 'EffectBtn', 'NameBtn', 'StrBtn', 'LevelBtn', 'ForbiBtn'].map((n, i) => [`57:${n}`, `search_btn${i + 1}_0_j.png`]),
+]);
 /** What the detail's power strip shows a monster (its race, attribute and level icons, holes in main's module). */
 export interface PowerIcons { race: number; attr: number; level: number }
 
@@ -118,7 +127,7 @@ export class DeckDom {
     if (this.disposed) return;
     const wins = specs.map(s => s.win).filter(w => DECK_CLASSES.has(w.cls) && (this.options.owns?.(w) ?? true));
     const modal = !!(this.scene.ui.files || this.scene.ui.dialog);
-    this.active = wins.some(w => w.cls === 'CWindowModelDeck');
+    this.active = wins.some(w => w.cls === 'CWindowModelDeck' || this.options.engineKeys === true && w.cls === 'CWindowModelKaban');
     this.frame++;
     const seen = new Set<number>();
     for (const win of wins) { seen.add(win.id); this.draw(win, win.cls === 'CCardDetailViewDlg' ? detail : null); }
@@ -153,8 +162,10 @@ export class DeckDom {
     };
     const labels: Record<string, string> = { LoadBtn: 'Load Deck', SaveBtn: 'Save Deck', RecipeBtn: 'Structure Deck', ClearBtn: 'Clear Deck', ExitBtn: 'Exit' };
     SIDE_BUTTONS.forEach((name, i) => (this.options.sideButtons ?? SIDE_BUTTONS).includes(name) && button(labels[name] ?? name, 0, 40 + 27 * i, 176, 27, () => this.scene.sideButton(name)));
-    button('Main Deck', 256, 56, 194, 28, () => this.scene.tab('main'));
-    button('Fusion Deck', 450, 56, 192, 28, () => this.scene.tab('extra'));
+    if (!this.options.engineKeys) {
+      button('Main Deck', 256, 56, 194, 28, () => this.scene.tab('main'));
+      button('Fusion Deck', 450, 56, 192, 28, () => this.scene.tab('extra'));
+    }
     button(ui.detail === 0 ? 'Collapse card detail' : 'Expand card detail', 229, ui.detail === 2 ? 711 : 175, 16, 24, () => this.scene.toggleDetail());
   }
   // One window's cards and art (main's holes): its card faces (deck cards and trunk rows: elements that take the mouse),
@@ -203,6 +214,8 @@ export class DeckDom {
     for (const c of win.controls) for (const f of ((c.parts as { swfs?: Record<string, unknown>[] } | undefined)?.swfs ?? [])) {
       // the trunk's count box (kabancnt_0: 72 x 21); the order / search keys are under main's search panel
       if (f.name === 'KabanCountBtn' && f.shown) items.push({ z: Number(f.wz ?? 0), draw: () => this.cell(root, 'kabancnt_0_j.png', 0, 0, 72, 21, Number(f.wx) - ox, Number(f.wy) - oy) });
+      const key = this.options.engineKeys && f.shown ? KEY_ART[`${Number(f.wy)}:${String(f.name)}`] : undefined;
+      if (key) items.push({ z: Number(f.wz ?? 0), draw: () => this.cell(root, key, 0, 0, 24, 25, Number(f.wx) - ox, Number(f.wy) - oy) });
     }
     if (detail && win.cls === 'CCardDetailViewDlg') {
       const holes = (win.holes ?? []) as { x: number; y: number; w: number; h: number }[];
@@ -230,7 +243,8 @@ export class DeckDom {
     // main's search panel, and an item co-drawn for them (the header bar under them) came out over that panel and the
     // "Trunk" title. An item under a hole shows only through it (clipped to the holes over it): drawn whole, a trunk
     // row's frame (under its picture's hole) covered the row's name, icons and ATK / DEF once its atlas had loaded.
-    const swfAt = new Set(win.controls.flatMap(c => ((c.parts as { swfs?: Record<string, unknown>[] } | undefined)?.swfs ?? []).filter(f => f.name !== 'KabanCountBtn').map(f => `${f.wx},${f.wy}`)));
+    // (outside the editor the keys are drawn here: what lies under them is co-drawn as under any other hole)
+    const swfAt = new Set(this.options.engineKeys ? [] : win.controls.flatMap(c => ((c.parts as { swfs?: Record<string, unknown>[] } | undefined)?.swfs ?? []).filter(f => f.name !== 'KabanCountBtn').map(f => `${f.wx},${f.wy}`)));
     const holes = pl.holes.filter(h => !swfAt.has(`${h.rect.x},${h.rect.y}`));
     const local = ({ x, y, w, h }: { x: number; y: number; w: number; h: number }) => `M${x - ox} ${y - oy}h${w}v${h}h${-w}z`;
     if (document.head) for (const it of pl.items) {   // (no head: a test document, no styled text)
