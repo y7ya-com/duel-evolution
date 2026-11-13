@@ -56,6 +56,8 @@ export class NpcController {
   private authFlags = 0;
   private openingBlocked = false;
   private contacts = new Map<number, ClaimStatus>();
+  /** The lines still to come in the balloon's run (npcLineRun): a click shows the next before the talk goes on. */
+  private run: number[] = [];
   constructor(private readonly options: NpcOptions) {}
   get state(): Readonly<NpcState> { return this.value; }
   private emit(): void { if (!this.disposed) this.options.onChange?.(this.value); }
@@ -64,6 +66,18 @@ export class NpcController {
     const npcId = this.value.npc!.id;
     const text = line === null ? null : this.options.resolveLine?.(npcId, line);
     return { npcId, line, text: text || (line === 10 ? '…?' : '[Original NPC dialogue unavailable]'), known: !!text };
+  }
+  /** The NPC says `line` and the rest of its run (live's waist-up balloon: Kain's first meeting is lines 0 to 4, then
+   * "Start Duel?"); the lines that follow are shown one per click. */
+  private say(line: number | null): NpcDialogue {
+    const npcId = this.value.npc!.id;
+    this.run = line === null ? [] : npcLineRun(line).filter((l, i, all) => all.slice(0, i + 1).every(k => !!this.options.resolveLine?.(npcId, k)));
+    return this.dialogue(line);
+  }
+  /** The next line of the balloon's run, if any is left. */
+  private nextInRun(): boolean {
+    const next = this.run.shift(); if (next === undefined) return false;
+    this.patch({ dialogue: this.dialogue(next) }); return true;
   }
   /** Original CAreaMapScene::onInit requests ITEMGET(1,0), not a guessed NPC gift.
    * Serialize it with all uncorrelated ITEMGET receipts and never replay uncertain sends. */
@@ -90,7 +104,7 @@ export class NpcController {
     if (context?.npcRank !== undefined && (!Number.isInteger(context.npcRank) || context.npcRank < 0 || context.npcRank > 255 || npc.id >= 128)) throw new RangeError('Invalid NPC progress');
     // Receipts have no request IDs. Keep unresolved contact attached to its owner.
     if ([...this.contacts.values()].some(status => status === 'pending' || status === 'uncertain')) return;
-    this.generation++; this.presentReceived = false; this.authFlags = authFlags; this.openingBlocked = false;
+    this.generation++; this.presentReceived = false; this.authFlags = authFlags; this.openingBlocked = false; this.run = [];
     const rec = context?.record, byte = (n: number | undefined) => Number.isInteger(n) && n! >= 0 && n! <= 255;
     this.value = { ...initial(), eligibility: this.value.eligibility, npc: { ...npc }, stage: 'ask',
       record: rec && rec.length === 3 && rec.every(byte) ? { wins: rec[0], loses: rec[1], draws: rec[2] } : null };
@@ -106,21 +120,21 @@ export class NpcController {
         this.value.error = context.specialPresentDone === false ? 'This NPC requires a duel right that this character does not currently have.' : 'NPC eligibility data is unavailable. Refresh progress before duelling.';
       } else {
         const seen = this.contacts.get(npc.id) === 'confirmed';
-        this.value.dialogue = this.dialogue(seen || (context.npcRank !== undefined && context.npcRank > 0) ? 5 : context.npcRank === 0 ? 0 : null);
+        this.value.dialogue = this.say(seen || (context.npcRank !== undefined && context.npcRank > 0) ? 5 : context.npcRank === 0 ? 0 : null);
         if (context.npcRank === 0 && !seen) {
           this.contacts.set(npc.id, 'pending'); this.value.firstContactStatus = 'pending';
           try { this.options.send(0x5204, new BinaryWriter().u16(4).u32(npc.id).bytes()); }
           catch { if (this.contacts.get(npc.id) === 'pending') { this.contacts.set(npc.id, 'uncertain'); this.value.firstContactStatus = 'uncertain'; this.value.error = 'First-contact delivery is uncertain. Reload authoritative NPC progress; do not replay.'; } }
         }
       }
-    } else if (authFlags & 0x100) { this.value.stage = 'greeting'; this.value.dialogue = this.dialogue(10); }
+    } else if (authFlags & 0x100) { this.value.stage = 'greeting'; this.value.dialogue = this.say(10); }
     this.emit();
   }
   async answer(yes: boolean): Promise<void> {
     if (this.disposed || this.value.stage !== 'ask' || ['pending', 'uncertain'].includes(this.value.firstContactStatus)) return;
-    if (!yes) { this.patch({ stage: 'greeting', dialogue: this.dialogue(10) }); return; }
+    if (!yes) { this.patch({ stage: 'greeting', dialogue: this.say(10) }); return; }
     const generation = this.generation, id = this.value.npc!.id;
-    this.patch({ stage: 'duel', dialogue: null, error: null });
+    this.run = []; this.patch({ stage: 'duel', dialogue: null, error: null });
     try { await this.options.onStartDuel(id); }
     catch (error) {
       if (!this.disposed && generation === this.generation) this.patch({ stage: 'done', error: `NPC duel failed: ${String(error)}` });
@@ -131,7 +145,7 @@ export class NpcController {
     if (this.disposed || this.value.stage !== 'duel') return;
     const r = this.value.record, bump = (n: number) => Math.min(n + 1, 255);
     const record = r ? { wins: result === 1 ? bump(r.wins) : r.wins, loses: result === 2 ? bump(r.loses) : r.loses, draws: result === 3 ? bump(r.draws) : r.draws } : r;
-    this.patch({ stage: 'after-duel', result, record, dialogue: this.dialogue(this.options.resultLine?.(result) ?? null) });
+    this.patch({ stage: 'after-duel', result, record, dialogue: this.say(this.options.resultLine?.(result) ?? null) });
   }
   /** Re-reads `resultLine` while the result-opening line is still unresolved (the duel's type0x4d finish record
    * arrives after C_DUEL_END). A resolved line, a later stage or another NPC session is never rewritten. */
@@ -139,30 +153,31 @@ export class NpcController {
     const s = this.value;
     if (this.disposed || s.stage !== 'after-duel' || !s.result || s.dialogue?.line != null) return;
     const line = this.options.resultLine?.(s.result) ?? null;
-    if (line !== null) this.patch({ dialogue: this.dialogue(line) });
+    if (line !== null) this.patch({ dialogue: this.say(line) });
   }
   advance(): void {
     if (this.disposed) return;
     const s = this.value;
+    // the balloon's run first (a result line waits for the server's settlement, as the talk after it does)
+    if (s.dialogue && ['opening', 'greeting', 'won', 'lost', 'item'].includes(s.stage) && !(s.stage === 'opening' && this.openingBlocked) && this.nextInRun()) return;
+    if (s.dialogue && s.stage === 'after-duel' && s.settlementReceived && this.nextInRun()) return;
     if (s.stage === 'opening') {
       // a special NPC's refusal (no duel right yet): its click ends the talk, as live (no panel left to close)
       if (this.openingBlocked) { this.patch({ stage: 'done', dialogue: null }); this.close(); }
-      else if (this.authFlags & 0x100) this.patch({ stage: 'greeting', dialogue: this.dialogue(10) });
-      else this.patch({ stage: 'ask', dialogue: this.acceptLine() });
+      else if (this.authFlags & 0x100) this.patch({ stage: 'greeting', dialogue: this.say(10) });
+      // the run said, live asks "Start Duel?" (CNpcListMenu::stepAsk)
+      else this.patch({ stage: 'ask', dialogue: null });
     } else if (s.stage === 'ask' && s.dialogue) this.patch({ dialogue: null });
     else if (s.stage === 'greeting') this.patch({ stage: 'done', dialogue: null });
     else if (s.stage === 'after-duel' && s.settlementReceived) {
-      if (s.present === 1) this.patch({ stage: s.result === 1 ? 'won' : 'lost', dialogue: this.dialogue(s.result === 1 ? 0x45 : 0x4a) });
-      else if (s.present === 2) this.patch({ stage: 'item', dialogue: this.dialogue(0x4f) });
+      if (s.present === 1) this.patch({ stage: s.result === 1 ? 'won' : 'lost', dialogue: this.say(s.result === 1 ? 0x45 : 0x4a) });
+      else if (s.present === 2) this.patch({ stage: 'item', dialogue: this.say(0x4f) });
       else this.patch({ stage: 'done', dialogue: null });
     } else if (['won', 'lost', 'item'].includes(s.stage) && s.giftStatus === 'idle') {
       this.patch({ stage: 'claiming', dialogue: null, giftStatus: 'pending' });
       this.sendClaim('giftStatus', 0x5204, new BinaryWriter().u16(3).u32(0).bytes());
     }
   }
-  /** The NPC's yes to a duel (line 1: "Ok! Give it your best shot!"), spoken before the original's "Start Duel?"
-   * question; absent when the line is unknown (the question comes straight away). */
-  private acceptLine(): NpcDialogue | null { const d = this.dialogue(1); return d.known ? d : null; }
   /** Leave the talk before a duel (the original's balloon and Start Duel? close with No, Escape or a click away):
    * nothing was claimed, so nothing waits on the server. A first meeting still being confirmed stays. */
   dismiss(): boolean {
@@ -251,14 +266,22 @@ export class NpcController {
     // acknowledgement go on after it (eligibility is kept across the close, contacts by NPC id); only a reward the
     // server is still settling, or a pack still to pick, keeps the talk open
     if (this.disposed || !npcTalkClosable(this.value)) return false;
-    this.generation++; this.refreshToken++; this.refreshing = false; this.refreshAgain = false; this.presentReceived = false;
+    this.generation++; this.refreshToken++; this.refreshing = false; this.refreshAgain = false; this.presentReceived = false; this.run = [];
     this.value = { ...initial(), eligibility: this.value.eligibility }; this.emit(); return true;
   }
-  reset(): void { if (this.disposed) return; this.generation++; this.refreshToken++; this.refreshing = false; this.refreshAgain = false; this.presentReceived = false; this.contacts.clear(); this.openingBlocked = false; this.authFlags = 0; this.value = initial(); this.emit(); }
+  reset(): void { if (this.disposed) return; this.run = []; this.generation++; this.refreshToken++; this.refreshing = false; this.refreshAgain = false; this.presentReceived = false; this.contacts.clear(); this.openingBlocked = false; this.authFlags = 0; this.value = initial(); this.emit(); }
   dispose(): void { this.reset(); this.disposed = true; }
 }
 
 /** The talk may end now (close): it is said and done, and no reward is waiting on the server or on the player's pick. */
+/** The lines a balloon that opens with `line` runs through (fuki_index.csv's layout, as live plays it): the first
+ * meeting 0-4 and the next meetings 5-9 are runs of five, 10 (the decline) to 33 (the duel's lines) single lines, and
+ * from 34 the result and present lines runs of five again (34-38 ... 79-83). A run ends at its first missing line. */
+export function npcLineRun(line: number): number[] {
+  const end = line < 10 ? Math.floor(line / 5) * 5 + 4 : line < 34 ? line : 34 + Math.floor((line - 34) / 5) * 5 + 4;
+  return Array.from({ length: Math.max(0, Math.min(end, 83) - line) }, (_, i) => line + 1 + i);
+}
+
 export function npcTalkClosable(s: Readonly<Pick<NpcState, 'stage' | 'giftStatus' | 'packStatus' | 'packs'>>): boolean {
   return ['idle', 'done'].includes(s.stage) && s.giftStatus !== 'pending' && s.packStatus !== 'pending' && !(s.packs.length > 0 && s.packStatus === 'idle');
 }

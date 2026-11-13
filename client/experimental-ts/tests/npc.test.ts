@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { NpcController } from '../src/features/npc';
+import { NpcController, npcLineRun } from '../src/features/npc';
 import { BinaryWriter as W } from '../src/network/codec';
 const packet = (id:number,data:Uint8Array) => ({id,data,param:0});
 function setup() { const send=vi.fn(), start=vi.fn(), refresh=vi.fn(); const c=new NpcController({send,onStartDuel:start,onRefreshCollection:refresh}); c.open({id:51,name:'NPC'}); return {c,send,start,refresh}; }
@@ -79,9 +79,25 @@ it('after-duel line resolves once the duel result inputs complete and is never r
  c.refreshResultLine(); expect(c.state.dialogue?.line).toBeNull();
  line=39; c.refreshResultLine(); expect(c.state.dialogue).toEqual({npcId:51,line:39,text:'npc51:39',known:true});
  line=64; c.refreshResultLine(); expect(c.state.dialogue?.line).toBe(39);
- c.receive(packet(0x4800,new Uint8Array())); c.advance(); expect(c.state.stage).toBe('done'); c.refreshResultLine(); expect(c.state.dialogue).toBeNull();
+ // the result line's run (39 to 43) is read before the talk goes on
+ c.receive(packet(0x4800,new Uint8Array())); for (const l of [40,41,42,43]) { c.advance(); expect(c.state.dialogue?.line).toBe(l); }
+ c.advance(); expect(c.state.stage).toBe('done'); c.refreshResultLine(); expect(c.state.dialogue).toBeNull();
 });
 it('a result line known at C_DUEL_END is used directly',async()=>{
  const c=new NpcController({send:vi.fn(),onStartDuel:vi.fn(),resultLine:()=>49}); c.open({id:51,name:'NPC'}); await c.answer(true); c.afterDuel(3);
  expect(c.state.dialogue).toMatchObject({line:49,known:false,text:'[Original NPC dialogue unavailable]'});
+});
+it('a balloon runs through its block of lines as live: the first meeting 0-4, then Start Duel?; No says line 10 alone',async()=>{
+ expect(npcLineRun(0)).toEqual([1,2,3,4]); expect(npcLineRun(5)).toEqual([6,7,8,9]); expect(npcLineRun(10)).toEqual([]); expect(npcLineRun(33)).toEqual([]);
+ expect(npcLineRun(34)).toEqual([35,36,37,38]); expect(npcLineRun(0x45)).toEqual([70,71,72,73]); expect(npcLineRun(81)).toEqual([82,83]);
+ // Kain (38): lines 0-8 and 10, 11 known (fuki_index.csv), 9 missing
+ const known=new Set([0,1,2,3,4,5,6,7,8,10,11]);
+ const send=vi.fn(),start=vi.fn(),c=new NpcController({send,onStartDuel:start,resolveLine:(_n,l)=>known.has(l)?`kain:${l}`:null});
+ c.open({id:38,name:'Kain'},0,{npcRank:0}); c.receive(packet(0x5205,new Uint8Array(4)));
+ const seen=[c.state.dialogue?.line]; while (c.state.stage==='opening') { c.advance(); if (c.state.dialogue) seen.push(c.state.dialogue.line); }
+ expect(seen).toEqual([0,1,2,3,4]); expect(c.state).toMatchObject({stage:'ask',dialogue:null});
+ await c.answer(false); expect(c.state.dialogue?.line).toBe(10); c.advance(); expect(c.state.stage).toBe('done'); expect(start).not.toHaveBeenCalled();
+ // met before: 5 to 8 (9 is missing), then the question
+ c.close(); c.open({id:38,name:'Kain'},0,{npcRank:1}); const again=[c.state.dialogue?.line]; while (c.state.stage==='opening') { c.advance(); if (c.state.dialogue) again.push(c.state.dialogue.line); }
+ expect(again).toEqual([5,6,7,8]); expect(c.state.stage).toBe('ask');
 });

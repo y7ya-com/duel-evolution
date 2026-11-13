@@ -84,7 +84,8 @@ function startDuel(d: NpcTalkDeps, blocked: boolean): WindowSpec {
   const on = !d.busy && !blocked;
   ([['yes', 'Yes', 45, true], ['no', 'No', 212, false]] as const).forEach(([id, label, bx, accept]) => {
     const c = b.add('CWindowTaskTextSwitch', `opt:${id}`, { x: bx, y: 112, w: 80, h: 24 }, { label, align: 1, state: on ? 'normal' : 'disabled', enabled: on });
-    b.on(c, { key: `npc-start:${id}`, label, click: () => { if (on) d.send(accept ? { type: 'npcAnswer', accept: true } : { type: 'npcDismiss' }); } });
+    // Yes starts the duel; No is the NPC's decline line (10) before the talk ends, as live (CNpcListMenu::stepAsking)
+    b.on(c, { key: `npc-start:${id}`, label, click: () => { if (on) d.send({ type: 'npcAnswer', accept }); } });
   });
   return b.spec();
 }
