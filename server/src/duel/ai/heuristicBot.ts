@@ -767,7 +767,7 @@ export class HeuristicBot {
     ev.summonable.forEach((c, i) => {
       const k = this.#cards.brain.get(c.code);
       if (!k || k.tributes() > 0 || this.#isFlip(c.code) || this.#ruleFor(c.code)?.keepInHand || this.#locked(c.code)) return;
-      const a = this.#stat(c.code).atk;
+      const a = this.#normalSummonStats(c.code).atk;
       if (a > atk) { atk = a; best = i; }
     });
     return best >= 0 ? respIdle("SELECT_SUMMON", best) : null;
@@ -1698,7 +1698,7 @@ export class HeuristicBot {
     });
     let summon = 0, summonIndex = -1;
     ev.summonable.forEach((c, i) => {
-      const st = this.#stat(c.code);
+      const st = this.#normalSummonStats(c.code);
       if (st.level <= 4 && st.atk > summon && !this.#ruleFor(c.code)?.keepInHand) { summon = st.atk; summonIndex = i; }
     });
     return { standing, turned, turnIndex, summon, summonIndex };
@@ -1708,6 +1708,24 @@ export class HeuristicBot {
    *  #summonPlays), or null. */
   #chooseMonsterPlay(ev: P<"selectIdleCmd">, _oppMax: number, _oppHasMon: boolean, ctx: RuleCtx): { cmd: "SELECT_SUMMON" | "SELECT_MONSTER_SET"; index: number } | null {
     return this.#summonPlays(ev, ctx)[0] ?? null;
+  }
+
+  /** Cyberdark's Normal Summon equips a Level 3-or-lower Dragon from our own graveyard. Judge
+   * the body it will actually produce, including the direct-damage shortcut (duel 911), rather than
+   * its printed 800 ATK. This reads public cards only; a Set does not trigger the equip. */
+  #normalSummonStats(code: number): { atk: number; def: number; level: number } {
+    const st = this.#stat(code), me = this.#me();
+    if (!/^(cyberdark horn|cyberdark edge|cyberdark keel)$/.test(this.#nameOf(code)) || !me
+      || me.szone.slice(0, 5).filter(Boolean).length >= 5) return st;
+    const locked = this.#board?.players.some(p => p.szone.some(c => c && !isFaceDown(c.position)
+      && /^(skill drain|necrovalley)$/.test(this.#nameOf(c.code))));
+    if (locked) return st;
+    const equipAtk = me.grave.reduce((best, c) => {
+      const card = this.#cards.brain.get(c);
+      return card && (card.race & 0x2000) !== 0 && card.level <= 3
+        ? Math.max(best, this.#stat(c).atk) : best;
+    }, 0);
+    return { ...st, atk: st.atk + equipAtk };
   }
 
   /** Master Duel's position for a monster it summons (md-ai/port/A1-summon.md §5): a weak FLIP monster is set; else set
@@ -1807,7 +1825,8 @@ export class HeuristicBot {
     ev.summonable.forEach((c, i) => {
       if (seen.has(c.code) || this.#ruleFor(c.code)?.keepInHand) return;
       seen.add(c.code);
-      let st = this.#stat(c.code);
+      let st = this.#normalSummonStats(c.code);
+      const equipAtk = st.atk - this.#stat(c.code).atk;
       const bonus = this.#ruleFor(c.code)?.summonScore?.(ctx) ?? 0;
       const setIndex = ev.monsterSet.findIndex((x) => x.code === c.code);
       let n = st.level > 6 ? 2 : st.level > 4 ? 1 : 0;
@@ -1820,9 +1839,10 @@ export class HeuristicBot {
       // Reaper into a 3000)
       if (battleAhead && opp.length > 0 && setIndex >= 0 && !this.#isFlip(c.code) && !STAYS_SET.test(this.#nameOf(c.code)) && !ON_SUMMON.has(c.code) && bonus <= 0) {
         const tributes = n > 0 ? fodder.slice(0, n).map((t) => t.seq) : [];
-        const up = this.#afterSummon(c.code, false, tributes, st).trade, down = this.#afterSummon(c.code, true, tributes, st).trade;
+        const up = this.#afterSummon(c.code, false, tributes, st).trade, down = this.#afterSummon(c.code, true, tributes, { ...st, atk: st.atk - equipAtk }).trade;
         if (Math.abs(up - down) > 200) set = down > up;
       }
+      if (set && equipAtk) st = { ...st, atk: st.atk - equipAtk }; // A Set has no on-summon equip.
       const stat = set ? st.def : st.atk;
       if (n > 0 && bonus <= 0) {
         const tributes = fodder.slice(0, n);

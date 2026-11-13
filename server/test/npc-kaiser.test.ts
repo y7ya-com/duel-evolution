@@ -46,6 +46,70 @@ describe.skipIf(!existsSync(join(ENGINE_DATA_DIR, "scripts.pack")))("Hell Kaiser
     expect(leftField(p, "Jain, Lightsworn Paladin")).toBe(true);
   });
 
+  it.each(["Cyberdark Horn", "Cyberdark Edge", "Cyberdark Keel"])("chooses an equipped %s over a bare Hunter Dragon (duel 911)", cyberdark => {
+    const p = play(dc, {
+      npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Hunter Dragon", cyberdark, "Hunter Dragon"], grave: ["Hunter Dragon"] },
+      player: {},
+    });
+    expect(msgs(p, "SUMMONING", cyberdark)).toHaveLength(1);
+    expect(msgs(p, "SUMMONING", "Hunter Dragon")).toHaveLength(0);
+    expect(p.log.some(line => line.includes("LP 8000 -> 5500"))).toBe(true);
+  });
+
+  it("uses Foolish Burial's setup with Horn even when Hunter Dragon is also summonable", () => {
+    const p = play(dc, {
+      npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Hunter Dragon", "Cyberdark Horn", "Foolish Burial"], deck: ["Hunter Dragon", "Hunter Dragon", ...Array(12).fill("Petit Moth")] },
+      player: { mzone: ["Lyla, Lightsworn Sorceress"] },
+    });
+    expect(npcActivated(p, "Foolish Burial")).toBe(true);
+    expect(msgs(p, "SUMMONING", "Cyberdark Horn")).toHaveLength(1);
+    expect(leftField(p, "Lyla, Lightsworn Sorceress")).toBe(true);
+  });
+
+  it("does not prefer an unequipped Cyberdark when no Dragon is in the graveyard", () => {
+    const p = play(dc, {
+      npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Hunter Dragon", "Cyberdark Horn"], grave: ["Sangan"] }, player: {},
+    });
+    expect(msgs(p, "SUMMONING", "Hunter Dragon")).toHaveLength(1);
+    expect(msgs(p, "SUMMONING", "Cyberdark Horn")).toHaveLength(0);
+  });
+
+  it("counts a legal Masked Dragon equip instead of relying on Hunter Dragon by name", () => {
+    const p = play(dc, {
+      npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Hunter Dragon", "Cyberdark Horn"], grave: ["Masked Dragon"] }, player: {},
+    });
+    expect(msgs(p, "SUMMONING", "Cyberdark Horn")).toHaveLength(1);
+    expect(p.log.some(line => line.includes("LP 8000 -> 5800"))).toBe(true);
+  });
+
+  it("sees lethal with the equipped Cyberdark instead of summoning the weaker Dragon", () => {
+    const p = play(dc, {
+      npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Hunter Dragon", "Cyberdark Horn"], grave: ["Hunter Dragon"] },
+      player: { lp: 2400 },
+    });
+    expect(msgs(p, "SUMMONING", "Cyberdark Horn")).toHaveLength(1);
+    expect(p.end?.winner).toBe(1);
+  });
+
+  it.each(["level four Dragon", "full backrow", "Skill Drain", "Necrovalley"])("does not count an unavailable equip: %s", blocked => {
+    const p = play(dc, {
+      npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Hunter Dragon", "Cyberdark Horn"],
+        grave: [blocked === "level four Dragon" ? "Luster Dragon" : "Hunter Dragon"],
+        szone: blocked === "full backrow" ? Array(5).fill(["Call of the Haunted", "up"])
+          : blocked === "Skill Drain" ? [["Skill Drain", "up"]]
+          : blocked === "Necrovalley" ? [["Necrovalley", "up"]] : [] },
+      player: {},
+    });
+    expect(msgs(p, "SUMMONING", "Hunter Dragon")).toHaveLength(1);
+    expect(msgs(p, "SUMMONING", "Cyberdark Horn")).toHaveLength(0);
+  });
+
   it("keeps its only graveyard Dragon for Cyberdark instead of reviving it first", () => {
     const p = play(dc, {
       npcId: 80, first: "player", turns: 2,
