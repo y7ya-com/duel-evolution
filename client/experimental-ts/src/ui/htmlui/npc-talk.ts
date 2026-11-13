@@ -42,13 +42,13 @@ export function npcTalkWindows(npc: Readonly<NpcState> | null | undefined, d: Np
   }
   out.push(infoCard(s, d));
   const waiting = s.stage === 'after-duel' && !s.settlementReceived;
-  const contactBlocked = ['pending', 'uncertain'].includes(s.firstContactStatus);
-  if (s.stage === 'ask' && !s.dialogue) out.push(startDuel(d, contactBlocked));
+  // (a first meeting's acknowledgement does not hold the talk: live sends it and goes on)
+  if (s.stage === 'ask' && !s.dialogue) out.push(startDuel(d, false));
   else {
     // the line; a click goes on (after a duel only once the server's result is in; before one, after the first
     // meeting is confirmed); the greeting (the NPC's "not duelling?" line) is the last: its click leaves
     const text = s.dialogue?.known ? s.dialogue.text : waiting ? '' : s.dialogue?.text ?? '';
-    const blocked = !!d.busy || waiting || s.stage === 'opening' && contactBlocked;
+    const blocked = !!d.busy || waiting;
     const command: NpcCommand = s.stage === 'greeting' ? { type: 'npcDismiss' } : { type: 'npcAdvance' };
     const label = ['won', 'lost', 'item'].includes(s.stage) ? 'Receive Gift' : s.stage === 'greeting' ? 'Close' : 'Next';
     out.push(balloon(d, who.name, text, label, blocked, () => d.send(command)));

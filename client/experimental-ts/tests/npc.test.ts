@@ -3,7 +3,7 @@ import { NpcController, npcLineRun } from '../src/features/npc';
 import { BinaryWriter as W } from '../src/network/codec';
 const packet = (id:number,data:Uint8Array) => ({id,data,param:0});
 function setup() { const send=vi.fn(), start=vi.fn(), refresh=vi.fn(); const c=new NpcController({send,onStartDuel:start,onRefreshCollection:refresh}); c.open({id:51,name:'NPC'}); return {c,send,start,refresh}; }
-it('asks before starting; decline uses line10 then closes',async()=>{ const {c,start,send}=setup(); expect(c.state.stage).toBe('ask'); await c.answer(false); expect(c.state.dialogue).toMatchObject({line:10,text:'…?',known:false}); c.advance(); expect(c.state.stage).toBe('done'); expect(start).not.toHaveBeenCalled(); expect(send).not.toHaveBeenCalled(); });
+it('asks before starting; decline uses line10 then closes',async()=>{ const {c,start,send}=setup(); expect(c.state.stage).toBe('ask'); await c.answer(false); expect(c.state.dialogue).toMatchObject({line:10,text:'…?',known:false}); c.advance(); expect(c.state.stage).toBe('idle'); expect(c.state.npc).toBeNull(); expect(start).not.toHaveBeenCalled(); expect(send).not.toHaveBeenCalled(); });
 it.each([[1,1,'won',0x45],[2,1,'lost',0x4a],[1,2,'item',0x4f]] as const)('result %i present %i yields %s',async(result,kind,stage,line)=>{
  const {c,send,start,refresh}=setup(); await c.answer(true); await c.answer(true); expect(start).toHaveBeenCalledTimes(1); c.afterDuel(result); c.advance(); expect(c.state.stage).toBe('after-duel');
  c.receive(packet(0x4237,new W().u32(kind).bytes())); c.receive(packet(0x4800,new W().u16(7).bytes())); c.advance(); expect(c.state.stage).toBe(stage); expect(c.state.dialogue?.line).toBe(line);
@@ -25,7 +25,7 @@ it('does not attach unrelated lobby rewards after a declined conversation',async
 it('reads opening before ASK and caches acknowledged contact without granting a gift',async()=>{
  const send=vi.fn(),start=vi.fn(),refresh=vi.fn();const c=new NpcController({send,onStartDuel:start,onRefreshCollection:refresh});
  c.open({id:9,name:'NPC'},0,{npcRank:0});expect(c.state.stage).toBe('opening');expect(c.state.dialogue?.line).toBe(0);
- expect(send.mock.calls).toEqual([[0x5204,new W().u16(4).u32(9).bytes()]]);c.advance();await c.answer(true);expect(start).not.toHaveBeenCalled();
+ expect(send.mock.calls).toEqual([[0x5204,new W().u16(4).u32(9).bytes()]]);c.advance();expect(c.state.stage).toBe('ask');
  const ack=packet(0x5205,new W().u16(0).u16(0).bytes());c.receive(ack);c.receive(ack);expect(c.state.firstContactStatus).toBe('confirmed');expect(c.state.giftStatus).toBe('idle');expect(refresh).not.toHaveBeenCalled();
  await c.answer(false);c.advance();c.open({id:9,name:'NPC'},0,{npcRank:0});expect(c.state.dialogue?.line).toBe(5);expect(send).toHaveBeenCalledTimes(1);
 });
@@ -96,8 +96,16 @@ it('a balloon runs through its block of lines as live: the first meeting 0-4, th
  c.open({id:38,name:'Kain'},0,{npcRank:0}); c.receive(packet(0x5205,new Uint8Array(4)));
  const seen=[c.state.dialogue?.line]; while (c.state.stage==='opening') { c.advance(); if (c.state.dialogue) seen.push(c.state.dialogue.line); }
  expect(seen).toEqual([0,1,2,3,4]); expect(c.state).toMatchObject({stage:'ask',dialogue:null});
- await c.answer(false); expect(c.state.dialogue?.line).toBe(10); c.advance(); expect(c.state.stage).toBe('done'); expect(start).not.toHaveBeenCalled();
+ await c.answer(false); expect(c.state.dialogue?.line).toBe(10); c.advance(); expect(c.state.stage).toBe('idle'); expect(start).not.toHaveBeenCalled();
  // met before: 5 to 8 (9 is missing), then the question
- c.close(); c.open({id:38,name:'Kain'},0,{npcRank:1}); const again=[c.state.dialogue?.line]; while (c.state.stage==='opening') { c.advance(); if (c.state.dialogue) again.push(c.state.dialogue.line); }
+ c.open({id:38,name:'Kain'},0,{npcRank:1}); const again=[c.state.dialogue?.line]; while (c.state.stage==='opening') { c.advance(); if (c.state.dialogue) again.push(c.state.dialogue.line); }
  expect(again).toEqual([5,6,7,8]); expect(c.state.stage).toBe('ask');
+});
+it('the first meeting\'s acknowledgement never holds the talk (live sends ITEMGET 4 and goes on)',async()=>{
+ const send=vi.fn(),start=vi.fn(),c=new NpcController({send,onStartDuel:start});
+ c.open({id:9,name:'NPC'},0,{npcRank:0}); expect(c.state.firstContactStatus).toBe('pending'); c.advance(); expect(c.state.stage).toBe('ask');
+ await c.answer(true); expect(start).toHaveBeenCalledWith(9);
+ // another NPC's talk opens while an acknowledgement is still out
+ const d=new NpcController({send:vi.fn(),onStartDuel:vi.fn()}); d.open({id:9,name:'A'},0,{npcRank:0}); d.advance(); await d.answer(false); d.advance();
+ d.open({id:10,name:'B'},0,{npcRank:0}); expect(d.state).toMatchObject({stage:'opening',npc:{id:10}});
 });

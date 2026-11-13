@@ -102,8 +102,8 @@ export class NpcController {
     if (this.value.eligibility.refreshing || this.value.eligibility.status === 'pending') throw new Error('NPC eligibility is still being checked. Wait for the server before trying again.');
     if (this.value.eligibility.status === 'uncertain') throw new Error('NPC eligibility delivery is uncertain. Disconnect and reconnect to refresh progress before trying again.');
     if (context?.npcRank !== undefined && (!Number.isInteger(context.npcRank) || context.npcRank < 0 || context.npcRank > 255 || npc.id >= 128)) throw new RangeError('Invalid NPC progress');
-    // Receipts have no request IDs. Keep unresolved contact attached to its owner.
-    if ([...this.contacts.values()].some(status => status === 'pending' || status === 'uncertain')) return;
+    // (an earlier first meeting's acknowledgement still out does not hold the next talk: live sends ITEMGET(4) and goes on;
+    // the server answers in order, and a late empty acknowledgement grants nothing)
     this.generation++; this.presentReceived = false; this.authFlags = authFlags; this.openingBlocked = false; this.run = [];
     const rec = context?.record, byte = (n: number | undefined) => Number.isInteger(n) && n! >= 0 && n! <= 255;
     this.value = { ...initial(), eligibility: this.value.eligibility, npc: { ...npc }, stage: 'ask',
@@ -131,7 +131,8 @@ export class NpcController {
     this.emit();
   }
   async answer(yes: boolean): Promise<void> {
-    if (this.disposed || this.value.stage !== 'ask' || ['pending', 'uncertain'].includes(this.value.firstContactStatus)) return;
+    // (live asks "Start Duel?" without waiting for the first meeting's acknowledgement)
+    if (this.disposed || this.value.stage !== 'ask') return;
     if (!yes) { this.patch({ stage: 'greeting', dialogue: this.say(10) }); return; }
     const generation = this.generation, id = this.value.npc!.id;
     this.run = []; this.patch({ stage: 'duel', dialogue: null, error: null });
@@ -168,7 +169,8 @@ export class NpcController {
       // the run said, live asks "Start Duel?" (CNpcListMenu::stepAsk)
       else this.patch({ stage: 'ask', dialogue: null });
     } else if (s.stage === 'ask' && s.dialogue) this.patch({ dialogue: null });
-    else if (s.stage === 'greeting') this.patch({ stage: 'done', dialogue: null });
+    // the decline said, the talk ends (CNpcListMenu::stepTalkDone: the menu closes, the NPC goes back)
+    else if (s.stage === 'greeting') { this.patch({ stage: 'done', dialogue: null }); this.close(); }
     else if (s.stage === 'after-duel' && s.settlementReceived) {
       if (s.present === 1) this.patch({ stage: s.result === 1 ? 'won' : 'lost', dialogue: this.say(s.result === 1 ? 0x45 : 0x4a) });
       else if (s.present === 2) this.patch({ stage: 'item', dialogue: this.say(0x4f) });
