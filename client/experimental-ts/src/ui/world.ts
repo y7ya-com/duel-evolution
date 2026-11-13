@@ -54,6 +54,8 @@ interface Look { key: string; parts: Uint8Array; request: PoseRequest; walking: 
 const NO_PARTS = new Uint8Array(16);
 const viewportKey = (v: Viewport) => `${v.x}/${v.y}/${v.width}/${v.height}`;
 function contains(outer: Viewport, inner: Viewport): boolean { return inner.x >= outer.x + 16 && inner.y >= outer.y + 16 && inner.x + inner.width <= outer.x + outer.width - 16 && inner.y + inner.height <= outer.y + outer.height - 16; }
+/** Every pixel of the view drawn (contains() asks for a margin and loads ahead before the edge shows). */
+function covers(outer: Viewport, inner: Viewport): boolean { return inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.width <= outer.x + outer.width && inner.y + inner.height <= outer.y + outer.height; }
 function requestedViewport(v: Viewport): Viewport {
   return { x: Math.floor((v.x - 128) / 64) * 64, y: Math.floor((v.y - 128) / 64) * 64, width: WORLD_VIEW_WIDTH + 320, height: WORLD_VIEW_HEIGHT + 320 };
 }
@@ -228,6 +230,8 @@ export class WorldRenderer {
     }).catch(error => { if (!this.closed && !request.signal.aborted && generation === this.generation && (error as Error)?.name !== 'AbortError') { this.failedLoad = true; this.message('Map artwork could not be loaded.', true); } })
       .finally(() => { if (this.loadAbort === request) this.loadAbort = null; });
   }
+  /** data-map-ready, written only when it changes (the world's DOM stays quiet while it scrolls). */
+  private markReady(on: boolean): void { const v = on ? 'true' : 'false'; if (this.element.dataset.mapReady !== v) this.element.dataset.mapReady = v; }
   retry(): void { if (!this.closed && this.requestedMap !== null) this.load(this.requestedMap); }
   private message(text: string, retry = false): void {
     this.status.replaceChildren(); if (text) { const label = node('p', ''); label.textContent = text; this.status.append(label); }
@@ -240,7 +244,7 @@ export class WorldRenderer {
     if (this.displayed?.frame.mapId === this.requestedMap && contains(this.displayed.frame.viewport, view)) return;
     const requested = requestedViewport(view), key = viewportKey(requested); if (key === this.failedViewport) return;
     // the view not covered: the loader veil waits (scene-loading.ts pendingPictures) rather than lift over a black edge
-    this.element.dataset.mapReady = 'false';
+    if (!(this.displayed?.frame.mapId === this.requestedMap && covers(this.displayed.frame.viewport, view))) this.markReady(false);
     const scene = this.scene, generation = this.generation, request = new AbortController(); this.frameAbort = request; this.framePending = true;
     let acquired: SceneFrame | null = null;
     void scene.frame(requested, request.signal).then(async frame => {
@@ -256,7 +260,7 @@ export class WorldRenderer {
       this.dropUnusedTextures();
       if (previousScene && previousScene !== scene) previousScene.dispose();
       this.root.visible = true; this.sortDirty = true; this.ensureRoom();
-      this.element.dataset.mapReady = this.camera && contains(frame.viewport, this.camera.viewport) ? 'true' : 'false'; this.element.dataset.sceneImages = String(this.displayed.count); this.avatars.style.visibility = ''; this.message(''); this.layoutHits(true); this.options.onViewport?.();
+      this.markReady(!!this.camera && covers(frame.viewport, this.camera.viewport)); const count = String(this.displayed.count); if (this.element.dataset.sceneImages !== count) this.element.dataset.sceneImages = count; this.avatars.style.visibility = ''; this.message(''); this.layoutHits(true); this.options.onViewport?.();
     }).catch(error => {
       if (!this.closed && !request.signal.aborted && generation === this.generation && (error as Error)?.name !== 'AbortError') { this.failedViewport = key; this.message('Map artwork could not be loaded.', true); }
     }).finally(() => {
