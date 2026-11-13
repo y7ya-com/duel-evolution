@@ -892,9 +892,12 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     for (const [code, entry] of art) if (!entry.used) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; art.delete(code); }
   };
   // A full render replaces the stage's controls. Between a press and its release that would swallow the click, so
-  // renders wait until the pointer is released (or 1.5 s pass, e.g. a release outside the window).
+  // renders wait until the pointer is released (or 1.5 s pass, e.g. a release outside the window). The held render runs
+  // in a task of its own after the release: the browser dispatches pointerup, mouseup and click in one task, and a
+  // render in pointerup's microtasks replaced the button before its mouseup, so the click never came (the janken cards
+  // in an NPC duel, whose state changes while the player presses).
   let pointerHeld = false, deferredRender = false, pointerTimer: ReturnType<typeof setTimeout> | null = null;
-  const releasePointer = () => { pointerHeld = false; if (pointerTimer) { clearTimeout(pointerTimer); pointerTimer = null; } if (deferredRender) { deferredRender = false; requestRender(); } };
+  const releasePointer = () => { pointerHeld = false; if (pointerTimer) { clearTimeout(pointerTimer); pointerTimer = null; } if (deferredRender) { deferredRender = false; setTimeout(requestRender, 0); } };
   const holdPointer = () => { pointerHeld = true; if (pointerTimer) clearTimeout(pointerTimer); pointerTimer = setTimeout(releasePointer, 1500); };
   host.addEventListener?.('pointerdown', holdPointer, true);
   globalThis.addEventListener?.('pointerup', releasePointer, true); globalThis.addEventListener?.('pointercancel', releasePointer, true);
