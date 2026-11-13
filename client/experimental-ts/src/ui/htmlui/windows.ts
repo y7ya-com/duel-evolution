@@ -5,7 +5,7 @@ import { discordRows, duelLines, duelRows, type DiscordDuelist, type OpenDuelVie
 import type { ClientCommand, ClientView } from '../contracts';
 import { REWRITE_TEXT } from '../../features/ui-text';
 import { Ids, WindowBuilder, levelText } from './snapshot';
-import { AREA_FALLBACK, AREA_TEXT, WORLD_TEXT } from './lobby';
+import { AREA_TEXT, WORLD_TEXT, areaLabel } from './lobby';
 import { titleName } from '../../features/titles';
 import { FLAG_ATLAS, flagCell } from '../nation-flag';
 import type { HtmlControl, WindowSpec } from './snapshot';
@@ -482,7 +482,8 @@ export function placeBanner(ctx: BuildContext): WindowSpec | null {
   const map = lobby.mapId, myRoom = map === 8 || map === undefined;
   const worldName = myRoom ? world! : DOMINO_MAPS.has(map) ? ctx.text?.(WORLD_TEXT.domino) ?? 'Domino City' : ctx.text?.(WORLD_TEXT.academy) ?? 'Duelist Academy';
   const entry = lobby.areas?.find(a => a.block === lobby.block) ?? lobby.areas?.find(a => a.area === map);
-  const mapName = myRoom || AREA_TEXT[map] === undefined ? area : `${ctx.text?.(AREA_TEXT[map]!)?.trim() ?? AREA_FALLBACK[map] ?? area}[${(entry?.kind ?? 0) + 1}]`;
+  // live: "Domino City Clock Square[14]", "Duel Academy [15]" (as its Move list)
+  const mapName = myRoom || AREA_TEXT[map] === undefined ? area : areaLabel(map, entry?.kind, ctx.text, area);
   const lobbyCount = myRoom ? undefined : lobby.population ?? lobby.avatars.length;
   // the counts' column: the longer name's width (Arial 16, the shadow text's spacing) + 20; the frame 140 wider
   const width = (s: string) => Math.ceil(s.length * 8.6);

@@ -26,6 +26,10 @@ const LOBBY_FALLBACK: Record<keyof typeof LOBBY_TEXT, string> = { cancelRoom: RE
 export const AREA_TEXT: Record<number, number> = { 0: 0x1fa4, 1: 0x1fa5, 2: 0x1fa6, 3: 0x1fa7, 9: 0x1fa8, 4: 0x1fd6, 5: 0x1fd7, 6: 0x1fd8, 7: 0x1fd9 };
 /** AREA_TEXT's English (yo2text_e), before the table has loaded. */
 export const AREA_FALLBACK: Record<number, string> = { 0: 'Domino City Clock Square', 1: 'Game Shop "Kame"', 2: 'Domino Pier', 3: 'Kaiba Corporation', 9: 'Kaiba Corp. R&D Lab', 4: 'Duel Academy', 5: 'Store', 6: 'Duel Space', 7: 'Slifer Red Dormitory' };
+/** An area's name with its block number as live writes it on the Move list and the place plate: "Name[n]", Duel Academy's
+ * (area 4) alone with a space before its bracket (its yo2text string, 0x1fd6, ends in a space the text table trims). */
+export const areaLabel = (area: number, kind: number | undefined, text?: (id: number) => string | undefined, fallback?: string): string =>
+  `${(AREA_TEXT[area] !== undefined ? text?.(AREA_TEXT[area]!)?.trim() : undefined) ?? AREA_FALLBACK[area] ?? fallback ?? ''}${area === 4 ? ' ' : ''}[${(kind ?? 0) + 1}]`;
 /** The lobbies' names on the place plate (yo2text 3065 / 3066). */
 export const WORLD_TEXT = { domino: 3065, academy: 3066 } as const;
 
@@ -160,7 +164,7 @@ function moveWindow(ctx: BuildContext, deps: LobbyDeps): WindowSpec | null {
   const t = moveMock.windows[0]!, b = new WindowBuilder(ctx.ids, 'move', t.cls, { x: t.x, y: t.y, w: t.w, h: t.h }, { z: 51403, modal: false });
   const ui = deps.ui, topRow = Math.max(0, Math.min(ui.moveTop, areas.length - MOVE_ROWS));
   // live's rows: "Name[kind]  people/32", Duel Academy's (area 4) alone with a space before its bracket
-  const label = (a: typeof areas[number]) => `${ctx.text?.(AREA_TEXT[a.area] ?? -1) ?? a.name}${a.area === 4 ? ' ' : ''}[${(a.kind ?? 0) + 1}]  ${a.population ?? 0}/32`;
+  const label = (a: typeof areas[number]) => `${areaLabel(a.area, a.kind, ctx.text, a.name)}  ${a.population ?? 0}/32`;
   const widths = areas.map(a => Math.max(258, Math.ceil(label(a).length * 8.5)));
   const right = 11 + Math.max(258, ...widths);
   b.add('CWindowTaskFrameMove', 'frame', { x: 0, y: 0, w: 0, h: 0 }, { alpha: 0.9 });
