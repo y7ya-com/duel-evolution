@@ -211,8 +211,11 @@ describe('UI ownership and semantic interaction', () => {
   // main's Duel menu and Main Menu stay open across unrelated updates
   it('preserves open game-menu disclosures and nonfocused form drafts across updates', async () => {
     const f = fixture(); f.update({ scene: 'lobby', connection: 'online', player: { id: 1, name: 'A' }, lobby: { name: 'Academy', avatars: [], chat: [], channels: ['global'], connected: true, rooms: [] } }); await Promise.resolve();
+    // one bar window at a time, as live: the Main key does nothing while the Duel menu is up
+    expect(f.mounted.htmlUi.press('menubar-duel')).toBe(true); f.mounted.htmlUi.press('main-menu');
+    f.update({ status: 'Another player arrived' }); await Promise.resolve(); expect(control(f, 'duel-create')).toBeDefined(); expect(control(f, 'menu:deck')).toBeUndefined();
     expect(f.mounted.htmlUi.press('menubar-duel')).toBe(true); expect(f.mounted.htmlUi.press('main-menu')).toBe(true);
-    f.update({ status: 'Another player arrived' }); await Promise.resolve(); expect(control(f, 'duel-create')).toBeDefined(); expect(control(f, 'menu:deck')).toBeDefined();
+    f.update({ status: 'Another player left' }); await Promise.resolve(); expect(control(f, 'menu:deck')).toBeDefined(); expect(control(f, 'duel-create')).toBeUndefined();
     // Select Player's name dialog (main's screens, src/ui/htmlui) keeps its draft across updates
     f.update({ scene: 'characters', characters: [] }); await Promise.resolve(); expect(f.mounted.htmlUi.press('character-create:0')).toBe(true); f.mounted.htmlUi.type('character-name', 'Draft');
     f.update({ status: 'Character list refreshed' }); await Promise.resolve();
