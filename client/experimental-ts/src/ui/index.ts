@@ -15,7 +15,7 @@ import { duelConfigWindow, titleOptionsWindow, DUEL_OPTIONS_TEXTS, type OptionsD
 import { closeAudioPage, openAudioPage } from './htmlui/audio-page';
 import { renderTagLobby, TAG_CSS } from './extra/tag';
 import { changeAvatarAction, freeChoices, FIRST_CATEGORY } from './htmlui/avatar';
-import { Ids } from './htmlui/snapshot';
+import { Ids, WindowBuilder } from './htmlui/snapshot';
 import type { ControlHandlers, WindowSpec } from './htmlui/snapshot';
 import { htmlUiLocal, htmlWindows, stockDialog, duelRequestDialog, DELETE_TEXT, DUEL_REQUEST_TEXT } from './htmlui/windows';
 import { UiText, localizeSpecs } from '../features/ui-text';
@@ -30,6 +30,7 @@ import type { CardActions, MailBox, MenuEntry, MenuView, SocialLists } from './h
 import type { HtmlUiLayer } from './htmlui/layer';
 import { GameCursor } from './htmlui/cursor';
 import { fetchPackCompletion, npcPackOpen, npcPackSelect, npcPackUi } from './htmlui/npc-pack';
+import { BAR_STRIP } from './htmlui/reward-bar';
 import { npcTalkWindows, npcTalkStage, npcTalkDismissable } from './htmlui/npc-talk';
 import { DeckScene } from './htmlui/deck-scene';
 import { DeckDom } from './htmlui/deck-dom';
@@ -163,7 +164,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   let state = controller.getState();
   const local: LocalState = { message: '', inspected: null, inspectedFrom: 'collection', promptInspection: null, promptId: null, selected: new Set(), roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, noticeSeen: 0, tradeSearch: '', logScroll: null, duelCmd: null, helpText: '', helpFrom: 0 };
   const host = el('section', 'de-client'); host.setAttribute('aria-label', 'Duel Evolution');
-  const css = el('style'); css.textContent = CLIENT_CSS + TAG_CSS + SKIN_CSS + BADGE_CSS + LP_PLATE_CSS + JANKEN_CSS;
+  const css = el('style'); css.textContent = CLIENT_CSS + TAG_CSS + SKIN_CSS + BADGE_CSS + LP_PLATE_CSS + JANKEN_CSS + `.de-client{--de-bar-strip:${BAR_STRIP}}`;
   const header = el('header', 'de-top'), stage = el('main', 'de-stage'), nav = el('nav', 'de-nav'); nav.setAttribute('aria-label', 'Game menu');
   host.append(css, header, stage, nav); root.append(host);
   // phones and tablets: live's stage.js (the frame fitted to the visible viewport, the rotate prompt, first-tap fullscreen)
@@ -476,6 +477,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   };
   // DUEL OPTIONS / Audio (htmlui/options.ts, the original's COptionDlg) over the scene, opened from the Main Menu
   let optionsUi: OptionsUi | null = null;
+  // DUEL OPTIONS opened from the duel's wrench closes with the duel screen (it stood under the result board)
+  let optionsFromDuel = false;
   let trackedActionsFor: string | null = null;
   const optionsSpecs = (): WindowSpec[] => {
     if (!optionsUi) return languageError([]);
@@ -485,7 +488,15 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       text: id => gameTexts.get(id), rerender: showHtml,
       set: settings => send({ type: 'settings', settings }), close: () => { optionsUi = null; showHtml(); } };
     // DUEL OPTIONS (the Main Menu's) or the title's OPTIONS
-    return languageError([ui.kind === 'title' ? titleOptionsWindow(htmlIds, ui, deps) : duelConfigWindow(htmlIds, ui, deps)]);
+    const spec = ui.kind === 'title' ? titleOptionsWindow(htmlIds, ui, deps) : duelConfigWindow(htmlIds, ui, deps);
+    // the duel's end: live's result board comes over DUEL OPTIONS, which is greyed under its veil and takes no input
+    const duel = state.scene === 'duel' ? state.duel : null;
+    if (ui.kind !== 'title' && duel?.ended && !state.replay && !state.sideboarding && endPhase() === null) {
+      // (not modal: the layer stacks a modal window by its z over every other; in the page's order it lies under the board)
+      Object.assign(spec.win, { z: 51140, modal: false, topmost: false }); const after = spec.after;
+      spec.after = root => { after?.(root); root.style.filter = 'brightness(.5)'; root.style.pointerEvents = 'none'; root.inert = true; };
+    } else { const after = spec.after; spec.after = root => { after?.(root); if (root.inert) { root.style.filter = ''; root.style.pointerEvents = ''; root.inert = false; } }; }
+    return languageError([spec]);
   };
   // a language that could not load (CSystemConfigManager::applyLanguage refused, after the title's OPTIONS OK): main's
   // error dialog over the title (and over an OPTIONS window); the previous language stays and its flag chooses it again
@@ -570,13 +581,20 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     closeCmd();
   };
   globalThis.addEventListener?.('pointermove', cmdPointer, true); globalThis.addEventListener?.('pointerdown', cmdPress, true);
-  let referenceShown: string | null = null;
+  let referenceShown: string | null = null, cardClosedForDuel = false;
   // The duel's end as live plays it: "YOU WIN" / "YOU LOSE" / "DRAW" over the dimmed field (data/y/duel_end), then
   // between a match's games its score board (data/y/duel/match), then the result board or Card Swap
   const END_BANNER_MS = 2200, END_BOARD_MS = 3200;
   let endSeq: { key: string; at: number } | null = null, matchMarks: string[] = [], matchMarked = '';
-  const endPhase = (): 'banner' | 'board' | null => {
+  // a notice the duel ended with (live: "<name> has ran out of time.") stands over the field first, the LP as they were;
+  // the end's banner and board follow its OK
+  const noticeUp = (duel: DuelView): boolean => !!duel.notice && duel.notice.id > local.noticeSeen;
+  let lpBefore: [number, number] | null = null;
+  const shownLp = (duel: DuelView, i: 0 | 1): number => duel.ended && lpBefore && noticeUp(duel) ? lpBefore[i] : duel.players[i].lp;
+  const endPhase = (): 'notice' | 'banner' | 'board' | null => {
     const duel = state.scene === 'duel' ? state.duel : null;
+    if (duel && !duel.ended) lpBefore = [duel.players[0].lp, duel.players[1].lp];
+    if (duel?.ended && !state.replay && noticeUp(duel)) { endSeq = null; return 'notice'; }
     if (!duel?.ended || state.replay || duel.spectating) { endSeq = null; return null; }
     const key = `${duel.ended}:${duel.turn}:${duel.players.map(p => p.lp).join('/')}`;
     if (endSeq?.key !== key) {
@@ -602,7 +620,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     // over the question the server re-sends after it
     if (!duel.notice) local.noticeSeen = 0;
     const notice = duel.notice;
-    if (notice && notice.id > local.noticeSeen) out.push(duelOkDialog(htmlIds, String(notice.id), notice.text, () => { local.noticeSeen = Math.max(local.noticeSeen, notice.id); showHtml(); }, /ran out of time|Time is up|disconnected|lost the connection/i.test(notice.text)));
+    if (notice && notice.id > local.noticeSeen) out.push(duelOkDialog(htmlIds, String(notice.id), notice.text, () => { local.noticeSeen = Math.max(local.noticeSeen, notice.id); showHtml(); requestRender(); }, /ran out of time|Time is up|disconnected|lost the connection/i.test(notice.text)));
     const prompt = duel.prompt;
     if (prompt && htmlDuelPrompt(prompt)) {
       if (local.promptId !== prompt.id) { local.promptId = prompt.id; local.selected.clear(); local.promptInspection = null; duelHover = { selected: local.selected, hover: null }; }
@@ -756,7 +774,13 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const timeFraction = (timer: NonNullable<DuelView['timer']>) => timeLeft(timer) / Math.max(180, timer.seconds);
   // the TIME gauge and its count under a side's LP: live shows them in a PvP duel (the count in the LP digits); an NPC
   // duel's stay empty, though the turn still times out
-  const plateTime = (i: 0 | 1): [number | null, number | null] => { const timer = controller.getState().duel?.timer; return timer && timer.player === i && controller.getState().npc?.stage !== 'duel' ? [timeFraction(timer), timeLeft(timer)] : [null, null]; };
+  // (at the duel's end the clock stops: a turn that ran out reads 0, as live's, else the gauges are empty)
+  const plateTime = (i: 0 | 1): [number | null, number | null] => {
+    const duel = controller.getState().duel, timer = duel?.timer, npc = controller.getState().npc;
+    if (!timer || timer.player !== i || npc && ['duel', 'after-duel', 'won', 'lost', 'item', 'claiming'].includes(npc.stage)) return [null, null];
+    if (duel?.ended) return /ran out of time|Time is up/.test(duel.notice?.text ?? '') ? [0, 0] : [null, null];
+    return [timeFraction(timer), timeLeft(timer)];
+  };
   const lpNodes: Partial<Record<0 | 1, HTMLElement>> = {}, lpBars: Partial<Record<0 | 1, HTMLElement>> = {}, lpPlates: Partial<Record<0 | 1, LpPlate>> = {};
   const positionAvatars = (lobby: NonNullable<ClientView['lobby']>) => {
     if (worldRenderer && lobby.mapId !== undefined) {
@@ -904,7 +928,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const present = (duel: DuelView) => {
     const handCounts: [number, number] = [0, 0]; for (const card of duel.cards) if (card.zone === 'hand') handCounts[card.controller]++;
     for (const card of duel.cards) { const node = fieldNodes.get(card.id); if (node) placeFieldCard(node, card, handCounts[card.controller]); }
-    for (const i of [0, 1] as const) { if (lpNodes[i]) lpNodes[i]!.textContent = duel.players[i].lp.toLocaleString(); if (lpBars[i]) lpBars[i]!.style.width = lpWidth(duel.players[i].lp); lpPlates[i]?.setLp(duel.players[i].lp); }
+    for (const i of [0, 1] as const) { const lp = shownLp(duel, i); if (lpNodes[i]) lpNodes[i]!.textContent = lp.toLocaleString(); if (lpBars[i]) lpBars[i]!.style.width = lpWidth(lp); lpPlates[i]?.setLp(lp); }
     presentEffects(duel); duelNpcSets(); duelScene.update(duel, state.settings.reducedMotion);
   };
   const pruneArt = () => {
@@ -1150,7 +1174,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const match = state.match ? `Match ${state.match.round} · ${state.match.scores[0]}–${state.match.scores[1]}${state.match.scores[2] ? ` · ${state.match.scores[2]} drawn` : ''}` : '';
     const clock = (index: 0 | 1) => duel.timer && duel.timer.player === index ? clockText(duel.timer) : '';
     const duelist = (index: 0 | 1) => {
-      const player = duel.players[index], lp = el('strong', 'de-lp-value', player.lp.toLocaleString()), bar = el('span', 'de-lp-fill'); bar.style.width = lpWidth(player.lp); lpNodes[index] = lp; lpBars[index] = bar;
+      const player = { ...duel.players[index], lp: shownLp(duel, index) }, lp = el('strong', 'de-lp-value', player.lp.toLocaleString()), bar = el('span', 'de-lp-fill'); bar.style.width = lpWidth(player.lp); lpNodes[index] = lp; lpBars[index] = bar;
       const panel = el('div', `de-duelist${duel.turnPlayer === index ? ' active' : ''}`, el('div', 'de-duelist-name', player.name), el('div', 'de-lp', el('span', 'de-lp-label', 'LP'), el('span', 'de-lp-bar', bar), lp));
       panel.setAttribute('aria-label', `${player.name}: ${player.lp} life points${duel.turnPlayer === index ? ', their turn' : ''}`);
       if (clock(index)) { const node = el('div', 'de-duel-clock', `Time ${clock(index)}`); panel.append(node); duelClockNode = node; }
@@ -1167,7 +1191,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       for (const i of [0, 1] as const) {
         // (an NPC duel's TIME bar stays empty on live, though the turn still times out)
         const [t, seconds] = plateTime(i);
-        const plate = lpPlate({ side: i, name: duel.players[i].name, lp: duel.players[i].lp, time: t, seconds, image: archive });
+        const plate = lpPlate({ side: i, name: duel.players[i].name, lp: shownLp(duel, i), time: t, seconds, image: archive });
         plate.root.setAttribute('aria-hidden', 'true'); board.append(plate.root); lpPlates[i] = plate;
       }
     }
@@ -1310,7 +1334,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     // which opens DUEL OPTIONS (CWindowModelDuelConfig, htmlui/options.ts) over the duel as live's does, and the help
     // line, which runs across its box from the right as live's does. Live shows no duel log on the duel screen (main's
     // chat.js hides the Duel Log tab): the log is kept for assistive technology only, never drawn
-    const wrench = button('', () => { optionsUi = { kind: 'options' }; showHtml(); }); wrench.className = 'de-duel-wrench'; wrench.dataset.key = 'duel-options'; wrench.setAttribute('aria-label', 'DUEL OPTIONS'); wrench.title = 'DUEL OPTIONS';
+    const wrench = button('', () => { optionsUi = { kind: 'options' }; optionsFromDuel = true; showHtml(); }); wrench.className = 'de-duel-wrench'; wrench.dataset.key = 'duel-options'; wrench.setAttribute('aria-label', 'DUEL OPTIONS'); wrench.title = 'DUEL OPTIONS';
     // the key's picture is the menu bar's (data/common/window/menuicon_02_c01.png: 80×32 cells, the wrench row 4,
     // columns normal / hover / pressed), as live's bar draws it; without the art a plain wrench glyph stands in
     const wrenchArt = controller.loadArchiveImage ? el('img', 'de-duel-wrench-art') as HTMLImageElement : null;
@@ -1320,12 +1344,14 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const run = el('span', 'de-duel-help-run', helpText), help = el('div', 'de-duel-help', run); help.setAttribute('aria-label', helpText);
     if (local.helpText !== helpText) { local.helpText = helpText; local.helpFrom = performance.now(); }
     run.style.animationDelay = `${-(performance.now() - local.helpFrom) / 1000}s`;
-    board.append(el('div', 'de-duel-bar', wrench, duelScene.fx.ringElement, help));
+    // behind the result board live's bar keeps its ring and empty field: no wrench, no help line
+    const resultUp = !!duel.ended && !state.replay && !state.sideboarding && endPhase() === null;
+    board.append(el('div', `de-duel-bar${resultUp ? ' de-result-up' : ''}`, wrench, duelScene.fx.ringElement, help));
     const log = el('div', 'de-duel-log de-sr'); log.setAttribute('role', 'log'); log.setAttribute('aria-label', 'Duel log');
     for (const line of duel.log.slice(-80)) log.append(el('div', '', line)); board.append(log);
     // A spectator is neither side: the result names the winner instead of Victory/Defeat.
     const endedText = duel.ended && (duel.spectating && (duel.ended === 'Victory' || duel.ended === 'Defeat') ? `${duel.players[duel.ended === 'Victory' ? 0 : 1].name} wins` : duel.ended);
-    if (endedText && htmlUi) {
+    if (endedText && htmlUi && endPhase() !== 'notice') {
       // main's result screen (duel-result.ts: CWindowResult) shows it; the result is still announced (assistive technology)
       const status = el('div', 'de-duel-end de-sr', endedText); status.setAttribute('role', 'status'); status.setAttribute('aria-label', endedText); stage.append(status);
       // live dims the whole field, its plates and bar behind the result board
@@ -1380,6 +1406,11 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     try {
       state = controller.getState();
       if (!state.preparation) jankenMine = null;   // each duel's rock-paper-scissors anew
+      if (optionsFromDuel && state.scene !== 'duel') { optionsFromDuel = false; if (optionsUi?.kind === 'options') optionsUi = null; }
+      // a duel closes the other player's card that was open when it began (live comes back to the lobby with none open)
+      const card = state.profileDetail;
+      if (state.scene === 'duel' && card && card.selectedPid !== null && card.selectedPid !== card.selfPid) { if (!cardClosedForDuel) { cardClosedForDuel = true; queueMicrotask(() => send({ type: 'profileAction', action: { type: 'close' } })); } }
+      else if (state.scene !== 'duel') cardClosedForDuel = false;
       if (!state.match) { matchMarks = []; matchMarked = ''; }
       // the starter deck chooser: main's (web-shell/starter.js), from the lobby or Edit Deck like main's My Room / lobby / deck
       starterPicker.sync(state.mode !== 'free' && state.player ? state.player.id : null, state.starter?.claimable && (state.scene === 'lobby' || state.scene === 'deck') ? state.starter.decks : undefined);

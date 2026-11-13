@@ -178,7 +178,8 @@ describe('UI ownership and semantic interaction', () => {
     const f = fixture(), duel: NonNullable<ClientView['duel']> = { players: [{ name: 'A', lp: 8000 }, { name: 'B', lp: 8000 }], cards: [], prompt: null, turn: 1, turnPlayer: 0, phase: 'Main', log: [], notice: { id: 1, text: 'You cannot surrender before the 10th turn.' } };
     f.update({ scene: 'duel', duel }); await Promise.resolve();
     const box = f.mounted.htmlUi.windows().find(s => s.win.cls === 'CUOkDialog');
-    expect(box?.win.controls.find(c => c.cls === 'CWindowTaskTextField')?.text).toBe('You cannot surrender before the 10th turn.');
+    // broken at a space for the field (never inside "10th")
+    expect(box?.win.controls.find(c => c.cls === 'CWindowTaskTextField')?.text).toBe('You cannot surrender before the\n10th turn.');
     expect(f.root.textContent).not.toContain('10th turn');   // no rewrite box on the stage
     expect(f.mounted.htmlUi.press('duel-notice-ok')).toBe(true); await Promise.resolve();
     expect(f.mounted.htmlUi.windows().some(s => s.win.cls === 'CUOkDialog')).toBe(false);

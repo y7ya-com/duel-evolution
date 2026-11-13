@@ -149,7 +149,8 @@ export function lpPlate(opts: { side: 0 | 1; name: string; lp: number; time: num
   const drawDigits = (lp: number) => {
     const text = lpDigits(lp);
     if (!image) { digits.className = 'de-lpp-digits is-text'; digits.textContent = text; return; }
-    digits.replaceChildren(...[...text].map(ch => { const d = crop(image, DIGITS, 176, 16, Number(ch) * DIGIT, 0, DIGIT, 16); d.className = 'de-lpp-digit'; return d; }));
+    // (live prints a side's LP of 0 in the red digits, duel_font_01_c02: livetour2 53-result, 69-pvp-board)
+    digits.replaceChildren(...[...text].map(ch => { const d = crop(image, text === '0' ? DIGITS_RED : DIGITS, 176, 16, Number(ch) * DIGIT, 0, DIGIT, 16); d.className = 'de-lpp-digit'; return d; }));
   };
   // the TIME count: the seconds left in the LP digits' font, right-aligned under them (live's PvP turn clock)
   const timeDigits = document.createElement('div'); timeDigits.className = 'de-lpp-digits de-lpp-time';
