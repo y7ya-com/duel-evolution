@@ -164,6 +164,8 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
       let previous:{ a:Snap; b:Snap } | null = null, lastTurn = 0, lastBar = '';
       // per page (0 = a, 1 = b): the card names shown to it publicly, with how many art requests it had made before
       const revealedAt = [new Map<string,number>(), new Map<string,number>()] as const, seenRequests = [0,0];
+      // per page: every card name it has been shown in public (face up, or named in its log) at any checkpoint
+      const seenPublic = [new Set<string>(), new Set<string>()] as const;
       const checkpoint = async (why:string) => {
         const s = await settle(a,b);
         stats.checkpoints++;
@@ -181,7 +183,11 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
           // (the log keeps only its last lines); requests made before the reveal still count as leaks.
           const visibleToOther = new Set(other.cards.filter(c => !c.back).map(nameOf).filter(Boolean) as string[]);
           for (const n of privateNames) if ((visibleToOther.has(n) || logText.includes(n)) && !revealedAt[k].has(n)) revealedAt[k].set(n,seenRequests[k]);
-          const secret = privateNames.filter(n => !publicNames.has(n) && !otherDeck.includes(n) && !logText.includes(n));
+          for (const n of visibleToOther) seenPublic[k].add(n);
+          for (const c of [...owner.cards,...other.cards]) { const n = nameOf(c); if (n && logText.includes(n)) seenPublic[k].add(n); }
+          // (a name this page already saw in public — a copy played, chained to, shown in its info box — tells it nothing
+          // new when another copy sits in a hand: the info box keeps the last card it showed, as live's does)
+          const secret = privateNames.filter(n => !publicNames.has(n) && !otherDeck.includes(n) && !logText.includes(n) && !seenPublic[k].has(n));
           seenRequests[k] = requests.length;
           if (!secret.length) continue;
           stats.secretChecks += secret.length;
