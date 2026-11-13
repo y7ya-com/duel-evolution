@@ -30,7 +30,7 @@ import type { CardActions, MailBox, MenuEntry, MenuView, SocialLists } from './h
 import type { HtmlUiLayer } from './htmlui/layer';
 import { GameCursor } from './htmlui/cursor';
 import { fetchPackCompletion, npcPackOpen, npcPackSelect, npcPackUi } from './htmlui/npc-pack';
-import { BAR_STRIP } from './htmlui/reward-bar';
+import { rewardBar, BAR_STRIP } from './htmlui/reward-bar';
 import { npcTalkWindows, npcTalkStage, npcTalkDismissable } from './htmlui/npc-talk';
 import { DeckScene } from './htmlui/deck-scene';
 import { DeckDom } from './htmlui/deck-dom';
@@ -404,14 +404,15 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // the NPC reward pack pick in main's pack picker (htmlui/npc-pack.ts: CWindowPackSelect) over the lobby or the duel
   const npcPack = npcPackUi();
   // the rows' completion (the original's packCompletionLine): the server's shop pack view (GET /api/de/shop/pack, its
-  // `collected`), online only; a pack the shop does not list stays without one
+  // `collected`), online only; live prints one on every row, so a pack the shop does not list (or before the answer)
+  // reads 0.0 %
   const packDone = new Map<number, number | null>();
   const packCompletion = (id: number): number | undefined => {
     if (!packDone.has(id) && state.online && state.connection === 'online' && typeof fetch === 'function') {
       packDone.set(id, null);
       void fetchPackCompletion(id).then(pct => { packDone.set(id, pct); if (pct !== null && npcPackOpen(controller.getState().npc)) showHtml(); });
     }
-    return packDone.get(id) ?? undefined;
+    return packDone.get(id) ?? 0;
   };
   // what a pack holds (main's screens/pack-contents.js), over the layer: the NPC pack picker's Contents key
   let packSheet: { close(): void } | null = null;
@@ -445,6 +446,12 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const spec = npcPackSelect(state.npc, { ids: htmlIds, ui: npcPack, packName: id => state.packNames?.[id], packImage: id => state.packInfo?.[id]?.image, completion: packCompletion, busy: !!state.busy, rerender: () => showHtml(), contents: openContents,
       send: command => { if (npcPackOpen(controller.getState().npc)) send(command); } });
     return spec ? [spec] : []; };
+  // the bar under the reward scenes: live's duel bar without the wrench (htmlui/reward-bar.ts), the menu bar's place
+  const rewardBarSpecs = (): WindowSpec[] => {
+    if (!rewardScene() || sceneVeilUp()) return [];
+    const card = cardGetUp() && state.npc?.packStatus !== 'pending', picked = npcPackOpen(state.npc) ? state.npc.packs[npcPack.selected] : undefined;
+    return [rewardBar(htmlIds, { message: picked !== undefined ? state.packInfo?.[picked]?.description ?? '' : '', ring: card, dim: card, load: controller.loadArchiveImage ? loadArchiveArt : null })];
+  };
   const npcItems = npcItemGetUi();
   const npcItemSpecs = (): WindowSpec[] => {
     if (state.scene !== 'lobby' || sceneVeilUp()) return [];
@@ -510,7 +517,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     return out;
   };
   let languageErrorSeen = '';
-  const sceneWindows = (): WindowSpec[] => { duelSpeedButton.show(state.scene === 'duel' && (!!state.duel || !!state.preparation)); return [...loginSpecs(), ...tradeSpecs(), ...swapSpecs(), ...npcTalkSpecs(), ...npcPackSpecs(), ...cardGetSpecs(), ...npcItemSpecs(), ...unlockSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs()]; };
+  const sceneWindows = (): WindowSpec[] => { duelSpeedButton.show(state.scene === 'duel' && (!!state.duel || !!state.preparation)); return [...loginSpecs(), ...tradeSpecs(), ...swapSpecs(), ...npcTalkSpecs(), ...npcPackSpecs(), ...cardGetSpecs(), ...npcItemSpecs(), ...rewardBarSpecs(), ...unlockSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs()]; };
   // The duel's question dialogs (main's screens/duel.js: htmlui/duel-dialogs.ts) and the duel speed button (main's
   // duelspeed.js) while the layer is up; card lists, free number entry and declarations stay the duel screen's panel.
   // live's duel speed button (main's duelspeed.js) is the page's, in its top right corner beside the game, not a window
@@ -1511,7 +1518,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const trading = !!state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene);
       // (the reward scenes' bar is its strip, the pack pick's help line the picked pack's description, as live)
       const reward = rewardScene(), pickedPack = reward && npcPackOpen(state.npc) ? state.npc.packs[npcPack.selected] : undefined;
-      menuView = state.scene === 'title' && !showsLogin() || state.scene === 'duel' || state.scene === 'shop' ? null : { entries, fieldShift, keys: !!state.player && !['deck', 'shop', 'characters'].includes(state.scene) && !trading && !reward, room: !!world && state.location === 'my-room',
+      // (the reward scenes have their own bar: rewardBarSpecs)
+      menuView = state.scene === 'title' && !showsLogin() || state.scene === 'duel' || state.scene === 'shop' || reward ? null : { entries, fieldShift, keys: !!state.player && !['deck', 'shop', 'characters'].includes(state.scene) && !trading && !reward, room: !!world && state.location === 'my-room',
         // live's bar message is blank but for a pending request's wait (no "Online in Duel Academy.")
         message: reward ? (pickedPack !== undefined ? state.packInfo?.[pickedPack]?.description ?? '' : '') : state.player ? (world && waitingMessage({ state, text: id => gameTexts.get(id) })) || '' : '',
         mainOpen: () => { const p = state.profileDetail; return !!(htmlUiState.mail || htmlUiState.compose || htmlUiState.lists || htmlUiState.comment || optionsUi?.kind === 'options' || duellog || titleUi
