@@ -119,6 +119,12 @@ declare module '@htmlui/controls/skin.js' {
   export function duelWindow(parent: HTMLElement, size: { w: number; h: number }): HTMLElement;
   /** main's duel-style button (CWindowTaskButtonDuel): a <button>, its caption centred. */
   export function duelButton(parent: HTMLElement, o: { x: number; y: number; w: number; h?: number; label?: string; state?: string | null }): HTMLButtonElement;
+  /** A window's icon bar (CWindowTaskIconbar), its thin chop frame (ThinChop) and a list's stripes (BackStripe). */
+  export function iconbar(parent: HTMLElement, r: { x: number; y: number; w: number; h: number }): HTMLElement;
+  export function chop(parent: HTMLElement, r: { x: number; y: number; w: number; h: number }): HTMLElement;
+  export function stripes(parent: HTMLElement, r: { x: number; y: number; w: number; h: number }): HTMLElement;
+  /** A window icon (16 x 24 <button>): 'hide' (the x) or 'expand'. */
+  export function icon(parent: HTMLElement, o: { x: number; y: number; kind: string; label?: string; state?: string | null }): HTMLButtonElement;
 }
 declare module '@htmlui/crafting/api.js' {
   export function peekView(): unknown;

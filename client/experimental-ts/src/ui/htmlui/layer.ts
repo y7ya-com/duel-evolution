@@ -23,6 +23,7 @@ import result from '@htmlui/screens/result.js';
 import { chatBubblesFrame } from '@htmlui/chat-bubbles.js';
 import { pictures } from './pictures';
 import { npcBalloonScreen, npcInfoScreen } from './npc-talk';
+import { avatarListScreen } from './avatar-list';
 import { fileListScreen } from './deck-files';
 import { optionDlgScreen } from './option-dlg';
 import { syncWindow, covers } from '@htmlui/controls/basic.js';
@@ -40,7 +41,7 @@ const MODULES: HtmlUiScreen[] = [select, lobby, chat, social, deck, trade, packs
 const RELAID = new Set(['CWindowModelDuel', 'CWindowModelDuelFind', 'CWindowModelDuelWait']);   // duelsetup.js LAYOUT
 // what the engine draws on main around main's screens (the trade's pictures), the NPC talk's balloon and plate, the
 // title's OPTIONS window (COptionDlg), the deck screen's file lists (live's engine draws them itself: deck-files.ts)
-const EXTRA: Record<string, HtmlUiScreen> = { CEnginePictures: pictures, CNpcTalkBalloon: npcBalloonScreen, CNpcTalkInfo: npcInfoScreen, COptionDlg: optionDlgScreen, CWindowModelFileList: fileListScreen, CWindowModelDuellogTop: optionDlgScreen, CWindowModelDuellogList: optionDlgScreen, CWindowModelDuellogServerSelect: optionDlgScreen };
+const EXTRA: Record<string, HtmlUiScreen> = { CEnginePictures: pictures, CNpcTalkBalloon: npcBalloonScreen, CNpcTalkInfo: npcInfoScreen, CWindowModelList: avatarListScreen, COptionDlg: optionDlgScreen, CWindowModelFileList: fileListScreen, CWindowModelDuellogTop: optionDlgScreen, CWindowModelDuellogList: optionDlgScreen, CWindowModelDuellogServerSelect: optionDlgScreen };
 // the windows whose module rebuilds its buttons on every change (screens/trade.js; duel.js redraws a control
 // whose snapshot changes, so its hover and pressed looks replace the button under the pointer: janken, Yes / No, the
 // lists): clicked on release

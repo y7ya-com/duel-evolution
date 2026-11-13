@@ -31,6 +31,7 @@ import type { HtmlUiLayer } from './htmlui/layer';
 import { GameCursor } from './htmlui/cursor';
 import { fetchPackCompletion, npcPackOpen, npcPackSelect, npcPackUi } from './htmlui/npc-pack';
 import { npcTalkWindows, npcTalkStage } from './htmlui/npc-talk';
+import { avatarListWindow, type AvatarListOpen } from './htmlui/avatar-list';
 import { DeckScene } from './htmlui/deck-scene';
 import { DeckDom } from './htmlui/deck-dom';
 import { cardShopHost } from './htmlui/card-shop';
@@ -421,6 +422,30 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // the NPC's talk (htmlui/npc-talk.ts: its picture, balloon, card and Start Duel?) over the lobby; after a duel it
   // speaks once main's result boards are left (Next) and the lobby is back (not under the scene-loading veil), as live.
   // Then the reward pack pick (npc-pack.ts) and what the duel gave (npc-itemget.ts), each over everything.
+  // live's "which avatar?" list (htmlui/avatar-list.ts): a click on avatars lists them; a pick opens the card or the talk
+  let avatarList: AvatarListOpen | null = null;
+  const avatarPick = (id: number): void => {
+    avatarList = null; showHtml();
+    const avatar = state.lobby?.avatars.find(a => a.id === id); if (!avatar) return;
+    if (avatar.npc && state.profileDetail?.selectedPid != null) send({ type: 'profileAction', action: { type: 'close' } });
+    send({ type: 'interact', playerId: id });
+  };
+  const avatarListSpecs = (): WindowSpec[] => {
+    if (state.scene !== 'lobby' || !state.lobby || npcTalkStage(state.npc)) avatarList = null;
+    const w = avatarListWindow(avatarList, { ids: htmlIds, pick: avatarPick, close: () => { avatarList = null; showHtml(); } });
+    return w ? [w] : [];
+  };
+  /** A click on the map's avatars (their hit boxes, AVATAR_HIT): every avatar under it but one's own, in live's list at
+   * the click. A click with no pointer (the keyboard, assistive tools) acts on that avatar at once. */
+  const avatarClick = (e: MouseEvent, avatar: { id: number }): void => {
+    const lobby = state.lobby; if (!lobby) return;
+    if (!e.detail || !worldRenderer) { avatarPick(avatar.id); return; }
+    const p = gamePoint(e.clientX, e.clientY, worldRenderer.element.getBoundingClientRect()); if (!p) return;
+    const under = new Set((document.elementsFromPoint?.(e.clientX, e.clientY) ?? []).flatMap(n => { const k = (n as HTMLElement).dataset?.key; return n.classList?.contains('de-avatar') && k?.startsWith('avatar:') ? [Number(k.slice(7))] : []; }));
+    const rows = lobby.avatars.filter(a => !a.self && under.has(a.id)).map(a => ({ id: a.id, name: a.name }));
+    if (!rows.length) return;
+    avatarList = { x: p.x, y: p.y, rows }; showHtml();
+  };
   const npcTalkSpecs = (): WindowSpec[] => {
     const npc = state.npc; if (state.scene !== 'lobby' || !npcTalkStage(npc) || sceneVeilUp() || rewardScene()) return [];
     const parts = state.lobby?.avatars.find(a => a.npc && Math.abs(a.id) === npc!.npc!.id)?.parts ?? state.lobby?.avatars.find(a => a.npc && a.name === npc!.npc!.name)?.parts ?? null;
@@ -500,7 +525,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     return out;
   };
   let languageErrorSeen = '';
-  const sceneWindows = (): WindowSpec[] => { duelSpeedButton.show(state.scene === 'duel' && (!!state.duel || !!state.preparation)); return [...loginSpecs(), ...tradeSpecs(), ...swapSpecs(), ...npcTalkSpecs(), ...npcPackSpecs(), ...cardGetSpecs(), ...npcItemSpecs(), ...unlockSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs()]; };
+  const sceneWindows = (): WindowSpec[] => { duelSpeedButton.show(state.scene === 'duel' && (!!state.duel || !!state.preparation)); return [...loginSpecs(), ...tradeSpecs(), ...swapSpecs(), ...avatarListSpecs(), ...npcTalkSpecs(), ...npcPackSpecs(), ...cardGetSpecs(), ...npcItemSpecs(), ...unlockSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs()]; };
   // The duel's question dialogs (main's screens/duel.js: htmlui/duel-dialogs.ts) and the duel speed button (main's
   // duelspeed.js) while the layer is up; card lists, free number entry and declarations stay the duel screen's panel.
   // live's duel speed button (main's duelspeed.js) is the page's, in its top right corner beside the game, not a window
@@ -902,7 +927,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // renders wait until the pointer is released (or 1.5 s pass, e.g. a release outside the window).
   let pointerHeld = false, deferredRender = false, pointerTimer: ReturnType<typeof setTimeout> | null = null;
   const releasePointer = () => { pointerHeld = false; if (pointerTimer) { clearTimeout(pointerTimer); pointerTimer = null; } if (deferredRender) { deferredRender = false; requestRender(); } };
-  const holdPointer = () => { pointerHeld = true; if (pointerTimer) clearTimeout(pointerTimer); pointerTimer = setTimeout(releasePointer, 1500); };
+  const holdPointer = (e?: Event) => { if (avatarList && (e as PointerEvent | undefined)?.button === 2) { avatarList = null; showHtml(); } pointerHeld = true; if (pointerTimer) clearTimeout(pointerTimer); pointerTimer = setTimeout(releasePointer, 1500); };
   host.addEventListener?.('pointerdown', holdPointer, true);
   globalThis.addEventListener?.('pointerup', releasePointer, true); globalThis.addEventListener?.('pointercancel', releasePointer, true);
   const requestRender = () => { if (pointerHeld) { deferredRender = true; return; } if (!queued && !disposed) { queued = true; queueMicrotask(() => { queued = false; if (!disposed) render(); }); } };
@@ -1037,7 +1062,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     for (const avatar of lobby.avatars) {
       // an NPC standing on the map starts its talk at once, its card beside it (live: CNpcTalk, its record, deck and
       // biography, and "Start Duel?" after its lines); a player's opens the player card
-      const b = button('', () => { if (avatar.npc && state.profileDetail?.selectedPid != null) send({ type: 'profileAction', action: { type: 'close' } }); send({ type: 'interact', playerId: avatar.id }); }, !lobby.connected);
+      // live lists the avatars under the click first (htmlui/avatar-list.ts), a pick opens the card or the talk
+      const b = button('', () => {}, !lobby.connected); b.onclick = e => avatarClick(e, avatar);
       b.className = 'de-avatar' + (avatar.self ? ' self' : ''); b.style.left = `${avatar.x / worldW * 100}%`; b.style.top = `${avatar.y / worldH * 100}%`; b.setAttribute('aria-label', `${avatar.name}${avatar.npc ? ', NPC' : ''}`);
       const art = safeImageUrl(avatar.image);
       if (art) { const img = el('img', 'de-avatar-sprite'); img.src = art; img.alt = ''; b.append(img); } else b.append(el('span', 'de-avatar-placeholder'));

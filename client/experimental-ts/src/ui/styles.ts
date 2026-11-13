@@ -54,7 +54,8 @@ export const CLIENT_CSS = `
 .de-avatar-placeholder { display:block; width:26px; height:44px; background:linear-gradient(#e5faff 20%,#348fe2 21%,#1761bf 72%,#173f79 73%); border:2px solid #cdf5ff; border-radius:11px 11px 5px 5px; }
 .de-avatar.self .de-avatar-placeholder { border-color:#ffe56d; }
 .de-avatar-name { display:block; color:white; background:#073e91bb; padding:1px 5px; border-radius:2px; font-size:11px; white-space:nowrap; }
-.de-avatar.has-original { width:12.5%; height:auto; aspect-ratio:4/5; min-width:0; transform:translate(-50%,-90%); }
+/* the hit box live's click finds an avatar by (htmlui/avatar-list.ts AVATAR_HIT: 39 x 128 from 131 to 3 px over its feet) */
+.de-avatar.has-original { width:3.80859375%; height:auto; aspect-ratio:39/128; min-width:0; transform:translate(-50%,-102.34375%); }
 /* the name over the head as the game draws it (main's live lobby: its left edge on the avatar's centre line, where the
  * flag ends; its middle about 21 px over the head's top, 13% of the 160-px box) */
 .de-avatar.has-original .de-avatar-name { position:absolute; top:13%; left:50%; transform:translateY(-50%); }

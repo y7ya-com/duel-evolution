@@ -110,7 +110,14 @@ export async function press(page:Page,selector:string):Promise<void> {
   await down; await up;
 }
 /** Avatars spawn at random points and can sit under the chat or area panel, where a player would walk closer first. */
-export async function pressAvatar(page:Page,selector:string) { try { await press(page,selector); } catch { await page.ev(`(${selector}).click()`); } }
+export async function pressAvatar(page:Page,selector:string) {
+  const name = await page.ev(`(${selector})?.getAttribute('aria-label')?.replace(/, NPC$/,'') ?? ''`) as string;
+  try { await press(page,selector); } catch { await page.ev(`(${selector}).click()`); return; }
+  // live lists the avatars under a click first (its "which avatar?" list, htmlui/avatar-list.ts): the one meant is picked
+  const row = `[...document.querySelectorAll('[data-key^="avatar-list:"]')].find(b=>b.getAttribute('aria-label')===${JSON.stringify(name)})`;
+  for (let i = 0; i < 20 && !(await page.ev(`Boolean(${row})`)); i++) await sleep(50);
+  if (await page.ev(`Boolean(${row})`)) await press(page,row);
+}
 /** The duel's end as the player reads it: main's result.js boards (CWindowResult, the player's on the left: its title
  * WIN / LOSE / DRAW) as 'Victory' / 'Defeat' / 'Draw'; the rewrite's own banner (.de-duel-end) without the HTML UI.
  * Installed in every client page as window.__duelEnd(): null while the duel goes on. */
