@@ -787,7 +787,12 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       requestRender();
     }).catch((e: unknown) => { worldLoading = false; console.warn('world renderer', e); });
   };
-  worldWalk = typeof stage.addEventListener === 'function' ? holdToWalk(stage, walkTo, t => { const e = t as Element | null; if (!e?.closest || e.closest('button, input, textarea, a, [data-key^="avatar:"]')) return false; return !!e.closest('[data-key="lobby-map"]') || !!worldRenderer?.element.contains(e); }) : null;
+  worldWalk = typeof stage.addEventListener === 'function' ? holdToWalk(stage, walkTo, (t, button) => {
+    // the right button held walks over avatars too (live: held on an NPC, or on one's own avatar standing by My Room's
+    // door, it still walks there); a finger on an avatar is its tap
+    const e = t as Element | null; if (!e?.closest) return false;
+    if (e.closest('[data-key^="avatar:"]') ? button !== 2 : e.closest('button, input, textarea, a')) return false;
+    return !!e.closest('[data-key="lobby-map"]') || !!worldRenderer?.element.contains(e); }) : null;
   const drafts = new Map<string, string>();
   const expanded = new Map<string, boolean>();
   let renderedIdentity = '';

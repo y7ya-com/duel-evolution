@@ -195,14 +195,14 @@ export interface HoldWalk { /** True once for the click that ends a walk (the wa
 /** A finger held still (or the right mouse button held) on el walks toward the pointer until it lifts, steered by moving
  * (the mouse re-aims every STEER_MS, a finger every WALK_MS). A finger moved past SLOP before HOLD_MS is a drag, not a
  * walk. The left button is the DOM's click (a walk to the point, once). */
-export function holdToWalk(el: HTMLElement, step: (clientX: number, clientY: number) => void, accept: (target: EventTarget | null) => boolean = () => true, timers: { set: typeof setTimeout; clear: typeof clearTimeout; every: typeof setInterval; stop: typeof clearInterval } = BROWSER_TIMERS): HoldWalk {
+export function holdToWalk(el: HTMLElement, step: (clientX: number, clientY: number) => void, accept: (target: EventTarget | null, button: number) => boolean = () => true, timers: { set: typeof setTimeout; clear: typeof clearTimeout; every: typeof setInterval; stop: typeof clearInterval } = BROWSER_TIMERS): HoldWalk {
   let id: number | null = null, sx = 0, sy = 0, lx = 0, ly = 0, walking = false, swallow = false;
   let hold: ReturnType<typeof setTimeout> | undefined, tick: ReturnType<typeof setInterval> | undefined;
   const stop = () => { timers.clear(hold); hold = undefined; if (tick !== undefined) timers.stop(tick); tick = undefined; if (walking) swallow = true; walking = false; id = null; };
   const walk = (ms = WALK_MS) => { walking = true; step(lx, ly); tick = timers.every(() => step(lx, ly), ms); };
   const down = (e: PointerEvent) => {
     const touch = e.pointerType === 'touch' || e.pointerType === 'pen';
-    if (id !== null || !(touch && e.button <= 0 || e.button === 2) || !accept(e.target)) return;
+    if (id !== null || !(touch && e.button <= 0 || e.button === 2) || !accept(e.target, e.button)) return;
     id = e.pointerId; sx = lx = e.clientX; sy = ly = e.clientY; swallow = false;
     if (e.button === 2) { e.preventDefault(); walk(STEER_MS); return; }   // the right button held follows the mouse at once, as on live
     hold = timers.set(() => { hold = undefined; walk(); }, HOLD_MS);
@@ -213,7 +213,7 @@ export function holdToWalk(el: HTMLElement, step: (clientX: number, clientY: num
     if (!walking && hold !== undefined && Math.hypot(lx - sx, ly - sy) > SLOP) { timers.clear(hold); hold = undefined; id = null; }
   };
   const up = (e: PointerEvent) => { if (e.pointerId === id) stop(); };
-  const menu = (e: Event) => { if (accept(e.target)) e.preventDefault(); };   // a long press is not the browser's context menu
+  const menu = (e: Event) => { if (accept(e.target, 2)) e.preventDefault(); };   // a long press is not the browser's context menu
   el.addEventListener('pointerdown', down as EventListener);
   el.addEventListener('pointermove', move as EventListener);
   for (const t of ['pointerup', 'pointercancel']) el.addEventListener(t, up as EventListener);
