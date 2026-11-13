@@ -49,3 +49,5 @@ export class NpcDialogueCatalog {
   resolveText(textId: number): string | null { return this.presentTexts[String(textId)] ?? null; }
   clear(): void { this.lines = {}; this.presentTexts = {}; this.bios = {}; }
 }
+/** An NPC balloon line as live shows it: the engine's "@@s" (CFukiDictionary's player placeholder) is the player's name. */
+export const npcLineText = (text: string, playerName: string): string => text.replace(/@@s/g, playerName);

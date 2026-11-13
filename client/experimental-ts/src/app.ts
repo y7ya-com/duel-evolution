@@ -39,7 +39,7 @@ import { AccountController } from './features/account';
 import { ProfileController } from './features/profile';
 import { NpcController,npcOpeningPresent } from './features/npc';
 import type { NpcDialogueCatalog } from './npcs/dialogue';
-import { npcBioTextId } from './npcs/dialogue';
+import { npcBioTextId, npcLineText } from './npcs/dialogue';
 import { AvatarLoader } from './avatars';
 import type { AvatarLoadOptions } from './avatars';
 import type { AvatarResource } from './avatars';
@@ -297,11 +297,14 @@ export class ClientApp implements ClientController {
   /** An NPC's balloon line in the chosen language: the five strings from its text id (CFukiDictionary), else English. */
   private npcLine(npc: number, line: number): string | null | undefined {
     const table = this.languageTexts.table, textId = this.options.npcDialogue?.textId(npc, line);
+    let text: string | null | undefined;
     if (table && textId !== undefined) {
       const rows = table.slice(textId, textId + 5).filter(row => row.trim()).map(row => row.trim());
-      if (rows.length) return rows.join('\n');
+      if (rows.length) text = rows.join('\n');
     }
-    return this.options.npcDialogue?.resolve(npc, line);
+    text ??= this.options.npcDialogue?.resolve(npc, line);
+    // the balloon's "@@s" is the player's name (live: Miss Shadow's "So, you must be Lw1b.")
+    return text && npcLineText(text, this.view.player?.name ?? '');
   }
   private installLanguageTexts(): void {
     this.options.duelTexts?.localizeDialogs(this.languageTexts.dialogs);
