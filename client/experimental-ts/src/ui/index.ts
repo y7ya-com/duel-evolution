@@ -1429,6 +1429,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         ...(state.mode !== 'free' && state.location === 'world' ? [
           { label: 'Return to your Room', key: 'my-room', disabled: blocked || sideboard || !!state.duel, run: () => { if (state.scene !== 'lobby') open('lobby'); send({ type: 'myRoom', enter: true }); } },
         ] : []),
+        // free mode has no room: live's free Main Menu keeps the entry, and it goes back to the title (as Return to Title)
+        ...(state.mode === 'free' && state.connection === 'online' ? [
+          { label: 'Return to your Room', key: 'my-room', disabled: sideboard || !!state.duel, run: () => send({ type: 'disconnect' }) },
+        ] : []),
         { label: 'DUEL OPTIONS', key: 'settings', disabled: blocked, run: () => { optionsUi = { kind: 'options' }; showHtml(); } },
         // live's free mode keeps the whole menu (its D-Mail, Duel Log and lists over the free lobby's session)
         ...([
