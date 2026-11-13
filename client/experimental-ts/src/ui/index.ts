@@ -752,7 +752,11 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const clockText = (timer: NonNullable<DuelView['timer']>) => { const left = Math.max(0, timer.paused || !timer.at ? timer.seconds : timer.seconds - Math.floor((Date.now() - timer.at) / 1000)); return `${timer.paused ? 'Paused · ' : ''}${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`; };
   /** The TIME gauge's fraction left: the clock's seconds at `at` run down between redraws (the plate's whole is 180 s,
    * or the clock's own start when longer). */
-  const timeFraction = (timer: NonNullable<DuelView['timer']>) => { const left = Math.max(0, timer.paused || !timer.at ? timer.seconds : timer.seconds - (Date.now() - timer.at) / 1000); return left / Math.max(180, timer.seconds); };
+  const timeLeft = (timer: NonNullable<DuelView['timer']>) => Math.max(0, timer.paused || !timer.at ? timer.seconds : timer.seconds - (Date.now() - timer.at) / 1000);
+  const timeFraction = (timer: NonNullable<DuelView['timer']>) => timeLeft(timer) / Math.max(180, timer.seconds);
+  // the TIME gauge and its count under a side's LP: live shows them in a PvP duel (the count in the LP digits); an NPC
+  // duel's stay empty, though the turn still times out
+  const plateTime = (i: 0 | 1): [number | null, number | null] => { const timer = controller.getState().duel?.timer; return timer && timer.player === i && controller.getState().npc?.stage !== 'duel' ? [timeFraction(timer), timeLeft(timer)] : [null, null]; };
   const lpNodes: Partial<Record<0 | 1, HTMLElement>> = {}, lpBars: Partial<Record<0 | 1, HTMLElement>> = {}, lpPlates: Partial<Record<0 | 1, LpPlate>> = {};
   const positionAvatars = (lobby: NonNullable<ClientView['lobby']>) => {
     if (worldRenderer && lobby.mapId !== undefined) {
@@ -830,6 +834,15 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     else startArt(entry);
   };
   const drawCard = (card: CardView, showName = true, faceUp = true) => cardTile(card, showName, faceUp, controller.loadCardImage ? loadArt : undefined, controller.loadArchiveImage ? image => loadArchiveArt(CARD_BACK, image) : undefined);
+  const pileEdges = (cards: number, side: 0 | 1, rotation: number): string => {
+    const depth = Math.min(15, Math.floor(cards / 4)), turn = rotation * Math.PI / 180, out: string[] = [];
+    for (let k = 1; k <= depth; k++) {
+      // the edge's screen offset, turned back into the card's own frame (an upside-down pile's shadow turns with it)
+      const sx = side ? k : -k, sy = k, x = Math.round(sx * Math.cos(turn) + sy * Math.sin(turn)), y = Math.round(-sx * Math.sin(turn) + sy * Math.cos(turn));
+      out.push(`${x}px ${y}px 0 ${k === depth ? '#4a402a' : k % 2 ? '#e5d1b3' : '#c5ad89'}`);
+    }
+    return out.join(', ') || 'none';
+  };
   const placeFieldCard = (node: HTMLElement, card: DuelCardView, handCount: number) => {
     const p = fieldCardPosition(card, handCount), motion = card.motion;
     node.style.left = `${(motion?.x ?? p.x) / 1024 * 100}%`; node.style.top = `${(motion?.y ?? p.y) / 768 * 100}%`;
@@ -843,6 +856,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     // and a pile's count reads upright too (the opponent's piles stand upside down)
     const count = node.querySelector?.<HTMLElement>('.de-card-count');
     if (count && (card.zone === 'deck' || card.zone === 'extra')) count.style.transform = `translate(-50%,-50%) rotate(${-(motion?.rotation ?? 0)}deg)`;
+    // a deck / extra pile is live's thick stack: a card edge a pixel for every four cards, beige and its shade in turn,
+    // spreading down and away from the field's middle (the player's to the left, the opponent's to the right)
+    if (count && (card.zone === 'deck' || card.zone === 'extra')) node.style.boxShadow = pileEdges(Number(count.textContent) || 0, card.controller, motion?.rotation ?? 0);
   };
   const canSkipRender = (previous: ClientView, next: ClientView) => {
     if (previous.scene !== next.scene || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.relay !== next.relay || previous.sideboarding !== next.sideboarding || previous.match !== next.match || previous.preparation !== next.preparation || previous.unavailable?.[previous.scene] !== next.unavailable?.[next.scene]) return false;
@@ -1150,8 +1166,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       hud.className += ' de-sr';
       for (const i of [0, 1] as const) {
         // (an NPC duel's TIME bar stays empty on live, though the turn still times out)
-        const t = duel.timer && duel.timer.player === i && state.npc?.stage !== 'duel' ? timeFraction(duel.timer) : null;
-        const plate = lpPlate({ side: i, name: duel.players[i].name, lp: duel.players[i].lp, time: t, image: archive });
+        const [t, seconds] = plateTime(i);
+        const plate = lpPlate({ side: i, name: duel.players[i].name, lp: duel.players[i].lp, time: t, seconds, image: archive });
         plate.root.setAttribute('aria-hidden', 'true'); board.append(plate.root); lpPlates[i] = plate;
       }
     }
@@ -1159,7 +1175,16 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const current = phases.find(([key]) => key === duel.phase);
     const bar = el('div', `de-phase-bar${duel.turnPlayer ? ' opponent' : ''}`); bar.setAttribute('role', 'status');
     bar.setAttribute('aria-label', `Turn ${duel.turn}${current ? `, ${current[2]}` : ''}, ${duel.players[duel.turnPlayer].name}'s turn`);
-    bar.append(el('div', 'de-turn-box', el('small', '', 'Turn'), el('strong', '', String(Math.max(1, duel.turn)))));   // live counts from 1, before the first draw too
+    // live counts from 1, before the first draw too; with the art live's plate (duel_turn_01_c00: 56 x 32 at 260, 320,
+    // its fill see-through) and the number in duel_fonts (6 x 8 digits, drawn 1.2 times: live's are ~7 x 9.6) right-aligned at 308, 339
+    const turnText = String(Math.max(1, duel.turn));
+    if (archive) {
+      const box = el('div', 'de-turn-box de-turn-art'); box.setAttribute('aria-label', `Turn ${turnText}`);
+      box.append(archive('data/y2/duel_turn_01_c00_e.png', 'de-turn-plate'));
+      const digits = el('div', 'de-turn-digits'); digits.setAttribute('aria-hidden', 'true');
+      for (const ch of turnText) { const cell = el('span', 'de-turn-digit'), sheet = archive('data/y/duel/font/duel_fonts.png'); sheet.style.left = `${-Number(ch) * 100}%`; cell.append(sheet); digits.append(cell); }
+      box.append(digits); bar.append(box);
+    } else bar.append(el('div', 'de-turn-box', el('small', '', 'Turn'), el('strong', '', turnText)));
     // The phase buttons are the engine's (CDuelPhaseButton): on the player's turn BP / M2 / EP are pressed to enter the
     // Battle Phase, Main Phase 2 or end the turn, as live; no separate action buttons.
     const PHASE_ACTION: Partial<Record<string, string>> = { battle: 'phase:3', main2: 'phase:4', end: 'phase:5' };
@@ -1360,7 +1385,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       starterPicker.sync(state.mode !== 'free' && state.player ? state.player.id : null, state.starter?.claimable && (state.scene === 'lobby' || state.scene === 'deck') ? state.starter.decks : undefined);
       if (state.scene !== 'lobby') { Object.assign(lobbyUi, { open: null, searching: false, npc: null, join: null, cancel: false }); worldRenderer?.hide(); }
       const restoreDrafts = !resetDraftsNextRender; resetDraftsNextRender = false;
-      if (state.scene === 'duel' && state.duel?.timer && !state.duel.timer.paused && !state.duel.ended) { if (duelClock === null) duelClock = setInterval(() => { const timer = controller.getState().duel?.timer; if (duelClockNode && timer) duelClockNode.textContent = `Time ${clockText(timer)}`; if (timer) lpPlates[timer.player]?.setTime(timeFraction(timer)); }, 250); } else if (duelClock !== null) { clearInterval(duelClock); duelClock = null; }
+      if (state.scene === 'duel' && state.duel?.timer && !state.duel.timer.paused && !state.duel.ended) { if (duelClock === null) duelClock = setInterval(() => { const timer = controller.getState().duel?.timer; if (duelClockNode && timer) duelClockNode.textContent = `Time ${clockText(timer)}`; if (timer) lpPlates[timer.player]?.setTime(...plateTime(timer.player)); }, 250); } else if (duelClock !== null) { clearInterval(duelClock); duelClock = null; }
       if (state.scene === 'duel' && state.sideboarding?.deadline && !state.sideboarding.ready) { if (sideboardClock === null) sideboardClock = setInterval(() => requestRender(), 1000); } else if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; }
       const identity = `${state.scene}/${state.player?.id ?? 'none'}`;
       if (renderedIdentity !== identity || !restoreDrafts) { drafts.clear(); expanded.clear(); renderedIdentity = identity; }

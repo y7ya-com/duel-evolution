@@ -26,28 +26,38 @@ export function portraitLeft(side: 0 | 1, female: boolean): number {
 }
 
 const CSS = `
-/* the card box where live's duel screen has it: the bottom left beside the chat, over the bar (6 lines of the engine's
-   16 px Arial: name, kind, 3 of text, the stats) */
-.de-duel-board>.de-duel-info { top:${614 / 768 * 100}%; height:${120 / 768 * 100}%; left:${4 / 1024 * 100}%; width:${248 / 1024 * 100}%; font:15px/16px Arial,'Segoe UI',sans-serif; letter-spacing:.03em; }
+/* the card box where live's duel screen has it: the bottom left beside the chat (0, 608, 248 x 128), as live draws it
+   (livetour2 50-card-commands): the blue icon bar with its ▲ key, a light frame, five 16 px lines (the name in olive,
+   [race/kind/ATTRIBUTE] in green, the text in black) beside the text field's scroll bar, the race / attribute / level
+   icons and " 4 ATK1600/DEF1400" under them; empty while no card is shown. Sizes in game px (--px). */
+.de-duel-board>.de-duel-info { left:0; top:${608 / 768 * 100}%; width:${248 / 1024 * 100}%; height:${128 / 768 * 100}%; }
 :is(.de-duel-board,.de-janken-scene)>.de-duel-portrait { position:absolute; inset:auto; top:0; width:${768 / 1024 * 100}%; height:100%; pointer-events:none; z-index:0; }
 .de-duel-portrait>img { position:absolute; inset:0; width:100%; height:100%; display:block; }
 .de-duel-fx { position:absolute; inset:0; pointer-events:none; z-index:7; }
 .de-duel-fx>.de-duel-fx-layer { position:absolute; inset:0; }
 .de-duel-board>.de-duel-stats { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:6; }
 .de-duel-stats>i { position:absolute; width:${7 / 1024 * 100}%; height:${16 / 768 * 100}%; background-repeat:no-repeat; }
-.de-duel-info { position:absolute; left:${6 / 1024 * 100}%; top:${496 / 768 * 100}%; width:${240 / 1024 * 100}%; height:${122 / 768 * 100}%; z-index:8;
-  box-sizing:border-box; padding:.35em .5em; overflow-x:hidden; overflow-y:auto; scrollbar-width:auto; pointer-events:auto; font:13px/1.25 Arial,'Segoe UI',sans-serif; color:#2a2f38;
-  background:linear-gradient(180deg,rgba(236,246,255,.9),rgba(214,232,250,.86)); border:1px solid #6fb3ea; border-radius:3px; box-shadow:inset 0 0 0 1px rgba(255,255,255,.7); }
+.de-duel-info { position:absolute; z-index:8; container-type:inline-size; pointer-events:auto; --px:calc(100cqw / 248); }
 .de-duel-info[hidden] { display:none; }
-.de-duel-info-name { color:#8a7d1e; letter-spacing:.02em; }
-.de-duel-info-kind { color:#62862a; }
-/* live: the whole text, its scroll bar at the box's right (no cut with an ellipsis) */
+.de-duel-info>div { position:absolute; }
+.de-duel-info-frame { inset:calc(24 * var(--px)) 0 0; background:rgba(120,214,232,.55); box-shadow:inset 0 0 0 1px rgba(255,255,255,.6); }
+.de-duel-info-frame>div { position:absolute; inset:0 calc(7 * var(--px)) calc(7 * var(--px)); background:rgba(232,236,238,.78); }
+.de-duel-info-bar { left:0; top:0; width:100%; height:calc(24 * var(--px)); opacity:.7; }
+.de-duel-info .de-crop { position:absolute; overflow:hidden; }
+.de-duel-info .de-crop>img { position:absolute; max-width:none; image-rendering:pixelated; }
+.de-duel-info-key { left:calc(229 * var(--px)); top:0; width:calc(16 * var(--px)); height:calc(24 * var(--px)); }
+.de-duel-info-lines { left:calc(8 * var(--px)); top:calc(24 * var(--px)); width:calc(216 * var(--px)); height:calc(80 * var(--px)); overflow:hidden; }
+.de-duel-info-run { position:relative; font:calc(16 * var(--px))/calc(16 * var(--px)) Arial,'Segoe UI',sans-serif; letter-spacing:.08em; color:#000; }
+.de-duel-info-name { color:#6f6f00; white-space:nowrap; overflow:hidden; }
+.de-duel-info-kind { color:#009f00; }
 .de-duel-info-text { word-break:break-word; }
-.de-duel-info-stats { display:flex; margin-top:.2em; align-items:center; gap:2px; white-space:nowrap; font-weight:bold; }
-.de-duel-info-icon { width:16px; height:16px; overflow:hidden; position:relative; flex:none; }
-.de-duel-info-icon img { position:absolute; top:0; height:16px; }
-.de-duel-info-star { width:19px; height:16px; flex:none; }
-.de-duel-info-stats span { margin-left:4px; }
+.de-duel-info-sb { left:calc(224 * var(--px)); top:calc(24 * var(--px)); width:calc(16 * var(--px)); height:calc(80 * var(--px)); }
+.de-duel-info-sb>.up, .de-duel-info-sb>.down { cursor:pointer; }
+.de-duel-info-stats { left:calc(8 * var(--px)); top:calc(104 * var(--px)); height:calc(16 * var(--px)); display:flex; align-items:center; white-space:nowrap; font:calc(16 * var(--px))/1 Arial,'Segoe UI',sans-serif; letter-spacing:.08em; color:#000; }
+.de-duel-info-icon { width:calc(16 * var(--px)); height:calc(16 * var(--px)); overflow:hidden; position:relative; flex:none; }
+.de-duel-info-icon img { position:absolute; top:0; height:100%; }
+.de-duel-info-star { width:calc(19 * var(--px)); height:calc(16 * var(--px)); flex:none; }
+.de-duel-info-stats span { margin-left:calc(7 * var(--px)); }
 `;
 
 function isMonster(card: CardView): boolean { return !!card.type?.startsWith('Monster') || card.attack !== undefined && !/^(Spell|Trap)/.test(card.type ?? ''); }
@@ -112,7 +122,8 @@ export class DuelPresentation {
       if (side === 0) c.style.transform = 'scaleX(-1)';
       return c;
     }) as [HTMLElement, HTMLElement];
-    this.info = document.createElement('aside'); this.info.className = 'de-duel-info'; this.info.setAttribute('aria-label', 'Card information'); this.info.hidden = true;
+    this.info = document.createElement('aside'); this.info.className = 'de-duel-info'; this.info.setAttribute('aria-label', 'Card information'); this.info.hidden = !load;
+    this.buildInfo();
     this.style = document.createElement('style'); this.style.textContent = CSS;
     this.statsLayer = document.createElement('div'); this.statsLayer.className = 'de-duel-stats'; this.statsLayer.setAttribute('aria-hidden', 'true');
     // the sheet's lease is kept while the layer may show it (its URL is the glyphs' background)
@@ -155,8 +166,9 @@ export class DuelPresentation {
     this.renderInfo();
     if (!this.load) return;
     this.fx.update(duel, reducedMotion);
-    // live lights "Now Thinking" for the other side while it decides (the player's own plate stays grey)
-    const thinking = thinkingSide(duel); this.fx.thinking = duel.spectating ? thinking : thinking === 1 ? 1 : null;
+    // live's "Now Thinking" plate pulses under the LP plate of the side the duel waits on: the opponent's (pink) and the
+    // player's own (blue, top left: de-scratch/duelwin/live t1a..t7a)
+    this.fx.thinking = thinkingSide(duel);
     // the loser's face at the duel's end (live: the result screen's sweating, gritted-teeth portrait)
     const loser = duel.ended === 'Victory' ? 1 : duel.ended === 'Defeat' ? 0 : -1;
     for (const side of [0, 1] as const) this.portrait(side, duel.players[side].parts, side === loser ? 'lose' : 'normal');
@@ -165,6 +177,7 @@ export class DuelPresentation {
   private lastCue: number | null = null;
   dispose(): void {
     for (const side of [0, 1] as const) { const face = this.faces[side]; if (face.timer !== null) this.clearTimer(face.timer); face.timer = null; this.dropFrames(side); }
+    for (const l of this.leases.splice(0)) l.release();
     this.abort.abort(); this.statsLayer.remove(); this.statsLayer.replaceChildren(); this.statsFont?.release(); this.statsFont = null; this.fx.dispose(); this.info.remove(); for (const p of this.portraits) p.remove();
   }
 
@@ -265,6 +278,47 @@ export class DuelPresentation {
     this.renderInfo();
   }
   private pinned: CardView | null = null;
+  // the box's furniture (live's CCardDetailViewDlg in the duel): kept, only its lines and stats change
+  private lines = document.createElement('div'); private run = document.createElement('div'); private statsRow = document.createElement('div');
+  private thumb: HTMLElement | null = null; private scrollTop = 0;
+  /** A crop (sx, sy, sw, sh) of an archive sheet (sheetW x sheetH) placed at x, y, w, h game px in the box. */
+  private crop(path: string, sheetW: number, sheetH: number, sx: number, sy: number, sw: number, sh: number, x: number, y: number, w: number, h: number): HTMLElement {
+    const box = document.createElement('div'), g = (v: number) => `calc(${v} * var(--px))`; box.className = 'de-crop';
+    Object.assign(box.style, { left: g(x), top: g(y), width: g(w), height: g(h) });
+    const img = document.createElement('img'); img.alt = ''; img.draggable = false; img.style.visibility = 'hidden';
+    Object.assign(img.style, { width: `${sheetW / sw * 100}%`, height: `${sheetH / sh * 100}%`, left: `${-sx / sw * 100}%`, top: `${-sy / sh * 100}%` });
+    this.load?.(path, this.abort.signal).then(lease => { img.onload = () => { img.style.visibility = ''; }; img.src = lease.url; this.leases.push(lease); }, () => {});
+    box.append(img); return box;
+  }
+  private leases: { release(): void }[] = [];
+  private buildInfo(): void {
+    if (!this.load) return;
+    const div = (cls: string) => { const d = document.createElement('div'); d.className = cls; return d; };
+    const frame = div('de-duel-info-frame'); frame.append(document.createElement('div'));
+    const bar = div('de-duel-info-bar'), BAR = 'data/common/window/iconbar_01_c01.png';
+    bar.append(this.crop(BAR, 72, 24, 0, 0, 8, 24, 0, 0, 8, 24), this.crop(BAR, 72, 24, 8, 0, 8, 24, 8, 0, 232, 24), this.crop(BAR, 72, 24, 16, 0, 8, 24, 240, 0, 8, 24));
+    const key = this.crop('data/common/window/icon_01_c01.png', 48, 96, 0, 48, 16, 24, 229, 0, 16, 24); key.className += ' de-duel-info-key'; key.setAttribute('aria-hidden', 'true');
+    this.lines.className = 'de-duel-info-lines'; this.run.className = 'de-duel-info-run'; this.lines.append(this.run);
+    this.lines.addEventListener('wheel', e => { e.preventDefault(); this.scrollBy(e.deltaY > 0 ? 1 : -1); }, { passive: false });
+    // the text field's scroll bar (scroll_01_c00: the track 48,0 stretched, the arrows 0,0 / 0,16, the thumb 0,32..56)
+    const sb = div('de-duel-info-sb'), SB = 'data/common/window/scroll_01_c00.png';
+    const up = this.crop(SB, 64, 120, 0, 0, 16, 16, 0, 0, 16, 16), down = this.crop(SB, 64, 120, 0, 16, 16, 16, 0, 64, 16, 16);
+    up.className += ' up'; down.className += ' down'; up.onclick = () => this.scrollBy(-1); down.onclick = () => this.scrollBy(1);
+    const thumb = div('de-crop'); thumb.style.cssText = 'left:0;width:calc(16 * var(--px));height:calc(16 * var(--px))';
+    thumb.append(this.crop(SB, 64, 120, 0, 32, 16, 8, 0, 0, 16, 8), this.crop(SB, 64, 120, 0, 48, 16, 8, 0, 8, 16, 8));
+    this.thumb = thumb;
+    sb.append(this.crop(SB, 64, 120, 48, 0, 16, 16, 0, 0, 16, 80), up, down, thumb);
+    this.statsRow.className = 'de-duel-info-stats';
+    this.info.append(frame, bar, key, this.lines, sb, this.statsRow);
+    this.placeThumb();
+  }
+  /** The text a line (16 px) a step, within the lines past the box's five. */
+  private scrollBy(lines: number): void {
+    const line = Math.max(1, this.lines.clientHeight / 5), max = Math.max(0, Math.ceil(this.run.offsetHeight / line - 0.01) - 5);
+    const top = Math.max(0, Math.min(max, this.scrollTop + lines)); if (top === this.scrollTop) return;
+    this.scrollTop = top; this.run.style.top = `calc(${-16 * top} * var(--px))`; this.placeThumb(max);
+  }
+  private placeThumb(max = 0): void { if (this.thumb) this.thumb.style.top = `calc(${16 + (max > 0 ? Math.round(32 * this.scrollTop / max) : 0)} * var(--px))`; }
   private renderInfo(): void {
     const onField = this.shown ? this.duel?.cards.find(c => c.id === this.shown) : undefined;
     const card: CardView | undefined = this.pinned ?? (onField && (onField.faceUp || onField.controller === 0 && onField.passcode !== undefined) ? onField : undefined);
@@ -272,15 +326,18 @@ export class DuelPresentation {
     const key = visible ? `${visible.id}:${visible.passcode}:${visible.attack}:${visible.defense}` : '';
     if (key === this.infoKey) return;
     this.infoKey = key;
-    this.info.replaceChildren();
-    this.info.hidden = !visible;
-    if (!visible) return;
+    this.scrollTop = 0; this.run.style.top = '0'; this.placeThumb();
+    // without the art: the plain box, only while a card shows
+    if (!this.load) { this.info.replaceChildren(); this.info.hidden = !visible; this.info.append(this.run); }
+    this.run.replaceChildren(); this.statsRow.replaceChildren();
+    if (!visible) { delete this.info.dataset.cardId; return; }
     this.info.dataset.cardId = visible.id;
     const div = (cls: string, text: string) => { const d = document.createElement('div'); d.className = cls; d.textContent = text; return d; };
-    this.info.append(div('de-duel-info-name', visible.name));
-    const kind = cardKindLine(visible); if (kind) this.info.append(div('de-duel-info-kind', kind));
-    this.info.append(div('de-duel-info-text', visible.description ?? ''));
-    this.info.append(this.stats(visible));
+    this.run.append(div('de-duel-info-name', visible.name));
+    const kind = cardKindLine(visible); if (kind) this.run.append(div('de-duel-info-kind', kind));
+    this.run.append(div('de-duel-info-text', visible.description ?? ''));
+    const stats = this.stats(visible);
+    if (this.load) this.statsRow.append(...Array.from(stats.childNodes)); else this.info.append(stats);
   }
   private icon(sheet: string, index: number): HTMLElement {
     const box = document.createElement('span'); box.className = 'de-duel-info-icon';

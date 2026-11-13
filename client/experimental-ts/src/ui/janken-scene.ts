@@ -49,8 +49,8 @@ export const JANKEN_CSS = `
 .de-janken-scene .de-janken-message { position:absolute; left:0; right:0; top:48%; text-align:center; font:bold 18px Arial,sans-serif; color:#fff; text-shadow:0 1px 3px #000; }
 .de-janken-scene .de-janken-plate>img.sheet { width:100%; height:400%; inset:auto; left:0; }
 .de-janken-scene img.de-janken-think { opacity:0; animation:de-janken-think 1.6s step-end infinite; }
-@keyframes de-janken-think { 0% { opacity:1; } 25% { opacity:0; } }
-@media (prefers-reduced-motion: reduce) { .de-janken-scene img.de-janken-think, .de-janken-scene .de-janken-hex { animation:none; } .de-janken-scene img.de-janken-think.f0 { opacity:1; } }
+@keyframes de-janken-think { 0% { opacity:.8; } 25% { opacity:0; } }
+@media (prefers-reduced-motion: reduce) { .de-janken-scene img.de-janken-think, .de-janken-scene .de-janken-hex { animation:none; } .de-janken-scene img.de-janken-think.f0 { opacity:.8; } }
 `;
 
 /** The scene's elements, drawn anew for each view (`load` gives the archive's pictures). */
