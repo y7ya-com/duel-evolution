@@ -1,5 +1,5 @@
-// Hell Kaiser's tuned 2008 recipes. Friendship selects Cyber fusion (78), Cyberdark (79),
-// or Chimeratech (80); all NPCs use the same honest AI. These source overrides survive
+// Hell Kaiser's tuned 2008 recipes. Friendship selects Cyber fusion (78), Chimeratech (79),
+// or the strongest Cyberdark recipe (80); all NPCs use the same honest AI. These source overrides survive
 // regeneration of the private official deck tables. The owner allows forbidden staples
 // for this boss, including extra draw power to assemble the fusion plans reliably.
 export const HELL_KAISER_DECKS: Record<string, { main: number[]; extra: number[] }> = {
@@ -37,7 +37,7 @@ export const HELL_KAISER_DECKS: Record<string, { main: number[]; extra: number[]
       79229522, 79229522, // Chimeratech Fortress Dragon
     ],
   },
-  "79": {
+  "80": {
     main: [
       41230939, 41230939, 41230939, // Cyberdark Horn
       77625948, 77625948, 77625948, // Cyberdark Edge
@@ -71,7 +71,7 @@ export const HELL_KAISER_DECKS: Record<string, { main: number[]; extra: number[]
       99267150, // Five-Headed Dragon
     ],
   },
-  "80": {
+  "79": {
     main: [
       70095154, 70095154, 70095154, // Cyber Dragon
       26439287, 26439287, // Proto-Cyber Dragon

@@ -47,6 +47,17 @@ A read-only study of production as of **2026-11-04 10:24Z**. Production was runn
 | Box odds c/r/s/u, super / ultra pity | 60/30/8/2 (hair 60/30/10/0), 10 / 20 | **55/30/11/4, 8 / 15**; empty tiers renormalise | - |
 | Box duplicates | uniform within the tier, tradeable copy | **unowned items of the tier first**, then a tradeable copy | - |
 
+### Hell Kaiser victory drop (2026-11-13)
+
+Winning against any Hell Kaiser recipe (78–80) has an independent 5% chance to unlock Hell Kaiser's Costume.
+Losses and draws do not roll. This is an optional boss reward, independent of friendship thresholds, card packs,
+and MP; it does not change the Outfit Box pool or pity. There is no guarantee after a set number of wins.
+The normal NPC present displays it, while ownership is saved at duel completion even if the window is skipped.
+Already owned outfits are not rolled again, including unclaimed gifts. As with other NPC cosmetic prizes, this
+is an unlock, not a source of tradable duplicate copies. Both character bodies can earn it; the existing item
+currently has only a male art variant, and the wardrobe preserves ownership for the other body too.
+The drop table is `src/duel/npcDrops.ts` and uses the server's RNG.
+
 ## 2. Data and methodology
 
 **Where the state lives.** The WorldDO keeps `state.json` in memory and projects it onto D1 (`src/db/project.ts`,

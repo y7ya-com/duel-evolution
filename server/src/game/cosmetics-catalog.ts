@@ -236,9 +236,10 @@ export function bodyInfo(item: CosmeticFamily): { bodies: Body[]; notice?: strin
 }
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 
-/** Why a family can never drop (null = droppable). Every family stays in the catalog, so owners
+/** Why a family cannot drop from a box (null = droppable). Every family stays in the catalog, so owners
  * keep ownership, equip and trade; only new rolls are withheld. Missing a body is NOT a reason. */
 function dropExclusion(item: CosmeticFamily): string | null {
+  if (item.id === "outfit:kaiser") return "Duel Academy outfit: 5% Hell Kaiser victory drop";
   // Duel Academy (series 3, ac_* art) outfits are reserved for ranked rewards. Academy duel disks are not outfits.
   if (item.kind === "outfit" && item.artwork?.startsWith("ac_")) return "Duel Academy outfit: reserved for ranked rewards";
   return null;

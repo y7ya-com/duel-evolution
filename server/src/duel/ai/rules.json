@@ -455,7 +455,7 @@
       "level limit - area b": {"idleActivate": {"all": [{"not": "sameCardActive"}, {"any": ["outgunned", {"<": ["myMaxAtk", 1800]}]}]}},
       "card destruction": {"idleActivate": {"all": [{"all": [{"==": ["oppDiscardPayoff", 0]}, {"any": [{">": ["oppHand", "oppDeck"]}, {"all": [{"<=": ["myMaxAtk", "oppMaxAtk"]}, {"any": [{">=": ["oppHand", 5]}, {"all": [{">=": ["oppHand", 3]}, {">=": ["myHand", 3]}, {">=": [{"*": ["myHandTributes", 2]}, {"-": ["myHand", 1]}]}]}]}]}, {"all": [{">=": ["myHand", 4]}, {"==": [{"count": "myMon"}, 0]}, {"==": ["myHandTributes", 0]}]}]}]}, {"not": {"all": ["normalSummonLeft", {">=": [{"inMyHand": "snipe hunter"}, 1]}]}}]}}
     },
-    "80": {
+    "79": {
       "future fusion": {"idleActivate": true, "idlePriority": 125, "pick": {"score": {"if": ["inExtra", {"if": [{"is": "chimeratech overdragon"}, {"if": [{">=": [{"inMyHand": "overload fusion"}, 1]}, 10000, 0]}, {"if": [{"is": "cyber twin dragon"}, 9000, 0]}]}, {"if": [{"is": "cyber dragon"}, 10000, {"-": [3000, "atk"]}]}]}, "min": 0}}
     },
     "84": {
@@ -474,7 +474,7 @@
     "38": {
       "reasoning": {"idleActivate": {"all": [{"==": [{"count": "myMon"}, 0]}, {">": [{"count": "oppMon"}, 0]}]}, "idlePriority": 60}
     },
-    "79": {
+    "80": {
       "foolish burial": {"idleActivate": {"all": [{"==": [{"inMyGrave": "hunter dragon"}, 0]}, {">=": [{"inMyDeck": "hunter dragon"}, 1]}, {">=": [{"+": [{"inMyHand": "cyberdark horn"}, {"inMyHand": "cyberdark edge"}, {"inMyHand": "cyberdark keel"}]}, 1]}]}, "idlePriority": 130, "pick": {"score": {"if": [{"is": "hunter dragon"}, 10000, "atk"]}}},
       "future fusion": {"idleActivate": true, "idlePriority": 125, "pick": {"score": {"if": ["inExtra", {"if": [{"is": "cyberdark dragon"}, 10000, 0]}, "atk"]}}},
       "premature burial": {"idleActivate": {"all": [{"any": [{"not": {"all": [{"any": ["normalSummonLeft", {"not": "myTurn"}]}, {">=": [{"+": [{"inMyHand": "cyberdark horn"}, {"inMyHand": "cyberdark edge"}, {"inMyHand": "cyberdark keel"}]}, 1]}, {"==": [{"inMyGrave": "hunter dragon"}, 1]}]}}, {">=": ["myGraveMonsters", 2]}]}, {"all": [{">": ["myLp", 800]}, {"any": [{">": ["effectSummonGain", 0]}, {"all": [{"==": [{"count": "myMon"}, 0]}, {">": [{"count": "oppMon", "where": "attackPos"}, 0]}, {">=": ["myGraveMaxAtk", 1200]}]}]}]}]}, "idlePriority": 90, "pick": {"score": {"if": [{"all": [{"is": "hunter dragon"}, {"all": [{"any": ["normalSummonLeft", {"not": "myTurn"}]}, {">=": [{"+": [{"inMyHand": "cyberdark horn"}, {"inMyHand": "cyberdark edge"}, {"inMyHand": "cyberdark keel"}]}, 1]}, {"==": [{"inMyGrave": "hunter dragon"}, 1]}]}]}, -100000, "atk"]}}},

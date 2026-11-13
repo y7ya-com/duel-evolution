@@ -4,6 +4,8 @@ import { beforeAll, describe, expect, it } from "vitest";
 import type { DuelCore } from "../src/duel/engine/core.ts";
 import { createNodeDuelCore, ENGINE_DATA_DIR } from "../src/duel/engine/node.ts";
 import { npcDeck, toCodes } from "../src/duel/data.ts";
+import { deckNpc } from "../src/duel/npcRules.ts";
+import { nrThreshold } from "../src/game/npcs.ts";
 import { check } from "../src/duel/deckCheck.ts";
 import { leftField, msgs, npcActivated, play, attacker } from "./npcScenario.ts";
 
@@ -20,9 +22,22 @@ describe.skipIf(!existsSync(join(ENGINE_DATA_DIR, "scripts.pack")))("Hell Kaiser
     expect(check(deck.main, deck.extra, trunk, false)).toEqual([]);
   });
 
+  it("progresses to the strongest Cyberdark recipe in the final slot", () => {
+    const points = new Map<number, number>();
+    const current = () => deckNpc(78, id => [0, 0, 0, points.get(id) ?? 0]);
+    expect(current()).toBe(78);
+    points.set(78, nrThreshold(78));
+    expect(current()).toBe(79);
+    expect(npcDeck(current())!.main).toContain(70095154); // Cyber Dragon
+    points.set(79, nrThreshold(79));
+    expect(current()).toBe(80);
+    expect(npcDeck(current())!.main).toContain(41230939); // Cyberdark Horn
+    expect(npcDeck(current())!.extra).toContain(40418351); // Cyberdark Dragon
+  });
+
   it("buries Hunter Dragon before summoning Cyberdark Horn (duel 786)", () => {
     const p = play(dc, {
-      npcId: 79, first: "player", turns: 2,
+      npcId: 80, first: "player", turns: 2,
       npc: { hand: ["Foolish Burial", "Cyberdark Horn", "Masked Dragon"], deck: ["Hunter Dragon", ...Array(12).fill("Petit Moth")] },
       player: { mzone: ["Jain, Lightsworn Paladin"] },
     });
@@ -33,7 +48,7 @@ describe.skipIf(!existsSync(join(ENGINE_DATA_DIR, "scripts.pack")))("Hell Kaiser
 
   it("keeps its only graveyard Dragon for Cyberdark instead of reviving it first", () => {
     const p = play(dc, {
-      npcId: 79, first: "player", turns: 2,
+      npcId: 80, first: "player", turns: 2,
       npc: { hand: ["Cyberdark Keel", "Premature Burial"], grave: ["Hunter Dragon", "Card Trooper"] },
       player: { mzone: ["Wulf, Lightsworn Beast"] },
     });
@@ -43,7 +58,7 @@ describe.skipIf(!existsSync(join(ENGINE_DATA_DIR, "scripts.pack")))("Hell Kaiser
 
   it("plays all three Pots of Greed even when another copy moves into the same hand slot", () => {
     const p = play(dc, {
-      npcId: 80, first: "npc", turns: 1,
+      npcId: 79, first: "npc", turns: 1,
       npc: { hand: ["Pot of Greed", "Pot of Greed", "Pot of Greed"] }, player: {},
     });
     expect(msgs(p, "CHAINING", "Pot of Greed")).toHaveLength(3);
@@ -51,7 +66,7 @@ describe.skipIf(!existsSync(join(ENGINE_DATA_DIR, "scripts.pack")))("Hell Kaiser
 
   it("sets up Chimeratech with Future Fusion instead of holding it (duel 807)", () => {
     const p = play(dc, {
-      npcId: 80, first: "player", turns: 2,
+      npcId: 79, first: "player", turns: 2,
       npc: { hand: ["Future Fusion", "Overload Fusion"], extra: ["Chimeratech Overdragon"],
         deck: ["Cyber Dragon", "Cyber Phoenix", "Drillroid", "Dekoichi the Battlechanted Locomotive", ...Array(16).fill("Petit Moth")] },
       player: { mzone: ["Lyla, Lightsworn Sorceress"] },
@@ -64,7 +79,7 @@ describe.skipIf(!existsSync(join(ENGINE_DATA_DIR, "scripts.pack")))("Hell Kaiser
 
   it("prepares a strong Chimeratech without dumping the entire deck", () => {
     const p = play(dc, {
-      npcId: 80, first: "player", turns: 2,
+      npcId: 79, first: "player", turns: 2,
       npc: { hand: ["Future Fusion", "Overload Fusion"], extra: ["Chimeratech Overdragon"],
         deck: ["Cyber Dragon", ...Array(12).fill("Cyber Phoenix"), ...Array(16).fill("Petit Moth")] },
       player: { mzone: ["Jain, Lightsworn Paladin"] },

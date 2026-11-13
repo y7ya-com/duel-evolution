@@ -762,9 +762,7 @@ export const TITLE_BITS: Record<string, [number, number, number]> = {
 export const PRESENT_CLOTHES: Record<string, [number | null, number | null]> = { "Yami Yugi": [121, null], "Seto Kaiba": [122, null], Joey: [123, null],
   "Yami Marik": [124, 375], Jaden: [135, null], Chazz: [136, null], Jesse: [137, null], "Hell Kaiser": [138, null], Aster: [139, null],
   Tea: [null, 374], Alexis: [null, 390], "Yami Bakura": [84, 342] };
-/** The outfit prize of a famous NPC's chain: EVERY variant (boy and girl), whatever the player's gender (the owner's
- *  call; py gave only the player's own, so a girl got nothing from Yugi and a boy nothing from Téa). */
-// Named character costumes are future Outfit Box drops, not easy NPC-win prizes.
+// Named character costumes are not fixed friendship prizes. Optional boss drops live in npcDrops.ts.
 // Keep the historical mapping for migration and existing ownership; never revoke already granted cosmetics.
 export const presentClothes = (_name: string): number[] => [];
 const TITLE_FRIEND_ALL = 159;

@@ -93,10 +93,11 @@ describe("NPC rewards: every possible gift maps to a real card or item", () => {
         duel(RESULT_LOSE, 25);
       }
       expect(bad).toEqual([]);
-      // The walk still reaches cards, friendship titles and recipes; costumes now belong to boxes.
+      // The walk still reaches cards, friendship titles and recipes.
       expect([`c${pc(365)}`, "b160", `b${PP.NPC_PRIZE_BITS["51"].comp_got}`].filter((k) => !given.has(k))).toEqual([]);
-      // Named costumes moved to Outfit Boxes. Existing owned cosmetics are never removed.
-      const outfits = Object.values(PP.PRESENT_CLOTHES).flat().filter((b) => b !== null).map((b) => `b${b}`);
+      // Named costumes are not fixed prizes; Hell Kaiser has a separate rare victory drop.
+      const outfits = Object.entries(PP.PRESENT_CLOTHES).filter(([name]) => name !== "Hell Kaiser")
+        .flatMap(([, bits]) => bits).filter((b) => b !== null).map((b) => `b${b}`);
       expect(outfits.filter((k) => given.has(k))).toEqual([]);
     });
   }
