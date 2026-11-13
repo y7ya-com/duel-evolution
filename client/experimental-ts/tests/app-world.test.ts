@@ -52,6 +52,13 @@ describe('ClientApp collision-aware world lifecycle', () => {
     for (let i = 0; i < 100 && f.tick(); i++) { /* drain */ }
     expect(self().x).toBe(70); f.app.dispose();
   });
+  it('drops the held button\'s re-aims while a door changes the map', async () => {
+    const f = fixture(); await f.enter();
+    (f.app as unknown as { worldTransition: boolean }).worldTransition = true;
+    await f.app.dispatch({ type: 'move', x: 70, y: 30 }); expect(f.frames.size).toBe(0);
+    (f.app as unknown as { worldTransition: boolean }).worldTransition = false;
+    await f.app.dispatch({ type: 'move', x: 70, y: 30 }); expect(f.frames.size).toBe(1); f.app.dispose();
+  });
   it('lets a held walk go (walkRelease) without a later re-aim, still waiting, restarting it', async () => {
     const f = fixture(); await f.enter();
     const app = f.app as unknown as { world: { release(): void }; worldRuntime: unknown; runtimeLoad: Promise<void> | null };

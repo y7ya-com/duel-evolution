@@ -1106,7 +1106,11 @@ export class ClientApp implements ClientController {
           // a map whose collision scene could not be read (its art unreachable as it loaded) is read again: a walk after
           // the connection came back would otherwise find no collision for good
           if(this.worldRuntime && !this.runtimeLoad && !this.worldRuntime.definition){const map=this.options.worldMaps.maps.find(m=>m.id===this.game?.state.area);if(map&&this.runtimeMap===map.id)this.loadWorldRuntime(map,this.world.position);}
+          // a held button steers on while a door's map change runs (the old map left, the new one not joined): those
+          // re-aims are dropped, or the walk they restart sends a step with no lobby ("Join the lobby first")
+          if (this.worldTransition) break;
           if(this.worldRuntime){this.worldRuntime.retry();await this.runtimeLoad;this.assertEpoch(epoch);await this.worldRuntime.prepare(this.world.position,this.connectionScope.signal);this.assertEpoch(epoch);}
+          if (this.worldTransition) break;
           // a held button's last re-aim still waiting on the collision tiles when the button was let go: the glide wins
           if (order <= this.walkReleased) break;
           if (!this.world.moveTo({ x: command.x, y: command.y })) throw new Error('That destination is blocked or unreachable.');
