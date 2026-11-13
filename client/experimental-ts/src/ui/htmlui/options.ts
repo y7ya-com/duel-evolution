@@ -40,7 +40,11 @@ const HELP: Record<string, [number, string]> = {
   'act-2': [0x1988, 'The game will show all messages asking you to confirm the activation or positioning of cards.'],
 };
 const HELP_FIRST: [number, string] = [0x1989, 'To skip these messages, hold the Right Mouse button at the appropriate times.'];
-export const DUEL_OPTIONS_TEXTS = [...Object.values(HELP).map(([id]) => id), HELP_FIRST[0]];
+const HELP_SEE: [number, string] = [0x198a, 'To see these messages, hold the Left Mouse button at the appropriate times.'];
+/** What live's engine adds under an Activation Message choice's help, a blank line apart: how to see the messages it
+ * skips (Left button) and to skip the ones it shows (Right button). */
+const HELP_MORE: Record<string, [number, string][]> = { 'act-0': [HELP_SEE], 'act-1': [HELP_FIRST, HELP_SEE], 'act-2': [HELP_FIRST] };
+export const DUEL_OPTIONS_TEXTS = [...Object.values(HELP).map(([id]) => id), HELP_FIRST[0], HELP_SEE[0]];
 
 type Art = Record<string, { shown: boolean } | null>;
 const showArt = (c: HtmlControl, checked: boolean) => { c.checked = checked; const art = c.art as Art | undefined; if (art) for (const [k, v] of Object.entries(art)) if (v) v.shown = k === (checked ? 'checked' : 'normal'); };
@@ -60,19 +64,28 @@ export function duelConfigWindow(ids: Ids, ui: OptionsUi, d: OptionsDeps): Windo
     { key: 'place-off', x: 246, y: 105, on: !draft.autoPlacing, set: () => { draft.autoPlacing = false; } },
     ...([0, 1, 2] as ActivationMessage[]).map(v => ({ key: `act-${v}`, x: [22, 246, 134][v]!, y: [157, 157, 198][v]!, on: draft.activationMessage === v, set: () => { draft.activationMessage = v; } })),
   ];
-  const help = (key: string | null | undefined) => { const h = key ? HELP[key] : undefined; const [id, en] = h ?? HELP_FIRST; return d.text?.(id)?.trim() || en; };
+  const line = ([id, en]: [number, string]) => d.text?.(id)?.trim() || en;
+  const help = (key: string | null | undefined) => { const h = key ? HELP[key] : undefined; return [h ?? HELP_FIRST, ...(key && h ? HELP_MORE[key] ?? [] : [])].map(line).join('\n\n'); };
   for (const c of controls) {
     if (c.cls === 'CWindowTaskPictureSwitch' && c.w >= 64) {
       const choice = CHOICES.find(x => x.x === c.x && x.y === c.y); if (!choice) continue;
       showArt(c, choice.on);
       const caption = controls.find(t => t.cls === 'CWindowTaskShadowText' && t.x === c.x && t.y === c.y + 8);
       b.on(c, { key: `duel-config:${choice.key}`, label: String(caption?.text ?? choice.key), click: () => { choice.set(); d.rerender(); },
-        pointer: over => { const next = over ? choice.key : ui.hover === choice.key ? null : ui.hover ?? null; if (next !== ui.hover) { ui.hover = next; d.rerender(); } } });
+        // the help follows the choice the pointer comes over and stays when it leaves (live)
+        pointer: over => { if (over && ui.hover !== choice.key) { ui.hover = choice.key; d.rerender(); } } });
     } else if (c.cls === 'CWindowTaskShadowText' && c.name === '説明') { const t = help(ui.hover); c.text = t; for (const k of controls) if (k.parent === c.id) k.text = t; }
     else if (c.cls === 'CWindowTaskButtonDuel' && c.label === 'OK') b.on(c, { key: 'duel-config-ok', click: () => { d.set({ ...draft }); d.close(); } });
     else if (c.cls === 'CWindowTaskButtonDuel' && c.label === 'Cancel') b.on(c, { key: 'duel-config-cancel', click: () => d.close() });
   }
-  return b.spec();
+  const spec = b.spec(), box = controls.find(c => c.cls === 'CWindowTaskShadowText' && c.name === '説明');
+  // the help wraps inside its blue box (live lets the line run out of the window: its bug, not copied) and scrolls there
+  // when it is longer than the box (live's pink arrow under it: more lines)
+  if (box) spec.after = root => {
+    for (const el of root.querySelectorAll<HTMLElement>('.txt')) if (el.style.left === `${box.x}px` && el.style.top === `${box.y}px` && el.style.whiteSpace !== 'pre-wrap')
+      Object.assign(el.style, { whiteSpace: 'pre-wrap', wordBreak: 'normal', overflowWrap: 'anywhere', width: `${box.w}px`, height: `${box.h}px`, overflowY: 'auto', overflowX: 'hidden', pointerEvents: 'auto', scrollbarWidth: 'thin' });
+  };
+  return spec;
 }
 
 // ---- the title's OPTIONS (COptionDlg, optionDlg.cpp): the engine's own window, as live's snapshot of it reads (a

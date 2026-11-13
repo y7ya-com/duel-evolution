@@ -19,7 +19,7 @@ import { Ids } from './htmlui/snapshot';
 import type { ControlHandlers, WindowSpec } from './htmlui/snapshot';
 import { htmlUiLocal, htmlWindows, stockDialog, duelRequestDialog, DELETE_TEXT, DUEL_REQUEST_TEXT } from './htmlui/windows';
 import { UiText, localizeSpecs } from '../features/ui-text';
-import { titleConfigWindow } from './htmlui/title-config';
+import { titleConfigWindow, titleConfigArrows, titleBit, TITLE_TEXTS } from './htmlui/title-config';
 import { StarterPicker } from './htmlui/starter';
 import { duellogQuery, duellogUi, duellogWindow, duellogServerPicker, fetchDuellogFull, replayWindow, type DuellogUi } from './htmlui/duellog';
 import type { TitleConfigUi } from './htmlui/title-config';
@@ -54,7 +54,7 @@ import { npcWaistUpSet } from './npc-waistup';
 import { deckBackdrop } from '@htmlui/screens/deck.js';
 import { PictureArt } from './htmlui/art';
 import { setPictureResolver, disposePictures } from './htmlui/pictures';
-import { StartScene, PORTRAIT_AT } from './htmlui/start-scene';
+import { StartScene } from './htmlui/start-scene';
 import { TitleScene, TITLE_DIMMED, type TitleButton } from './htmlui/title-scene';
 import { BUST_AT } from './htmlui/windows';
 import { loginLocal, loginWindow } from './htmlui/login';
@@ -368,10 +368,18 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     open: url => { globalThis.open?.(url, '_blank', 'noopener,noreferrer'); } })] : [];
   let titleUi: TitleConfigUi | null = null;
   const titleSpecs = (): WindowSpec[] => {
-    if (!titleUi || !state.player || !state.titles || state.scene === 'duel' || state.scene === 'title') { titleUi = null; return []; }
     const p = state.profileDetail;
-    return [titleConfigWindow(htmlIds, titleUi, { titles: state.titles, current: p?.details && p.selfPid === p.details.pid ? titleName(p.details.titleId) || undefined : undefined, busy: !!state.busy || p?.pending != null,
-      wear: bit => send({ type: 'profileAction', action: { type: 'setTitle', bit } }), close: () => { titleUi = null; showHtml(); }, rerender: () => showHtml() })];
+    if (!titleUi || !state.player || !state.titles || state.scene === 'duel' || state.scene === 'title') {
+      titleUi = null;
+      // the own profile opened for the window alone (the worn title, and the server wears one only for an open profile):
+      // closed once the window is and its title is confirmed
+      if (htmlUiState.titleBehind && !p?.pending) { htmlUiState.titleBehind = false; if (p?.selectedPid !== null && p?.selectedPid === p?.selfPid) send({ type: 'profileAction', action: { type: 'close' } }); }
+      return [];
+    }
+    const mine = !!p?.details && p.selfPid === p.details.pid;
+    return [titleConfigWindow(htmlIds, titleUi, { titles: state.titles, ...(mine ? { worn: titleBit(p!.details!.titleId) } : {}), busy: !!state.busy || p?.pending != null, text: id => gameTexts.get(id),
+      wear: bit => send({ type: 'profileAction', action: { type: 'setTitle', bit } }), close: () => { titleUi = null; showHtml(); }, rerender: () => showHtml() }),
+    ...titleConfigArrows(htmlIds, titleUi, { rerender: () => showHtml() })];
   };
   // Duel Log (CWindowModelDuellogTop / List / Operation / Search, live's flow) over the scene, opened from the Main Menu:
   // main's duel archive (Server Duel Logs, GET /api/de/replays, read once per opening) and this browser's duel records
@@ -650,7 +658,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const askGameTexts = () => {
     const language = state.settings.language ?? 'E'; if (gameTextsFor === language || !controller.gameText) return;
     gameTextsFor = language;
-    void controller.gameText([...Object.values(DELETE_TEXT), ...Object.values(DUEL_REQUEST_TEXT), ...Object.values(LOBBY_TEXT), ...Object.values(AREA_TEXT), ...Object.values(WORLD_TEXT), ...DUEL_OPTIONS_TEXTS, ...Object.values(CHALLENGE_UNLOCKS).map(u => u.text)], new AbortController().signal)
+    void controller.gameText([...Object.values(DELETE_TEXT), ...Object.values(DUEL_REQUEST_TEXT), ...Object.values(LOBBY_TEXT), ...Object.values(AREA_TEXT), ...Object.values(WORLD_TEXT), ...DUEL_OPTIONS_TEXTS, ...TITLE_TEXTS, ...Object.values(CHALLENGE_UNLOCKS).map(u => u.text)], new AbortController().signal)
       .then(m => { if (gameTextsFor !== language) return; gameTexts.clear(); for (const [k, v] of m) gameTexts.set(k, v); showHtml(); }, () => { if (gameTextsFor === language) gameTextsFor = null; });
     // every label main's screens show, in the chosen language: the English table names each label's id (features/ui-text.ts)
     if (language === 'E') { uiText.install([], null, 'E'); return; }
@@ -699,7 +707,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   };
   /** The waist-up portraits the game draws under its windows outside Select Player (src/ui/htmlui/start-scene.ts's
    * canvas, under the HTML layer): Change Avatar from the game shows the look being made where first dressing does
-   * (CChangeAvatarPack, PORTRAIT_AT), and a Discord duelist's card their bust (live 2020bff: BUST_AT, 530, 0). */
+   * (CChangeAvatarPack, in Select Player's pose), and a Discord duelist's card their bust (live 2020bff: BUST_AT, 530, 0). */
   function syncPortrait(): void {
     const d = htmlUiState.dialog, dc = htmlUiState.discordCard;
     const avatar = d?.kind === 'avatar' && state.scene !== 'characters' ? d : null;
@@ -712,7 +720,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const look = avatar ? avatar.look : dc && state.scene === 'lobby' ? dc.parts : request ?? (card ? Array.from(card) : null);
     if (!look || look.length !== 16 || !controller.loadArchiveImage) { portraitScene?.show({ logo: false, portrait: null, reducedMotion: true }); portraitScene?.element.remove(); return; }
     portraitScene ??= new StartScene(controller.loadArchiveImage.bind(controller));
-    portraitScene.show({ logo: false, portrait: Uint8Array.from(look), reducedMotion: state.settings.reducedMotion, at: avatar ? PORTRAIT_AT : BUST_AT });
+    portraitScene.show({ logo: false, portrait: Uint8Array.from(look), reducedMotion: state.settings.reducedMotion, ...(avatar ? {} : { at: BUST_AT }) });
     if (portraitScene.element.parentElement !== stage) stage.append(portraitScene.element);
   }
   const htmlHandler = (key: string): ControlHandlers | undefined => { for (const spec of buildHtml()) for (const h of spec.handlers.values()) if (h.key === key) return h; return undefined; };
@@ -975,13 +983,16 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     // signed out, every way online starts at the sign-in window (free mode goes online too); an error from before it
     // is not its own (it says only what happens in it)
     if (!state.auth?.signedIn && state.auth && name !== 'options') { loginUi.open = true; loginUi.stale = state.error ?? null; requestRender(); return; }
+    // a session of the other mode still up (Select Player's Back leaves it connected) ends first: live's title starts
+    // either mode from any title
+    const other = (free: boolean) => { if (state.connection === 'online' && (state.mode === 'free') !== free) send({ type: 'disconnect' }); };
     if (name === 'online') {
-      if (state.connection === 'online' && state.mode !== 'free') open('characters'); else send({ type: 'connect', freeMode: false });
+      if (state.connection === 'online' && state.mode !== 'free') open('characters'); else { other(false); send({ type: 'connect', freeMode: false }); }
     } else if (name === 'options') { optionsUi = { kind: 'title' }; showHtml(); }
     else {
       freeTarget = name === 'deck' ? 'deck' : null;
       if (state.connection === 'online' && state.mode === 'free') { if (freeTarget) { freeTarget = null; deckFromTitle = true; open('deck'); } else open(state.player ? 'lobby' : 'characters'); }
-      else send({ type: 'connect', freeMode: true });
+      else { other(true); send({ type: 'connect', freeMode: true }); }
     }
   };
   function renderTitle(): void {
@@ -999,7 +1010,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (controller.loadArchiveImage) {
       titleScene ??= new TitleScene(controller.loadArchiveImage.bind(controller));
       n.append(titleScene.element, titleScene.controls); titleScene.show(!!state.settings.reducedMotion);
-      titleScene.wire(titlePress, name => !state.busy && (name === 'options' || name === 'online' || !(state.connection === 'online' && state.mode !== 'free')));
+      titleScene.wire(titlePress, () => !state.busy);
       return;
     }
     // without the game's art: the sign-in window over a plain title
@@ -1433,16 +1444,28 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const entries: MenuEntry[] = !state.player ? [] : [
         { label: 'Edit Deck', key: 'deck', disabled: blocked || sideboard, run: go('deck') },
         ...(state.profileDetail ? [
-          { label: 'My Profile', key: 'profile', disabled: blocked || sideboard, run: () => { if (state.scene !== 'lobby') open('lobby'); send({ type: 'profileAction', action: { type: 'open', pid: state.player!.id } }); } },
+          // (a profile opened hidden for Create Comment / Change Title is the one shown now, and stays)
+          { label: 'My Profile', key: 'profile', disabled: blocked || sideboard, run: () => { if (state.scene !== 'lobby') open('lobby'); htmlUiState.commentBehind = null; htmlUiState.titleBehind = false; send({ type: 'profileAction', action: { type: 'open', pid: state.player!.id } }); } },
           // Create Comment edits the player's own profile lines: it opens over that profile (the controller's rule)
-          { label: 'Create Comment', key: 'comment', disabled: blocked || sideboard, run: () => { if (state.scene !== 'lobby') open('lobby'); const p = state.profileDetail; if (p?.selectedPid !== state.player!.id) send({ type: 'profileAction', action: { type: 'open', pid: state.player!.id } }); htmlUiState.comment = [p?.selectedPid === state.player!.id ? p.comments[0] ?? '' : '', p?.selectedPid === state.player!.id ? p.comments[1] ?? '' : '']; showHtml(); } },
+          // (live opens the dialog alone: a profile opened for it stays hidden and closes with it, windows.ts commentBehind)
+          { label: 'Create Comment', key: 'comment', disabled: blocked || sideboard, run: () => { if (state.scene !== 'lobby') open('lobby'); const p = state.profileDetail, mine = p?.selectedPid === state.player!.id;
+            if (!mine) { htmlUiState.commentBehind = { fill: [true, true] }; send({ type: 'profileAction', action: { type: 'open', pid: state.player!.id } }); }
+            htmlUiState.comment = [mine ? p.comments[0] ?? '' : '', mine ? p.comments[1] ?? '' : '']; showHtml(); } },
           // Change Title (CWindowModelTitleConfig), live's My Room menu's, after My Profile
-          ...(state.location === 'my-room' && state.titles ? [{ label: 'Change Title', key: 'change-title', disabled: blocked || sideboard, run: () => { titleUi = { selected: -1, top: 0 }; showHtml(); } }] : []),
+          ...(state.location === 'my-room' && state.titles ? [{ label: 'Change Title', key: 'change-title', disabled: blocked || sideboard, run: () => {
+            titleUi = { selected: null, page: 0 };
+            // live opens the window alone: the own profile it needs is opened hidden (windows.ts profileWindow)
+            if (state.profileDetail?.selectedPid !== state.player!.id) { htmlUiState.titleBehind = true; send({ type: 'profileAction', action: { type: 'open', pid: state.player!.id } }); }
+            showHtml(); } }] : []),
         ] : []),
         // Return to your Room (the private My Room lobby) in the world; in My Room live has no way out in the menu (its doors
         // lead out) and offers Change Title instead (after My Profile)
         ...(state.mode !== 'free' && state.location === 'world' ? [
           { label: 'Return to your Room', key: 'my-room', disabled: blocked || sideboard || !!state.duel, run: () => { if (state.scene !== 'lobby') open('lobby'); send({ type: 'myRoom', enter: true }); } },
+        ] : []),
+        // free mode has no room: live's free Main Menu keeps the entry, and it goes back to the title (as Return to Title)
+        ...(state.mode === 'free' && state.connection === 'online' ? [
+          { label: 'Return to your Room', key: 'my-room', disabled: sideboard || !!state.duel, run: () => send({ type: 'disconnect' }) },
         ] : []),
         { label: 'DUEL OPTIONS', key: 'settings', disabled: blocked, run: () => { optionsUi = { kind: 'options' }; showHtml(); } },
         // live's free mode keeps the whole menu (its D-Mail, Duel Log and lists over the free lobby's session)

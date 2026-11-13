@@ -20,6 +20,8 @@ export interface DeckDomScene {
   dragTo(at: [number, number]): void;
   dropOn(zone: DeckFrom | null, index: number | null): void;
   quick(zone: DeckFrom, index: number, passcode: number): void;
+  /** The pointer came over a card (a trunk row, a deck card): live's detail shows it at once. */
+  show?(passcode: number): void;
   wheel(rows: number): void;
   hover(name: string | null): void;
   sideButton(name: string): void;
@@ -108,6 +110,7 @@ export class DeckDom {
       node.addEventListener('mousedown', ((e: Ev) => { if (e.button !== 0) return; e.preventDefault?.(); this.scene.pick(zone, index, passcode, this.game(e)); }) as never);
       node.addEventListener('dblclick', ((e: Ev) => { e.preventDefault?.(); this.scene.quick(zone, index, passcode); }) as never);
       node.addEventListener('contextmenu', ((e: Ev) => { e.preventDefault?.(); this.scene.quick(zone, index, passcode); }) as never);
+      node.addEventListener('mouseenter', (() => { if (!this.scene.ui.drag) this.scene.show?.(passcode); }) as never);
     }
     node.addEventListener('mouseup', ((e: Ev) => { if (e.button !== 0 || !this.scene.ui.drag) return; e.stopPropagation?.(); this.scene.dropOn(zone, zone === 'trunk' || passcode <= 0 ? null : index); }) as never);
     if (zone === 'trunk') node.addEventListener('wheel', ((e: Ev) => { e.preventDefault?.(); this.scene.wheel((e.deltaY ?? 0) > 0 ? 1 : -1); }) as never);

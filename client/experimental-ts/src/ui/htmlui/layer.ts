@@ -41,7 +41,7 @@ const MODULES: HtmlUiScreen[] = [select, lobby, chat, social, deck, trade, packs
 const RELAID = new Set(['CWindowModelDuel', 'CWindowModelDuelFind', 'CWindowModelDuelWait']);   // duelsetup.js LAYOUT
 // what the engine draws on main around main's screens (the trade's pictures), the NPC talk's balloon and plate, the
 // title's OPTIONS window (COptionDlg), the deck screen's file lists (live's engine draws them itself: deck-files.ts)
-const EXTRA: Record<string, HtmlUiScreen> = { CEnginePictures: pictures, CNpcTalkBalloon: npcBalloonScreen, CNpcTalkInfo: npcInfoScreen, CWindowModelList: avatarListScreen, COptionDlg: optionDlgScreen, CWindowModelFileList: fileListScreen, CWindowModelDuellogTop: optionDlgScreen, CWindowModelDuellogList: optionDlgScreen, CWindowModelDuellogServerSelect: optionDlgScreen };
+const EXTRA: Record<string, HtmlUiScreen> = { CEnginePictures: pictures, CNpcTalkBalloon: npcBalloonScreen, CNpcTalkInfo: npcInfoScreen, CWindowModelList: avatarListScreen, COptionDlg: optionDlgScreen, CWindowModelFileList: fileListScreen, CWindowModelDuellogTop: optionDlgScreen, CWindowModelDuellogList: optionDlgScreen, CWindowModelDuellogServerSelect: optionDlgScreen, CWindowModelTitleConfig: optionDlgScreen, CWindowModelTitleConfigArrow: optionDlgScreen };
 // the windows whose module rebuilds its buttons on every change (screens/trade.js; duel.js redraws a control
 // whose snapshot changes, so its hover and pressed looks replace the button under the pointer: janken, Yes / No, the
 // lists): clicked on release
@@ -199,7 +199,9 @@ export class HtmlUiLayer {
     const get = (cls: string) => { let s = this.screens.get(cls); if (!s) this.screens.set(cls, s = this.wrap(byClass.get(cls) ?? GENERIC)); return s; };
     this.api = {
       click: (id: number, point?: [number, number]) => { this.clicked = true; setTimeout(() => { this.clicked = false; }, 0); const h = this.handlers.get(id); if (h?.text || h?.enter) this.focus = id; h?.click?.(point); return Promise.resolve(!!h); },
-      hover: (id: number) => { if (this.hover !== id) { this.hover = id; this.draw(); } return true; },
+      // the engine's mouse over a control (main's duelsetup.js on a switch's pointerenter): its own hover callbacks too
+      // (DUEL OPTIONS writes the hovered choice's help, as live's engine)
+      hover: (id: number) => { this.setHover(id); return true; },
       key: () => {},
       char: (code: number) => { if (code === 13) this.handlers.get(this.focus)?.enter?.(); },
       setText: (id: number, value: string) => { this.focus = id; this.handlers.get(id)?.text?.(value); },

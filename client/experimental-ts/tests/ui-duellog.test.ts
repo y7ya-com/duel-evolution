@@ -42,7 +42,9 @@ describe('Duel Log over the duel archive', () => {
     const ui = duellogUi(); const t = deps();
     let top = duellogWindow(new Ids(), ui, t.d);
     expect(top.win.cls).toBe('CWindowModelDuellogTop');
-    expect(['latest', 'server', 'collection', 'yoc'].map(s => ctl(top, `label:${s}`)!.text)).toEqual(['Latest Duel Logs', 'Server Duel Logs', 'Duel Log Collection', 'YOC FINAL TOURNAMENT DUEL LOGS']);
+    expect(['latest', 'server', 'collection'].map(s => ctl(top, `label:${s}`)!.text)).toEqual(['Latest Duel Logs', 'Server Duel Logs', 'Duel Log Collection']);
+    // YOC's name in two lines inside its plate (live's runs out of the window)
+    expect([0, 1].map(i => ctl(top, `label:yoc:${i}`)!)).toMatchObject([{ text: 'YOC FINAL TOURNAMENT', w: 224 }, { text: 'DUEL LOGS', w: 224 }]);
     expect(top.win.back).toBe('data/common/window/log_win_01_c01.png');
     // each plate carries its help (the box shows it while the pointer is on the plate: option-dlg.ts)
     expect(String(ctl(top, 'plate:latest')!.help)).toContain('A Duel Log is saved automatically'); expect(ctl(top, '説明')!.helpSlot).toBe(true);

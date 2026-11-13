@@ -233,7 +233,8 @@ export function detailWindow(ctx: DeckContext): WindowSpec {
 }
 /** The detail's text as the game writes it (@4 name, @3 [race/type/ATTRIBUTE] for a monster, @0 the card text). */
 export function detailText(c: CardView): string {
-  const kinds = (c.type ?? '').split('/').map(s => s.trim()).filter(s => s && !/^monster$/i.test(s));
+  // live's: [Warrior/WIND] for a Normal monster (no "Normal"), [Warrior/Effect/EARTH], [Warrior/Fusion/Effect/WIND]
+  const kinds = (c.type ?? '').split('/').map(s => s.trim()).filter(s => s && !/^(monster|normal)$/i.test(s));
   const head = isMonster(c) ? `\n@3[${[c.race, ...kinds, String(c.attribute ?? '').toUpperCase()].filter(Boolean).join('/')}]` : '';
   return `@4${c.name}${head}\n@0${(c.description ?? '').replace(/@/g, '@@')}`;
 }

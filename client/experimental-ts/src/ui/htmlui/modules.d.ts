@@ -111,6 +111,8 @@ declare module '@htmlui/controls/basic.js' {
   export function renderControl(c: unknown, el: HTMLElement, api: HtmlUiApi, opts?: unknown): HTMLElement | null;
   /** Text as the game draws it (Arial, its metrics and spacing) at x, y in parent, aligned in w (0 left, 1 centre, 2 right). */
   export function textBox(parent: HTMLElement, s: string, o?: { x?: number; y?: number; w?: number; h?: number; align?: number; px?: number; gap?: number; color?: number[]; white?: boolean; wrap?: boolean }): HTMLElement;
+  /** The letter spacing (px) the game's text gets in Arial, for this string at px (16 by default). */
+  export function spacing(s: string, px?: number): number;
   /** CWindowTaskFrameBottomThick's 14 pieces: [x, y, w, h, u, v] of window_base_01_c0<style>. */
   export function bottomThickPieces(w: number, h: number, band: number): [number, number, number, number, number, number][];
 }

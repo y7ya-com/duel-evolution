@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { trunkCards, emptyKabanFilter } from '../src/ui/htmlui/deck';
 import { craftableNow } from '../src/ui/htmlui/deck-scene';
 import { ownedTitles, DEFAULT_TITLE_BIT } from '../src/features/titles';
-import { titleConfigWindow } from '../src/ui/htmlui/title-config';
+import { titleConfigWindow, titleConfigArrows } from '../src/ui/htmlui/title-config';
 import { Ids } from '../src/ui/htmlui/snapshot';
 import type { CardView } from '../src/ui/contracts';
 
@@ -43,13 +43,26 @@ describe('Change Title', () => {
   });
   it('wears the chosen title and closes', () => {
     const worn: number[] = []; let closed = 0;
-    const ui = { selected: 1, top: 0 };
-    const spec = titleConfigWindow(new Ids(), ui, { titles: [{ bit: 224, name: 'A' }, { bit: 230, name: 'B' }], wear: b => worn.push(b), close: () => { closed++; }, rerender: () => {} });
+    const ui = { selected: 230, page: 0 };
+    const deps = { titles: [{ bit: 224, name: 'Beginner Duelist' }, { bit: 230, name: 'Y.O.C WINNER' }], worn: 224, wear: (b: number) => worn.push(b), close: () => { closed++; }, rerender: () => {} };
+    const spec = titleConfigWindow(new Ids(), ui, deps);
     expect(spec.win.cls).toBe('CWindowModelTitleConfig');
     const wear = spec.win.controls.find(c => c.name === 'wear')!;
     spec.handlers.get(wear.id)!.click!();
     expect(worn).toEqual([230]); expect(closed).toBe(1);
-    const none = titleConfigWindow(new Ids(), { selected: -1, top: 0 }, { titles: [], wear: () => {}, close: () => {}, rerender: () => {} });
-    expect(none.win.controls.find(c => c.name === 'wear')!.state).toBe('disabled');
+    // live's grid: every title on 14 pages of 8, the ones not earned "?????", the chosen one pink (checked)
+    const first = titleConfigWindow(new Ids(), { selected: null, page: 0 }, deps);
+    expect(first.win.controls.find(c => c.name === 'pages')!.text).toBe('1/14');
+    expect(first.win.controls.filter(c => /^label\d$/.test(c.name)).map(c => c.text)).toEqual(['Beginner Duelist', '?????', '?????', '?????', '?????', '?????', 'Y.O.C WINNER', '?????']);
+    expect(first.win.controls.find(c => c.name === 'plate0')!.checked).toBe(true);
+    expect(titleConfigArrows(new Ids(), { selected: null, page: 0 }, deps).map(a => a.win.controls[0]!.name)).toEqual(['next']);
+    // OK with the worn title chosen wears nothing
+    worn.length = 0; first.handlers.get(first.win.controls.find(c => c.name === 'wear')!.id)!.click!(); expect(worn).toEqual([]);
+    // the next page; a plate not earned picks nothing
+    const ui2 = { selected: null, page: 0 }, next = titleConfigArrows(new Ids(), ui2, deps)[0]!;
+    next.handlers.get(next.win.controls[0]!.id)!.click!(); expect(ui2.page).toBe(1);
+    expect(titleConfigArrows(new Ids(), ui2, deps).map(a => a.win.controls[0]!.name)).toEqual(['prev', 'next']);
+    const locked = titleConfigWindow(new Ids(), ui2, deps);
+    locked.handlers.get(locked.win.controls.find(c => c.name === 'plate0')!.id)!.click!(); expect(ui2.selected).toBe(null);
   });
 });
