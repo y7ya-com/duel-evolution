@@ -11,7 +11,9 @@ export interface PoseStrip { readonly key: string; readonly frames: readonly Tex
 export type CanvasFactory = (width: number, height: number) => HTMLCanvasElement | OffscreenCanvas;
 const defaultCanvas: CanvasFactory = (w, h) => { if (typeof OffscreenCanvas === 'function') return new OffscreenCanvas(w, h); const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
 
-export function poseKey(parts: string, world: 0 | 1, motion: 'stand' | 'walk', direction: number): string { return `${world}/${motion}/${direction}/${parts}`; }
+/** A look's pose: standing, walking, or the blink (cm_t, played over the standing frame now and then: CChibiAvatarElm's
+ * idle motion, for every chibi). */
+export function poseKey(parts: string, world: 0 | 1, motion: 'stand' | 'walk' | 'blink', direction: number): string { return `${world}/${motion}/${direction}/${parts}`; }
 /** A famous NPC's own art (its cn_ set): standing or the blink, per facing. */
 export function npcPoseKey(set: string, motion: 'stand' | 'blink', direction: number): string { return `npc/${set}/${motion}/${direction}`; }
 /** What a pose strip is loaded from (AvatarLoader.load's options without the signal). */
@@ -89,7 +91,7 @@ export function nameTagTexture(atlas: GlyphAtlas, text: string, rgb: number, hi:
 }
 
 /** One avatar on the field: its body (a strip frame), a placeholder until the art is in, the name, the flag and (an
- * NPC) its level stars. A famous NPC also holds its blink strip, played over the standing frame now and then. */
+ * NPC) its level stars. Standing, it also holds its blink strip, played over the standing frame now and then. */
 export class AvatarActor {
   readonly root = new Container();
   readonly body = new Sprite(Texture.EMPTY);
@@ -103,7 +105,7 @@ export class AvatarActor {
   readonly flag = new Sprite(Texture.EMPTY);
   readonly stars = new Container();
   strip: PoseStrip | null = null;
-  /** A famous NPC's blink (cn_t), its key, when it started (null: standing) and when the next one starts. */
+  /** The blink (cm_t, a famous NPC's cn_t), its key, when it started (null: standing) and when the next one starts. */
   blink: PoseStrip | null = null;
   blinkWanted = '';
   blinkAt: number | null = null;

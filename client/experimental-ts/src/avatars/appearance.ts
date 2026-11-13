@@ -61,6 +61,7 @@ export const AVATAR_MOTIONS = {
   stand: { code: 'n', priority: 100, loop: true, canTurn: true, next: 'stand' },
   walk: { code: 'w', priority: 200, loop: true, canTurn: true, next: 'walk' },
   greet: { code: 'g', priority: 300, loop: false, canTurn: false, next: 'stand' },
+  // cm_t: the blink (CChibiAvatarElm's idle motion 3, as an NPC's cn_t; the world plays it over the standing frame)
   turn: { code: 't', priority: 150, loop: true, canTurn: false, next: 'stand' },
   duelStart: { code: 'd01_01', priority: 600, loop: false, canTurn: false, next: 'duelLoop' },
   duelLoop: { code: 'd01_02', priority: 500, loop: false, canTurn: true, next: 'duelLoop' },

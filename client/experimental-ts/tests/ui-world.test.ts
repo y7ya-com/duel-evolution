@@ -47,7 +47,7 @@ const actor = (id: number, x: number, y: number, extra: Partial<LobbyAvatar> = {
 function bakes(frames = 4, fps = 12) {
   const made: string[] = [], released: string[] = [];
   const bake = (key: string, resource: AvatarResource): PoseStrip => { made.push(key); void resource; return { key, fps, frames: Array.from({ length: key.includes('/walk/') ? frames : 1 }, () => new Texture({ source: new TextureSource({ width: 128, height: 160 }) })), release: () => released.push(key) }; };
-  const loadAvatar = vi.fn(async () => ({ dispose: vi.fn() } as unknown as AvatarResource));
+  const loadAvatar = vi.fn(async (_parts?: Uint8Array, _options?: unknown) => ({ dispose: vi.fn() } as unknown as AvatarResource));
   return { bake, loadAvatar, made, released };
 }
 
@@ -106,7 +106,7 @@ describe('the PixiJS world renderer', () => {
     const source = scene(), late = deferred<RenderScene>(), load = vi.fn((id: number) => id === 0 ? Promise.resolve(source.result) : late.promise), b = bakes();
     const f = setup({ loadScene: load, loadAvatar: b.loadAvatar, bake: b.bake });
     f.view.show(0, { x: 512, y: 384 }); await flush(); const first = source.reply(0, [sprite('a'), sprite('b')]); await flush();
-    f.view.setAvatars([actor(1, 512, 384, { self: true })]); await flush(); expect(b.made).toHaveLength(1);
+    f.view.setAvatars([actor(1, 512, 384, { self: true })]); await flush(); expect(b.made).toHaveLength(2);   // standing and its blink
     f.view.show(1, { x: 512, y: 384 });
     expect(first.release).toHaveBeenCalledOnce(); expect(f.tex.released.sort()).toEqual(['blob:http://localhost/a', 'blob:http://localhost/b']); expect(b.released).toEqual(b.made);
     expect(f.view.tiles.children).toHaveLength(0); expect(f.view.actors.size).toBe(0);
@@ -133,13 +133,16 @@ describe('the PixiJS world renderer', () => {
     f.view.setAvatars([actor(1, 512, 384, { self: true, motion: 'walk', direction: 6 }), actor(2, 600, 384, { motion: 'stand' })]);
     const self = f.view.actors.get(1)!; expect(self.placeholder.visible).toBe(true); expect(self.body.visible).toBe(false);
     await flush(); expect(self.body.visible).toBe(true); expect(self.placeholder.visible).toBe(false);
-    expect(b.made).toEqual([`0/walk/6/${look.join(',')}`, `0/stand/0/${look.join(',')}`]);
+    // a standing chibi also takes its blink (cm_t, CChibiAvatarElm's idle motion), a walking one does not
+    expect(b.made).toEqual([`0/walk/6/${look.join(',')}`, `0/stand/0/${look.join(',')}`, `0/blink/0/${look.join(',')}`]);
+    expect(b.loadAvatar.mock.calls.at(-1)?.[1]).toMatchObject({ motion: 'turn', direction: 0 });
+    expect(f.view.actors.get(2)!.blink?.key).toBe(`0/blink/0/${look.join(',')}`);
     const strip = self.strip!; expect(strip.frames).toHaveLength(4);
     const seen = new Set<number>(); for (let i = 0; i < 24; i++) { now.t += 1000 / 60; f.host.run(); seen.add(self.frame); expect(self.body.texture).toBe(strip.frames[self.frame]); }
     expect([...seen].sort()).toEqual([0, 1, 2, 3]);             // 12 fps over 400 ms: every frame of the cycle
     // a third avatar in the same look and pose takes the same strip: no new load
     f.view.setAvatars([actor(1, 512, 384, { self: true, motion: 'walk', direction: 6 }), actor(2, 600, 384), actor(3, 650, 384)]); await flush();
-    expect(b.loadAvatar).toHaveBeenCalledTimes(2); expect(f.view.actors.get(3)!.strip).toBe(f.view.actors.get(2)!.strip);
+    expect(b.loadAvatar).toHaveBeenCalledTimes(3);   // walk, stand and its blink expect(f.view.actors.get(3)!.strip).toBe(f.view.actors.get(2)!.strip);
   });
   it('walks the other players to each server position at the original pace, turning as they go', async () => {
     const source = scene(), b = bakes(), now = { t: 0 }, f = setup({ loadScene: async () => source.result, loadAvatar: b.loadAvatar, bake: b.bake }, now);
