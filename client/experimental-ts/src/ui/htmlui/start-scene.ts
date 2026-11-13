@@ -7,7 +7,7 @@
 // (pixi-painter.ts, made the first time the ring shows), the portrait an <img> over it: a 1024 x 768 picture with the
 // composition at its place, stretched over the screen as the canvas was (so it is resampled as it was).
 import { parseSwfText, SwfInstance, type SwfMovie } from '../../duel/swf-text';
-import { WaistUpComposer, canvasUrl } from '../duel-portrait';
+import { WaistUpComposer, blinkSchedule, canvasUrl, type EyeFrame } from '../duel-portrait';
 import type { ArchiveLoader } from '../duel-fx';
 import { PixiPainter, type PaintSource } from '../pixi-painter';
 import { portraitLeft } from '../duel-scene';
@@ -22,8 +22,11 @@ export interface StartSceneView { logo: boolean; portrait: Uint8Array | null; re
 export class StartScene {
   readonly element: HTMLDivElement;
   private ctx: PixiPainter | null = null;
-  private readonly portraitImage: HTMLImageElement;
-  private portraitUrl = '';
+  /** The portrait's eye frames (open, half shut, shut), one <img> each, the shown one visible: it blinks as live's
+   * CWaistUpAvatar does on Select Player, Change Avatar and the busts (duel-portrait.ts blinkSchedule). */
+  private readonly portraitImages: HTMLImageElement[] = [];
+  private portraitUrls: string[] = [];
+  private blinkTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly abort = new AbortController();
   private movie: SwfMovie | null = null; private movieLoading = false;
   private readonly images = new Map<string, HTMLImageElement | null>();
@@ -36,9 +39,11 @@ export class StartScene {
     this.element.className = 'de-start-scene'; this.element.setAttribute('aria-hidden', 'true');
     Object.assign(this.element.style, { position: 'absolute', left: '0', top: '0', width: '100%', height: '100%', pointerEvents: 'none', overflow: 'hidden' });
     // the 768 x 768 composition at its place on the 1024 x 768 screen (show() moves it)
-    this.portraitImage = document.createElement('img'); this.portraitImage.alt = ''; this.portraitImage.draggable = false; this.portraitImage.hidden = true;
-    Object.assign(this.portraitImage.style, { position: 'absolute', left: '0', top: '0', width: '100%', height: '100%', pointerEvents: 'none' });
-    this.element.append(this.portraitImage);
+    for (let i = 0; i < 3; i++) {
+      const img = document.createElement('img'); img.alt = ''; img.draggable = false; img.hidden = true;
+      Object.assign(img.style, { position: 'absolute', left: '0', top: '0', width: '100%', height: '100%', pointerEvents: 'none' });
+      this.portraitImages.push(img); this.element.append(img);
+    }
     this.composer = new WaistUpComposer(load);
   }
   show(view: StartSceneView): void {
@@ -50,20 +55,21 @@ export class StartScene {
     if (this.ctx) this.ctx.element.style.display = view.logo ? '' : 'none';
     const at = view.at, key = view.portrait ? `${Array.from(view.portrait).join(',')}@${at ? `${at.x},${at.y}` : 'left'}` : '';
     if (key !== this.portraitKey) {
-      this.portraitKey = key; this.setPortrait('');
-      if (view.portrait) void this.composer.compose(view.portrait, at ? 0 : 1, this.abort.signal).then(portrait => {
-        const screen = document.createElement('canvas'); screen.width = 1024; screen.height = 768;
+      this.portraitKey = key; this.setPortrait([]);
+      if (view.portrait) void this.composer.composeFrames(view.portrait, at ? 0 : 1, this.abort.signal).then(frames => Promise.all(([1, 2, 3] as EyeFrame[]).filter(f => frames[f]).map(f => {
+        const portrait = frames[f]!, screen = document.createElement('canvas'); screen.width = 1024; screen.height = 768;
         const g = screen.getContext('2d');
         if (at) g?.drawImage(portrait, at.x, at.y);
         // the left duelist's: mirrored about its box (768 wide from portraitLeft(0))
         else if (g) { g.translate(portraitLeft(0, view.portrait![0] === 1) + 768, 0); g.scale(-1, 1); g.drawImage(portrait, 0, 0); }
         return canvasUrl(screen);
-      }).then(async url => {
-        const img = new Image(); img.src = url; await img.decode().catch(() => {});
-        if (this.portraitKey === key && !this.disposed) this.setPortrait(url); else URL.revokeObjectURL(url);
+      }))).then(async urls => {
+        // each frame decoded before it can show, so a blink never waits on one
+        await Promise.all(urls.map(url => { const img = new Image(); img.src = url; return img.decode().catch(() => {}); }));
+        if (this.portraitKey === key && !this.disposed && urls.length) this.setPortrait(urls); else for (const url of urls) URL.revokeObjectURL(url);
       }, () => {});
     }
-    this.portraitImage.hidden = !view.portrait || !this.portraitUrl;
+    this.showPortrait();
     const animate = view.logo && !view.reducedMotion;
     if (animate && !this.timer) this.timer = setInterval(() => { this.frame++; this.draw(); }, 1000 / 30);
     if (!animate && this.timer) { clearInterval(this.timer); this.timer = null; }
@@ -92,12 +98,29 @@ export class StartScene {
     }, () => {});
     return null;
   }
-  /** The composed portrait's picture (an object URL of the composition, '' none). */
-  private setPortrait(url: string): void {
-    if (this.portraitUrl) URL.revokeObjectURL(this.portraitUrl);
-    this.portraitUrl = url;
-    if (url) this.portraitImage.src = url; else this.portraitImage.removeAttribute('src');
-    this.portraitImage.hidden = !url || !this.view.portrait;
+  /** The composed portrait's eye frames (object URLs of the composition, open first; none: no portrait). */
+  private setPortrait(urls: string[]): void {
+    for (const url of this.portraitUrls) URL.revokeObjectURL(url);
+    this.portraitUrls = urls;
+    this.portraitImages.forEach((img, i) => { if (urls[i]) img.src = urls[i]!; else img.removeAttribute('src'); });
+    this.eyes = 0; this.showPortrait();
+  }
+  private eyes = 0;
+  /** Shows the eye frame in turn (0 open) and keeps the blink going while a portrait with all three frames is up. */
+  private showPortrait(): void {
+    const up = !!this.view.portrait && this.portraitUrls.length > 0;
+    const blinks = up && this.portraitUrls.length === 3 && !this.view.reducedMotion && !this.disposed;
+    if (!blinks) this.eyes = 0;
+    this.portraitImages.forEach((img, i) => { img.hidden = !up || i !== this.eyes || !this.portraitUrls[i]; });
+    if (blinks && this.blinkTimer === null) {
+      const run = (steps: [EyeFrame, number][], i: number): void => {
+        if (i >= steps.length) { run(blinkSchedule(Math.random), 0); return; }
+        const [eyes, ms] = steps[i]!; this.eyes = eyes - 1;
+        this.portraitImages.forEach((img, k) => { img.hidden = k !== this.eyes; });
+        this.blinkTimer = setTimeout(() => run(steps, i + 1), ms);
+      };
+      run(blinkSchedule(Math.random), 0);
+    } else if (!blinks && this.blinkTimer !== null) { clearTimeout(this.blinkTimer); this.blinkTimer = null; }
   }
   private draw(): void {
     const ctx = this.ctx; if (!ctx || this.disposed) return;
@@ -111,7 +134,7 @@ export class StartScene {
     }
     ctx.end();
   }
-  dispose(): void { this.disposed = true; this.abort.abort(); if (this.timer) clearInterval(this.timer); this.timer = null; this.setPortrait(''); this.ctx?.destroy(); this.ctx = null; this.element.remove(); }
+  dispose(): void { this.disposed = true; this.abort.abort(); if (this.timer) clearInterval(this.timer); this.timer = null; this.setPortrait([]); this.ctx?.destroy(); this.ctx = null; this.element.remove(); }
 }
 
 /** Draws one frame's bitmap items of a movie (twips, each clipped to its shape's bounds) with its origin at `at`. */
