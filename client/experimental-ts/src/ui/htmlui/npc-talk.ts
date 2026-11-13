@@ -3,8 +3,8 @@
 // (CWindowModelBalloon: the speaker's name, the line, the next mark; a click goes on), the green card with the NPC's
 // record (Win%, Wins / Losses, Deck Name) on the left and, once the NPC has said yes, the "Start Duel?" question
 // (CUYesNoDialog: Yes / No). Places measured from live's capture (live-npc-talk2 / live-npc-next, 2048 x 1536 = 2x).
-// The ways out live has: the balloon's clicks to the end of its lines, and No (then the NPC's decline line); Escape does
-// nothing (index.ts).
+// The ways out live has: clicks to the end of its lines (on the balloon or anywhere off it: live's balloon takes the
+// screen's clicks the chat and the menu bar leave), and No (then the NPC's decline line); Escape does nothing (index.ts).
 import type { NpcState } from '../../features/npc';
 import type { ClientCommand } from '../contracts';
 import { portraitLeft } from '../duel-scene';
@@ -51,18 +51,24 @@ export function npcTalkWindows(npc: Readonly<NpcState> | null | undefined, d: Np
     const blocked = !!d.busy || waiting;
     const command: NpcCommand = s.stage === 'greeting' ? { type: 'npcDismiss' } : { type: 'npcAdvance' };
     const label = ['won', 'lost', 'item'].includes(s.stage) ? 'Receive Gift' : s.stage === 'greeting' ? 'Close' : 'Next';
-    out.push(balloon(d, who.name, text, label, blocked, () => d.send(command)));
+    out.push(...balloon(d, who.name, text, label, blocked, () => d.send(command)));
   }
   return out;
 }
 
-// The balloon: 290, 95 to 746, 241 (live: its tail out to the NPC on the right at 192)
-function balloon(d: NpcTalkDeps, name: string, text: string, label: string, blocked: boolean, go: () => void): WindowSpec {
+// The balloon: 290, 95 to 746, 241 (live: its tail out to the NPC on the right at 192); under it the whole screen goes
+// on too (over the NPC's picture and the world, under the info card's pass-through, the menu bar and the chat)
+function balloon(d: NpcTalkDeps, name: string, text: string, label: string, blocked: boolean, go: () => void): WindowSpec[] {
+  const click = () => { if (!blocked) go(); };
   const b = new WindowBuilder(d.ids, 'npc-talk:balloon', 'CNpcTalkBalloon', { x: 290, y: 95, w: 456, h: 146 }, { z: 51010, name, text });
   const next = b.add('CWindowTaskSwitch', 'next', { x: 0, y: 0, w: 456, h: 146 }, { label, state: blocked ? 'disabled' : 'normal', enabled: !blocked },
-    { key: 'npc-talk:next', label, click: () => { if (!blocked) go(); } });
+    { key: 'npc-talk:next', label, click });
   Object.assign(b.win, { next: next.id, label, blocked });
-  return b.spec();
+  const c = new WindowBuilder(d.ids, 'npc-talk:off', 'CNpcTalkCatch', { x: 0, y: 0, w: 1024, h: 768 }, { z: 51002 });
+  const off = c.add('CWindowTaskSwitch', 'next', { x: 0, y: 0, w: 1024, h: 768 }, { label, state: blocked ? 'disabled' : 'normal', enabled: !blocked },
+    { key: 'npc-talk:off', label, click });
+  Object.assign(c.win, { next: off.id, blocked });
+  return [b.spec(), c.spec()];
 }
 
 // The NPC's card (CNpcListMenu, 336 wide, its bottom at 607): its name red over the record rows and its text (bio) under
@@ -134,6 +140,25 @@ export const npcBalloonScreen: HtmlUiScreen = {
     s.who.textContent = w.name ?? ''; s.says.textContent = (w.text ?? '').replace(/… ?/g, '□'); s.next = w.next ?? 0;
     s.box.disabled = !!w.blocked; s.box.setAttribute('aria-label', `${w.name ?? ''}: ${w.text ?? ''} (${w.label ?? 'Next'})`);
     root.style.overflow = 'visible';
+  },
+  unmount(root) { root.replaceChildren(); },
+};
+
+/** The screen off the balloon: a click there goes on as the balloon's own does (live: the next line, or the talk's end). */
+export const npcCatchScreen: HtmlUiScreen = {
+  classes: ['CNpcTalkCatch'],
+  mode: 'owned',
+  mount(_win, root, api) {
+    const pad = document.createElement('div'); pad.className = 'npc-talk-off'; pad.dataset.key = 'npc-talk:off';
+    Object.assign(pad.style, { position: 'absolute', inset: '0' });
+    root.append(pad);
+    const st = { pad, next: 0, blocked: false };
+    pad.onclick = () => { if (!st.blocked && st.next) void api.click(st.next); };
+    return st;
+  },
+  update(win, _prev, _root, _api, st) {
+    const w = win as { next?: number; blocked?: boolean }, s = st as { next: number; blocked: boolean };
+    s.next = w.next ?? 0; s.blocked = !!w.blocked;
   },
   unmount(root) { root.replaceChildren(); },
 };

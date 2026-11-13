@@ -204,7 +204,7 @@ export class WorldRenderer {
     this.loadAbort?.abort(); this.cancelPendingFrame(); this.failedViewport = null; this.failedLoad = false;
     if (this.scene && this.scene !== this.displayedScene) this.scene.dispose();
     this.clearFrame(); this.clearActors();
-    this.scene = null; this.camera = null; this.requestedMap = mapId; this.element.dataset.mapId = String(mapId); this.element.dataset.mapReady = 'false'; this.avatars.style.visibility = 'hidden'; this.message('Loading map artwork…');
+    this.scene = null; this.camera = null; this.requestedMap = mapId; this.element.dataset.mapId = String(mapId); this.element.dataset.mapReady = 'false'; this.avatars.style.visibility = 'hidden'; this.message('');
     const request = new AbortController(); this.loadAbort = request;
     let loading: Promise<RenderScene>;
     try { loading = this.options.loadScene(mapId, request.signal); } catch (error) { loading = Promise.reject(error); }
@@ -234,6 +234,8 @@ export class WorldRenderer {
     const view = this.camera.viewport;
     if (this.displayed?.frame.mapId === this.requestedMap && contains(this.displayed.frame.viewport, view)) return;
     const requested = requestedViewport(view), key = viewportKey(requested); if (key === this.failedViewport) return;
+    // the view not covered: the loader veil waits (scene-loading.ts pendingPictures) rather than lift over a black edge
+    this.element.dataset.mapReady = 'false';
     const scene = this.scene, generation = this.generation, request = new AbortController(); this.frameAbort = request; this.framePending = true;
     let acquired: SceneFrame | null = null;
     void scene.frame(requested, request.signal).then(async frame => {
@@ -249,7 +251,7 @@ export class WorldRenderer {
       this.dropUnusedTextures();
       if (previousScene && previousScene !== scene) previousScene.dispose();
       this.root.visible = true; this.sortDirty = true; this.ensureRoom();
-      this.element.dataset.mapReady = 'true'; this.element.dataset.sceneImages = String(this.displayed.count); this.avatars.style.visibility = ''; this.message(''); this.layoutHits(true); this.options.onViewport?.();
+      this.element.dataset.mapReady = this.camera && contains(frame.viewport, this.camera.viewport) ? 'true' : 'false'; this.element.dataset.sceneImages = String(this.displayed.count); this.avatars.style.visibility = ''; this.message(''); this.layoutHits(true); this.options.onViewport?.();
     }).catch(error => {
       if (!this.closed && !request.signal.aborted && generation === this.generation && (error as Error)?.name !== 'AbortError') { this.failedViewport = key; this.message('Map artwork could not be loaded.', true); }
     }).finally(() => {

@@ -21,7 +21,7 @@ export const CLIENT_CSS = `
 .de-status { font-size:12px; text-align:right; }
 .de-stage { position:relative; width:100%; aspect-ratio:4/3; min-height:400px; overflow:hidden; background:radial-gradient(ellipse at 48% 20%,#8ce8ff,#41a9e5 44%,#1167b3); border:1px solid #104eaa; }
 .de-stage canvas { display:block; width:100%; height:100%; }
-/* the lobby's press target under the PixiJS world: its plain backdrop (index.ts lobbyBackground) shows while the map loads */
+/* the lobby's press target under the PixiJS world: its black (index.ts LOBBY_BACKDROP) under live's loader veil while the map loads */
 .de-stage>.de-lobby-map { display:block; width:100%; height:100%; background:center/100% 100% no-repeat; }
 .de-world-view { position:absolute; overflow:hidden; pointer-events:none; isolation:isolate; z-index:0; }
 .de-world-avatars { position:absolute; inset:0; pointer-events:none; }
