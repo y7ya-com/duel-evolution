@@ -22,6 +22,9 @@ export interface JankenView {
   thinking: boolean;
   /** A tag partner's or a spectator's line while the captains choose. */
   message?: string;
+  /** live's CJankenTimer at the top right (a duel this side asked for): the pink plate, its hourglass turning and a
+   * clock that reads 00:00 (live's never counts in this scene). */
+  timer?: boolean;
   /** The hands shown (live's reveal): both in the middle, then the winner's alone (null: a tie, none wins). */
   reveal?: { stage: 'both' | 'winner'; mine: number; theirs: number; mineWins: boolean | null };
 }
@@ -50,8 +53,32 @@ export const JANKEN_CSS = `
 .de-janken-scene .de-janken-plate>img.sheet { width:100%; height:400%; inset:auto; left:0; }
 .de-janken-scene img.de-janken-think { opacity:0; animation:de-janken-think 1.6s step-end infinite; }
 @keyframes de-janken-think { 0% { opacity:.8; } 25% { opacity:0; } }
-@media (prefers-reduced-motion: reduce) { .de-janken-scene img.de-janken-think, .de-janken-scene .de-janken-hex { animation:none; } .de-janken-scene img.de-janken-think.f0 { opacity:.8; } }
+/* the hourglass turns: its six green frames, then the six red ones (a frame each 250 ms) */
+.de-janken-scene .de-janken-glass>img.sheet { animation:de-janken-glass 3s step-end infinite; }
+@keyframes de-janken-glass { ${Array.from({ length: 12 }, (_, i) => `${(i / 12 * 100).toFixed(2)}% { left:${-(i % 6) * 100}%; top:${-Math.floor(i / 6) * 100}%; }`).join(' ')} }
+@media (prefers-reduced-motion: reduce) { .de-janken-scene img.de-janken-think, .de-janken-scene .de-janken-hex, .de-janken-scene .de-janken-glass>img.sheet { animation:none; } .de-janken-scene img.de-janken-think.f0 { opacity:.8; } }
 `;
+
+/** A crop (sx, sy, sw, sh) of a sheet (sheetW x sheetH) at x, y, w, h on the screen. */
+function crop(img: (path: string, cls?: string) => HTMLImageElement, path: string, sheetW: number, sheetH: number, sx: number, sy: number, sw: number, sh: number, x: number, y: number, w: number, h: number): HTMLElement {
+  const box = document.createElement('div'); box.style.overflow = 'hidden'; place(box, x, y, w, h);
+  const i = img(path); Object.assign(i.style, { position: 'absolute', width: `${sheetW / sw * 100}%`, height: `${sheetH / sh * 100}%`, left: `${-sx / sw * 100}%`, top: `${-sy / sh * 100}%`, imageRendering: 'pixelated' });
+  box.append(i); return box;
+}
+/** live's janken timer (CJankenTimer, livetour2 60-pvp-janken, measured with the duel speed key hidden): the pink row of
+ * duel_window_02_c01 (144 x 32 at 880, 0), the hourglass (duel_icon_02_c00: six 32 px frames, green row then red) at
+ * 882, 0, the gauge track (duel_gauge_02_c00, 3-sliced) at 912, 8, 96 x 16 and "00:00" in the LP digits from 922, 8. */
+function jankenTimer(img: (path: string, cls?: string) => HTMLImageElement): HTMLElement {
+  const t = document.createElement('div'); t.className = 'de-janken-timer'; t.setAttribute('role', 'timer'); t.setAttribute('aria-label', '00:00');
+  t.append(crop(img, 'data/y/duel/field/duel_window_02_c01.png', 144, 64, 0, 32, 144, 32, 880, 0, 144, 32));
+  const glass = document.createElement('div'); glass.className = 'de-janken-glass'; place(glass, 882, 0, 32, 32); glass.style.overflow = 'hidden';
+  const sheet = img('data/y2/duel_icon_02_c00.png', 'sheet'); Object.assign(sheet.style, { position: 'absolute', left: '0', top: '0', width: '600%', height: '200%', imageRendering: 'pixelated' });
+  glass.append(sheet); t.append(glass);
+  const TRACK = 'data/y2/duel_gauge_02_c00.png';
+  t.append(crop(img, TRACK, 32, 16, 0, 0, 10, 16, 912, 8, 10, 16), crop(img, TRACK, 32, 16, 10, 0, 1, 16, 922, 8, 76, 16), crop(img, TRACK, 32, 16, 22, 0, 10, 16, 998, 8, 10, 16));
+  [0, 0, 10, 0, 0].forEach((g, i) => t.append(crop(img, 'data/y/duel/life/duel_font_01_c01.png', 176, 16, g * 16, 0, 16, 16, 922 + 16 * i, 8, 16, 16)));
+  return t;
+}
 
 /** The scene's elements, drawn anew for each view (`load` gives the archive's pictures). */
 /** `art` loads an archive picture into an <img> (the screen's own art cache: index.ts loadArchiveArt). */
@@ -68,6 +95,7 @@ export function jankenScene(view: JankenView, act: JankenActions, art: ((path: s
   const lines = img('data/y/janken/jan_bg_02.png'); place(lines, 0, 0, 1024, 768);
   const hex = img('data/y/janken/jan_bg_03.png', 'de-janken-hex'); place(hex, 0, 0, 1144, 830);
   root.append(bg, lines, hex, ...portraits);
+  if (view.timer) root.append(jankenTimer(img));
   const reveal = view.reveal;
   if (reveal) {
     const card = (hand: number, y: number) => { const c = img(`data/y/janken/jan_card_0${hand + 1}.png`); place(c, 412, y, CARD_W, CARD_H); root.append(c); };

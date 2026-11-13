@@ -599,7 +599,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     closeCmd();
   };
   globalThis.addEventListener?.('pointermove', cmdPointer, true); globalThis.addEventListener?.('pointerdown', cmdPress, true);
-  let referenceShown: string | null = null, cardClosedForDuel = false;
+  let referenceShown: string | null = null, cardClosedForDuel = false, challenger = false;
   // The duel's end as live plays it: "YOU WIN" / "YOU LOSE" / "DRAW" over the dimmed field (data/y/duel_end), then
   // between a match's games its score board (data/y/duel/match), then the result board or Card Swap
   const END_BANNER_MS = 2200, END_BOARD_MS = 3200;
@@ -1171,7 +1171,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const jv = jankenView();
     if (jv) {
       duelNpcSets(); const portraits = duelScene.jankenPortraits(state.duel?.players ?? null);
-      stage.append(jankenScene(jv, { hand: hand => { jankenMine = hand; send({ type: 'chooseHand', hand }); }, first: first => send({ type: 'chooseFirst', first }) },
+      // (live's janken timer plate stands on the asking side of a duel request: livetour2 60 / 73)
+      stage.append(jankenScene({ ...jv, timer: challenger && state.npc?.stage !== 'duel' && !state.relay }, { hand: hand => { jankenMine = hand; send({ type: 'chooseHand', hand }); }, first: first => send({ type: 'chooseFirst', first }) },
         controller.loadArchiveImage ? loadArchiveArt : null, portraits));
       if (state.relay) stage.append(relayRoster());
       return;
@@ -1424,6 +1425,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     try {
       state = controller.getState();
       if (!state.preparation) jankenMine = null;   // each duel's rock-paper-scissors anew
+      // whether this side asked for the coming duel (its request out) or was asked (an invitation came)
+      if (state.lobby?.outgoing) challenger = true; else if (state.lobby?.invitation) challenger = false;
       if (optionsFromDuel && state.scene !== 'duel') { optionsFromDuel = false; if (optionsUi?.kind === 'options') optionsUi = null; }
       // a duel closes the other player's card that was open when it began (live comes back to the lobby with none open)
       const card = state.profileDetail;
