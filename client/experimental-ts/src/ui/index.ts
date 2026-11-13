@@ -53,7 +53,7 @@ import { npcWaistUpSet } from './npc-waistup';
 import { deckBackdrop } from '@htmlui/screens/deck.js';
 import { PictureArt } from './htmlui/art';
 import { setPictureResolver, disposePictures } from './htmlui/pictures';
-import { StartScene, PORTRAIT_AT } from './htmlui/start-scene';
+import { StartScene } from './htmlui/start-scene';
 import { TitleScene, TITLE_DIMMED, type TitleButton } from './htmlui/title-scene';
 import { BUST_AT } from './htmlui/windows';
 import { loginLocal, loginWindow } from './htmlui/login';
@@ -672,7 +672,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   };
   /** The waist-up portraits the game draws under its windows outside Select Player (src/ui/htmlui/start-scene.ts's
    * canvas, under the HTML layer): Change Avatar from the game shows the look being made where first dressing does
-   * (CChangeAvatarPack, PORTRAIT_AT), and a Discord duelist's card their bust (live 2020bff: BUST_AT, 530, 0). */
+   * (CChangeAvatarPack, in Select Player's pose), and a Discord duelist's card their bust (live 2020bff: BUST_AT, 530, 0). */
   function syncPortrait(): void {
     const d = htmlUiState.dialog, dc = htmlUiState.discordCard;
     const avatar = d?.kind === 'avatar' && state.scene !== 'characters' ? d : null;
@@ -685,7 +685,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const look = avatar ? avatar.look : dc && state.scene === 'lobby' ? dc.parts : request ?? (card ? Array.from(card) : null);
     if (!look || look.length !== 16 || !controller.loadArchiveImage) { portraitScene?.show({ logo: false, portrait: null, reducedMotion: true }); portraitScene?.element.remove(); return; }
     portraitScene ??= new StartScene(controller.loadArchiveImage.bind(controller));
-    portraitScene.show({ logo: false, portrait: Uint8Array.from(look), reducedMotion: state.settings.reducedMotion, at: avatar ? PORTRAIT_AT : BUST_AT });
+    portraitScene.show({ logo: false, portrait: Uint8Array.from(look), reducedMotion: state.settings.reducedMotion, ...(avatar ? {} : { at: BUST_AT }) });
     if (portraitScene.element.parentElement !== stage) stage.append(portraitScene.element);
   }
   const htmlHandler = (key: string): ControlHandlers | undefined => { for (const spec of buildHtml()) for (const h of spec.handlers.values()) if (h.key === key) return h; return undefined; };

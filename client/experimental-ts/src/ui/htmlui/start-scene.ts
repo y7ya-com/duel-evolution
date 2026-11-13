@@ -1,7 +1,8 @@
 // What the engine draws itself under main's windows on the start screens, drawn by the rewrite: Select Player's ring
 // logo (the scene's CBgCommon 0x29: the original's Flash movie data/menu/menu_mark_a01, 60 frames at 30 fps, looping)
-// and the waist-up portrait of the character under the pointer (CWindowPlayerSelect: waistUpAvatarNew, scale 50, at 200,
-// 0: yo2PlayerSelect.cpp), and Change Avatar's portrait of the look being made (CChangeAvatarPack). One 1024 x 768 layer
+// and the waist-up portrait of the character under the pointer (CWindowPlayerSelect: waistUpAvatarNew), and Change
+// Avatar's portrait of the look being made (CChangeAvatarPack): live draws both as the duel draws its left duelist (the
+// disk arm raised: the `_l` pose, mirrored, its base at duel-scene.ts portraitLeft(0)). One 1024 x 768 layer
 // over the 2008 backdrop (main's backdrop.js), under the HTML layer; pointer-transparent: the movie drawn with PixiJS
 // (pixi-painter.ts, made the first time the ring shows), the portrait an <img> over it: a 1024 x 768 picture with the
 // composition at its place, stretched over the screen as the canvas was (so it is resampled as it was).
@@ -9,14 +10,13 @@ import { parseSwfText, SwfInstance, type SwfMovie } from '../../duel/swf-text';
 import { WaistUpComposer, canvasUrl } from '../duel-portrait';
 import type { ArchiveLoader } from '../duel-fx';
 import { PixiPainter, type PaintSource } from '../pixi-painter';
+import { portraitLeft } from '../duel-scene';
 
 const LOGO = 'data/menu/menu_mark_a01.txt';
 /** Where the movie's origin stands (game px): its 600 x 600 stage centred on the screen, as main's game shows it. */
 export const LOGO_AT = { x: 212, y: 84 } as const;
-/** The waist-up portrait's 768 x 768 composition: its centre column at x 200 (waistUpAvatarSetPos(200, 0)), its top at 0. */
-export const PORTRAIT_AT = { x: 200 - 384, y: 0 } as const;
-
-/** `at`: where the portrait's 768 x 768 composition stands (PORTRAIT_AT unless given). */
+/** `at`: where the portrait's 768 x 768 composition stands, in the right side's pose (`_r`, unmirrored: a player's bust
+ * beside their card); without it, live's Select Player / Change Avatar portrait (the duel's left duelist). */
 export interface StartSceneView { logo: boolean; portrait: Uint8Array | null; reducedMotion: boolean; at?: { x: number; y: number } }
 
 export class StartScene {
@@ -48,12 +48,15 @@ export class StartScene {
     if (view.logo && !this.ctx) { this.ctx = new PixiPainter({ width: 1024, height: 768, className: 'de-start-logo', ready: () => this.draw() }); Object.assign(this.ctx.element.style, { position: 'absolute', inset: '0' }); this.element.prepend(this.ctx.element); this.ctx.start(); }
     // no ring: its canvas leaves the page (a WebGL layer under the portrait would have it composited, drawn softer)
     if (this.ctx) this.ctx.element.style.display = view.logo ? '' : 'none';
-    const at = view.at ?? PORTRAIT_AT, key = view.portrait ? `${Array.from(view.portrait).join(',')}@${at.x},${at.y}` : '';
+    const at = view.at, key = view.portrait ? `${Array.from(view.portrait).join(',')}@${at ? `${at.x},${at.y}` : 'left'}` : '';
     if (key !== this.portraitKey) {
       this.portraitKey = key; this.setPortrait('');
-      if (view.portrait) void this.composer.compose(view.portrait, 0, this.abort.signal).then(portrait => {
+      if (view.portrait) void this.composer.compose(view.portrait, at ? 0 : 1, this.abort.signal).then(portrait => {
         const screen = document.createElement('canvas'); screen.width = 1024; screen.height = 768;
-        screen.getContext('2d')?.drawImage(portrait, at.x, at.y);
+        const g = screen.getContext('2d');
+        if (at) g?.drawImage(portrait, at.x, at.y);
+        // the left duelist's: mirrored about its box (768 wide from portraitLeft(0))
+        else if (g) { g.translate(portraitLeft(0, view.portrait![0] === 1) + 768, 0); g.scale(-1, 1); g.drawImage(portrait, 0, 0); }
         return canvasUrl(screen);
       }).then(async url => {
         const img = new Image(); img.src = url; await img.decode().catch(() => {});
