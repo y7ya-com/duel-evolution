@@ -33,6 +33,8 @@ export interface Side {
   grave?: string[];
   /** The deck, drawn from the end of the list (default: Petit Moths, a 300 ATK vanilla). */
   deck?: string[];
+  /** The Extra Deck. */
+  extra?: string[];
 }
 
 export interface Scene {
@@ -104,7 +106,7 @@ export function attacker(sel: Json): Json | null {
 let seq = 0;
 /** Play the scene on the real engine until the duel ends or `turns` turns have started. */
 export function play(dc: DuelCore, scene: Scene): Played {
-  const deckOf = (s: Side) => ({ main: (s.deck ?? Array(20).fill(FILLER)).map(code), extra: [] as number[] });
+  const deckOf = (s: Side) => ({ main: (s.deck ?? Array(20).fill(FILLER)).map(code), extra: (s.extra ?? []).map(code) });
   const decks = [deckOf(scene.player), deckOf(scene.npc)];
   const opts: NewOptions = { first: scene.first === "npc" ? NPC : PLAYER, seed: 1, shuffle: false, rule: PY_DUEL_RULE, brain: [true, true], auto_chain: true, setup: setupOf(scene) };
   const id = `scene-${++seq}`;

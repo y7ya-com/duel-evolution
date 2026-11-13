@@ -96,6 +96,8 @@ const BATTLE_TRIGGER = new Set<number>(BATTLE_PROOF_JSON.battleTrigger);
 const REVENGE = new Set<number>(BATTLE_PROOF_JSON.revenge);
 /** Monsters that deal piercing damage (production never counted Gravekeeper's Spear Soldier's on a 200 DEF Spirit Reaper). */
 const PIERCE = new Set<number>(BATTLE_PROOF_JSON.pierce);
+/** Monsters that can attack directly with monsters across (Spell Striker). */
+const DIRECT = new Set<number>(BATTLE_PROOF_JSON.direct);
 /** Monsters whose own effect a Normal Summon triggers (scripts/ai_on_summon.mjs): summoned face-up for it. */
 const ON_SUMMON = new Set<number>(ON_SUMMON_JSON.codes);
 /** Monsters with no FLIP type whose effect only a Flip Summon triggers (scripts/ai_flip_summon.mjs): played as flip monsters. */
@@ -129,6 +131,10 @@ const STOPS_ATTACKS = /^(sakuretsu armor|mirror force|magic cylinder|negate atta
 const DISCARD_PAYOFF = / of dark world$|^dark world /;
 /** Control cards whose monster goes back at the End Phase (their text tags miss it: Brain Control's monster was never
  *  read as borrowed, so production tributed two of them before they could attack). */
+/** Cards that need another face-up card of mine to be activated: the card -> its partner. */
+const NEEDS: Record<string, string> = { "royal tribute": "necrovalley" };
+/** Equips whose ATK boost counts my Spell/Trap cards. */
+const COUNTS_BACKROW = /^mage power$/;
 const LENDS = /^(brain control|mind control|enemy controller)$/;
 /** Spells and traps with an LP cost (a card worth nothing once it cannot be paid). */
 const LP_COST: Record<string, number> = { "brain control": 800, "premature burial": 800, "final countdown": 2000, "ultimate offering": 500, "skill drain": 1000 };
@@ -302,6 +308,8 @@ export class HeuristicBot {
    *  what this turn's Brain Control lent me. */
   #heldBefore = new Set<string>();
   #heldTurn = -1;
+  /** The turn and main-phase step #lethalProbe last looked at. */
+  #probed = "";
 
   constructor(seat: number, cards: CardInfo, opts: BotOpts = {}) {
     this.seat = seat;
@@ -457,13 +465,13 @@ export class HeuristicBot {
         if (a) { this.#declaredAttacker = a; this.#attackSeen = false; this.#pendingAttacker = this.#me()?.mzone[a.sequence]?.attack ?? this.#stat(a.code).atk; }
       } else if (r.action === "SELECT_CHAIN") {
         const a = ev.activatable[index];
-        if (a) { this.#activatedThisTurn.add(`b:${a.location}:${a.sequence}:${a.description}`); this.#activated(a.code); }
+        if (a) { this.#activatedThisTurn.add(`b:${a.code}:${a.location}:${a.sequence}:${a.description}`); this.#activated(a.code); }
       }
     } else if (ev.kind === "selectIdleCmd") {
       if (r.action !== "TO_BP" && r.action !== "TO_EP") this.#idleActions++;
       if (r.action === "SELECT_ACTIVATE") {
         const a = ev.activatable[index];
-        if (a) { this.#activatedThisTurn.add(`${a.location}:${a.sequence}:${a.description}`); this.#activated(a.code); }
+        if (a) { this.#activatedThisTurn.add(`${a.code}:${a.location}:${a.sequence}:${a.description}`); this.#activated(a.code); }
       }
     } else if (ev.kind === "selectEffectYN" && r.yes === true) {
       this.#activatedThisTurn.add(this.#effKey(ev));
@@ -565,6 +573,36 @@ export class HeuristicBot {
 
   /** The monster in this zone cannot be destroyed by battle: by its own text, or by a face-up Equip Spell on it
    *  (Gladiator Beast's Battle Manica: production attacked a Secutor wearing one three times). */
+  /** The battle under way: the opponent's monster in it is not destroyed by it (battle-proof, or not beaten). */
+  #oppBattlerSurvives(): boolean {
+    const me = this.#me(), opp = this.#opp(), foe = 1 - this.seat;
+    const at = (seq: number | null | undefined) => (seq === null || seq === undefined ? null : opp?.mzone[seq] ?? null);
+    if (this.#turnPlayer !== this.seat && this.#attack) {
+      const t = at(this.#attack.sequence), guard = this.#attack.target === null ? null : me?.mzone[this.#attack.target];
+      if (!t || !guard || this.#battleProofAt(foe, this.#attack.sequence, t.code)) return true;
+      return (guard.position & POS.DEFENSE) !== 0 || (guard.attack ?? 0) <= (t.attack ?? 0);
+    }
+    if (this.#turnPlayer === this.seat && this.#myAttack && this.#myAttack.target !== null) {
+      const t = at(this.#myAttack.target), mine = me?.mzone[this.#myAttack.sequence];
+      if (!t || !mine || this.#battleProofAt(foe, this.#myAttack.target, t.code)) return true;
+      const value = (t.position & POS.DEFENSE) !== 0 ? t.defense ?? 0 : t.attack ?? 0;
+      return (mine.attack ?? 0) <= value;
+    }
+    return false;
+  }
+
+  /** A monster of mine wears an equip whose ATK counts my Spell/Trap cards (Mage Power): set them before attacking. */
+  #backrowBoosts(): boolean {
+    const b = this.#board;
+    if (!b) return false;
+    for (const [at, on] of this.#equips) {
+      const [who, zone] = at.split(":").map(Number) as [number, number];
+      const e = b.players[who]?.szone[zone];
+      if (who === this.seat && on.startsWith(`${this.seat}:`) && e && e.code && !isFaceDown(e.position) && COUNTS_BACKROW.test(this.#nameOf(e.code))) return true;
+    }
+    return false;
+  }
+
   #battleProofAt(controller: number, seq: number, code: number): boolean {
     if (code && BATTLE_PROOF.has(code)) return true;
     const b = this.#board;
@@ -683,13 +721,13 @@ export class HeuristicBot {
     const ctx = this.#ctx();
     let best = -1, priority = 0;
     ev.activatable.forEach((a, i) => {
-      if (!this.#ruleFor(a.code)?.idleActivate || this.#activatedThisTurn.has(`${a.location}:${a.sequence}:${a.description}`)) return;
+      if (!this.#ruleFor(a.code)?.idleActivate || this.#activatedThisTurn.has(`${a.code}:${a.location}:${a.sequence}:${a.description}`)) return;
       const p = this.#idlePriority(a.code, ctx, a, { prompt: ev, resp: respIdle("SELECT_ACTIVATE", i) });
       if (p > priority) { priority = p; best = i; }
     });
     if (best < 0) return null;
     const a = ev.activatable[best]!;
-    this.#activatedThisTurn.add(`${a.location}:${a.sequence}:${a.description}`);
+    this.#activatedThisTurn.add(`${a.code}:${a.location}:${a.sequence}:${a.description}`);
     this.#activated(a.code);
     return respIdle("SELECT_ACTIVATE", best);
   }
@@ -707,7 +745,43 @@ export class HeuristicBot {
   #freeDamageSummon(ev: P<"selectIdleCmd">): Json | null {
     if (!ev.canBattlePhase || !this.#battleAhead() || this.#normalSummoned || this.#oppMonsters().length > 0) return null;
     const play = this.#summonPlays(ev, this.#ctx())[0];
-    return play && play.cmd === "SELECT_SUMMON" && play.stat >= 1000 ? respIdle(play.cmd, play.index) : null;
+    if (play && play.cmd === "SELECT_SUMMON" && play.stat >= 1000) return respIdle(play.cmd, play.index);
+    // nothing of theirs on the field at all: a body that hits is summoned even where the ranking would set it
+    // (production set Warrior Lady of the Wasteland facing an empty field and backrow)
+    if (this.#opp()?.szone.some((c) => c) ?? true) return null;
+    let best = -1, atk = 999;
+    ev.summonable.forEach((c, i) => {
+      const k = this.#cards.brain.get(c.code);
+      if (!k || k.tributes() > 0 || this.#isFlip(c.code) || this.#ruleFor(c.code)?.keepInHand || this.#locked(c.code)) return;
+      const a = this.#stat(c.code).atk;
+      if (a > atk) { atk = a; best = i; }
+    });
+    return best >= 0 ? respIdle("SELECT_SUMMON", best) : null;
+  }
+
+  /** My Battle Phase ahead, not lethal yet, and a card its rule holds (an equip, a boost) that wins the duel this turn
+   *  when played out on the engine: play it (production held Megamorph on Etoile Cyber: 3100 direct damage against
+   *  2400 LP). A few rollouts, once per board. */
+  #lethalProbe(ev: P<"selectIdleCmd">, sel: Json): Json | null {
+    if (!ev.canBattlePhase || !this.#battleAhead() || this.#probed === `${this.#turn}:${this.#idleActions}`) return null;
+    this.#probed = `${this.#turn}:${this.#idleActions}`;
+    const mine = this.#monstersOf(this.#me()).filter((m) => m.attackPos && !m.faceDown);
+    const reach = mine.reduce((s, m) => s + m.atk, 0);
+    if (mine.length === 0 || (this.#opp()?.lp ?? 8000) > 2 * reach + 1000 || this.#lethalInfo().through) return null;
+    const ctx = this.#ctx();
+    let probes = 0;
+    for (const [i, a] of ev.activatable.entries()) {
+      if (probes >= 3) break;
+      if (!((this.#cards.brain.get(a.code)?.type ?? 0) & TYPE_SPELL) || this.#activatedThisTurn.has(`${a.code}:${a.location}:${a.sequence}:${a.description}`)) continue;
+      const resp = respIdle("SELECT_ACTIVATE", i);
+      if (this.#locked(a.code) || this.#idlePriority(a.code, ctx, a, { prompt: ev, resp }) > -Infinity) continue;
+      probes++;
+      if ((rolloutScore(this.#search!, this.seat, sel, ev, resp, this) ?? 0) < 1e9) continue;
+      this.#activatedThisTurn.add(`${a.code}:${a.location}:${a.sequence}:${a.description}`);
+      this.#activated(a.code);
+      return resp;
+    }
+    return null;
   }
 
   /** Before my Battle Phase with my Normal Summon unused: the summon whose battle (and the reply to it) comes out clearly
@@ -806,7 +880,7 @@ export class HeuristicBot {
     const me = this.#me(), opp = this.#opp();
     const my: PlanMon[] = this.#monstersOf(me).map((m, i) => ({ ...base.myMon[i]!, seq: m.seq }));
     const theirs: PlanMon[] = this.#monstersOf(opp).map((m, i) => ({ ...base.oppMon[i]!, seq: m.seq }));
-    const attackers: PlanAttacker[] = my.filter((m) => m.attackPos && !m.faceDown).map((m, index) => ({ index, seq: m.seq, atk: m.atk, canDirect: false }));
+    const attackers: PlanAttacker[] = my.filter((m) => m.attackPos && !m.faceDown).map((m, index) => ({ index, seq: m.seq, atk: m.atk, canDirect: DIRECT.has(me?.mzone[m.seq]?.code ?? 0) }));
     if (attackers.length === 0) return none;
     const opts = { ...PLAN_DEFAULTS, reply: false, maxNodes: 3000 };
     const lethalWith = (o: PlanMon[]) => planBattle({ base, my, opp: o, attackers }, opts).outcome.lethal;
@@ -885,6 +959,7 @@ export class HeuristicBot {
       lethalOnEmpty: myTurn && swinging >= opp.lp,
       attackTargetLoses: !!guard && attackAtk > guardValue,
       attackTargetFloats: !!guard && !!guard.code && afterlife(guard.code) > 0,
+      oppBattlerSurvives: this.#oppBattlerSurvives(),
       attackHurts: incoming > 0 || (!!guard && attackAtk > guardValue && !this.#battleProofAt(this.seat, guard.sequence, guard.code)),
       attackerIsStrongest: !!oppAttack && oppMon.every((m) => m.seq === this.#attack!.sequence || !m.attackPos || m.atk <= attackAtk || this.#oppAttackedThisTurn.has(m.seq)),
       oppPlanLethal: !myTurn && replyPosition(this.#boardPosition()).myLp <= 0,
@@ -1073,7 +1148,7 @@ export class HeuristicBot {
       // Master Duel's activation tables: a card whose own rule says "now" (and that comes before the Normal Summon:
       // priority > 0) is activated, not second-guessed by the rollout (its end-of-turn board value does not see what
       // removing a Spell/Trap is worth: production set Mystical Space Typhoon instead of popping a Royal Decree)
-      const ruled = this.#ruledActivation(ev) ?? this.#ruledSpecialSummon(ev) ?? this.#freeDamageSummon(ev);
+      const ruled = this.#ruledActivation(ev) ?? this.#ruledSpecialSummon(ev) ?? this.#freeDamageSummon(ev) ?? this.#lethalProbe(ev, sel);
       if (ruled) { this.#idleActions++; return ruled; }
     }
     const cands = this.#candidates(ev);
@@ -1091,6 +1166,8 @@ export class HeuristicBot {
       // Trap Hole and Call of the Haunted)
       if (r.action === "TO_EP") { const set = this.#spellToSet(ev); if (set >= 0) { this.#idleActions++; return respIdle("SELECT_SPELL_SET", set); } }
       if (r.action === "TO_BP") { const summon = this.#battleSummon(ev); if (summon) { this.#idleActions++; return summon; } }
+      // Mage Power counts my Spell/Trap cards: they are set before the attack (production attacked for 500 less)
+      if (r.action === "TO_BP" && this.#backrowBoosts()) { const set = this.#spellToSet(ev); if (set >= 0) { this.#idleActions++; return respIdle("SELECT_SPELL_SET", set); } }
     }
     return r;
   }
@@ -1151,10 +1228,10 @@ export class HeuristicBot {
     const ctx = this.#ctx();
     // Order matters when there are more lines than maxCandidates: draw/removal setup, the strongest summons, then the rest.
     const activatable = ev.activatable.map((a, i) => ({ a, i, p: this.#idlePriority(a.code, ctx, a, { prompt: ev, resp: respIdle("SELECT_ACTIVATE", i) }) }))
-      .filter(({ a, p }) => p > -Infinity && !this.#activatedThisTurn.has(`${a.location}:${a.sequence}:${a.description}`))
+      .filter(({ a, p }) => p > -Infinity && !this.#activatedThisTurn.has(`${a.code}:${a.location}:${a.sequence}:${a.description}`))
       .sort((a, b) => b.p - a.p);
     const pushActivation = ({ a, i }: { a: Activatable; i: number }) => {
-      const key = `${a.location}:${a.sequence}:${a.description}`;
+      const key = `${a.code}:${a.location}:${a.sequence}:${a.description}`;
       out.push({ resp: respIdle("SELECT_ACTIVATE", i), commit: () => { this.#activatedThisTurn.add(key); this.#idleActions++; this.#activated(a.code); } });
     };
     activatable.filter((x) => x.p > 0).forEach(pushActivation);
@@ -1189,7 +1266,7 @@ export class HeuristicBot {
       out.push({ resp: respBattle("SELECT_BATTLE", i), commit: () => { this.#declaredAttacker = a; this.#attackSeen = false; this.#pendingAttacker = atk; } });
     });
     ev.activatable.forEach((a, i) => {
-      const key = `b:${a.location}:${a.sequence}:${a.description}`;
+      const key = `b:${a.code}:${a.location}:${a.sequence}:${a.description}`;
       if (this.#activatedThisTurn.has(key)) return;
       out.push({ resp: respBattle("SELECT_CHAIN", i), commit: () => { this.#activatedThisTurn.add(key); } });
     });
@@ -1202,9 +1279,13 @@ export class HeuristicBot {
   #chainCandidates(ev: P<"selectChain">): Candidate[] | null {
     if (ev.chains.length === 0 || ev.forced) return null;
     const out: Candidate[] = [{ resp: respChain(null) }];
+    const ctx = this.#ctx();
     ev.chains.forEach((c, i) => {
       const key = `${c.code}:${c.description}`;
       if (this.#chainedThisWindow.has(key)) return;
+      // a card whose rule says not now is not a line (production: Rush Recklessly on the opponent's Brron in Main 1)
+      const react = this.#ruleFor(c.code)?.chainReact;
+      if (react && !react(this.#withSelf(ctx, c.code, c))) return;
       out.push({ resp: respChain(i), commit: () => { this.#chainedThisWindow.add(key); } });
     });
     return out;
@@ -1302,7 +1383,7 @@ export class HeuristicBot {
       for (let i = 0; i < ev.activatable.length; i++) {
         const a = ev.activatable[i]!;
         if (!BACKROW_POPPER.test(this.#nameOf(a.code))) continue;
-        const key = `${a.location}:${a.sequence}:${a.description}`;
+        const key = `${a.code}:${a.location}:${a.sequence}:${a.description}`;
         if (this.#activatedThisTurn.has(key)) continue;
         const rule = this.#ruleFor(a.code);
         if (rule?.idleActivate && !rule.idleActivate(this.#withSelf(ctx, a.code, a, { prompt: ev, resp: respIdle("SELECT_ACTIVATE", i) }))) continue;
@@ -1318,14 +1399,14 @@ export class HeuristicBot {
       let best = -1, priority = 0;
       for (let i = 0; i < ev.activatable.length; i++) {
         const a = ev.activatable[i]!;
-        if (this.#activatedThisTurn.has(`${a.location}:${a.sequence}:${a.description}`)) continue;
+        if (this.#activatedThisTurn.has(`${a.code}:${a.location}:${a.sequence}:${a.description}`)) continue;
         if (combo && combo.plan.enableField && this.#nameOf(a.code) === combo.plan.enableField) continue;
         const p = this.#idlePriority(a.code, ctx, a, { prompt: ev, resp: respIdle("SELECT_ACTIVATE", i) });
         if (p > priority) { priority = p; best = i; }
       }
       if (best >= 0) {
         const a = ev.activatable[best]!;
-        this.#activatedThisTurn.add(`${a.location}:${a.sequence}:${a.description}`);
+        this.#activatedThisTurn.add(`${a.code}:${a.location}:${a.sequence}:${a.description}`);
         this.#idleActions++;
         this.#activated(a.code);
         return respIdle("SELECT_ACTIVATE", best);
@@ -1351,14 +1432,14 @@ export class HeuristicBot {
       let best = -1, priority = -Infinity;
       for (let i = 0; i < ev.activatable.length; i++) {
         const a = ev.activatable[i]!;
-        if (this.#activatedThisTurn.has(`${a.location}:${a.sequence}:${a.description}`)) continue;
+        if (this.#activatedThisTurn.has(`${a.code}:${a.location}:${a.sequence}:${a.description}`)) continue;
         if (combo && combo.plan.enableField && this.#nameOf(a.code) === combo.plan.enableField) continue;
         const p = this.#idlePriority(a.code, ctx, a, { prompt: ev, resp: respIdle("SELECT_ACTIVATE", i) });
         if (p > priority) { priority = p; best = i; }
       }
       if (best >= 0) {
         const a = ev.activatable[best]!;
-        this.#activatedThisTurn.add(`${a.location}:${a.sequence}:${a.description}`);
+        this.#activatedThisTurn.add(`${a.code}:${a.location}:${a.sequence}:${a.description}`);
         this.#idleActions++;
         this.#activated(a.code);
         return respIdle("SELECT_ACTIVATE", best);
@@ -1403,7 +1484,7 @@ export class HeuristicBot {
     // stops attacking stays out (production flipped Emissary of the Afterlife under its own Level Limit - Area B)
     const lent = new Set(this.#monstersOf(this.#me()).filter((m) => m.stolen).map((m) => m.seq));
     const attackers: PlanAttacker[] = my.filter((m) => !m.faceDown && m.atk > 0 && !m.noAttack && !this.#ruleNoAttack(m.seq))
-      .map((m) => { const code = this.#me()?.mzone[m.seq]?.code ?? 0; return { index: m.seq, seq: m.seq, atk: m.atk, canDirect: false, bounces: this.#bounces(code), lent: lent.has(m.seq), pierce: PIERCE.has(code) }; });
+      .map((m) => { const code = this.#me()?.mzone[m.seq]?.code ?? 0; return { index: m.seq, seq: m.seq, atk: m.atk, canDirect: DIRECT.has(code), bounces: this.#bounces(code), lent: lent.has(m.seq), pierce: PIERCE.has(code) }; });
     return { base, my, opp: this.#monstersOf(this.#opp()).map(toPlan), attackers };
   }
 
@@ -1435,7 +1516,7 @@ export class HeuristicBot {
     // nothing of theirs out-hits it in attack and its DEF is the weaker stat: defence only exposes it (production put a
     // 2000/100 Warwolf and a 2000/300 Stratos in defence over a Spirit Reaper and a defending wall, and lost both)
     if (m.def < m.atk && !input.opp.some((o) => !o.faceDown && o.attackPos && !o.noAttack && o.atk > m.atk)) return false;
-    const att: PlanAttacker = { index: m.seq, seq: m.seq, atk: m.atk, canDirect: false };
+    const att: PlanAttacker = { index: m.seq, seq: m.seq, atk: m.atk, canDirect: DIRECT.has(this.#me()?.mzone[m.seq]?.code ?? 0) };
     const one = { ...input, my: [{ ...self, faceDown: false, attackPos: true }], attackers: [att] };
     return input.opp.some((o) => !o.faceDown && attackClass(one, att, o) === ATTACK_CLASS.NOTHING);
   }
@@ -1572,10 +1653,10 @@ export class HeuristicBot {
    *  special summon, a set), then battle with anything that can swing, else the end. */
   #foolIdle(ev: P<"selectIdleCmd">): Json {
     if (this.#idleActions < MAX_IDLE_ACTIONS) {
-      const a = ev.activatable.findIndex((x) => !this.#activatedThisTurn.has(`${x.location}:${x.sequence}:${x.description}`));
+      const a = ev.activatable.findIndex((x) => !this.#activatedThisTurn.has(`${x.code}:${x.location}:${x.sequence}:${x.description}`));
       if (a >= 0) {
         const x = ev.activatable[a]!;
-        this.#activatedThisTurn.add(`${x.location}:${x.sequence}:${x.description}`);
+        this.#activatedThisTurn.add(`${x.code}:${x.location}:${x.sequence}:${x.description}`);
         this.#idleActions++;
         this.#activated(x.code);
         return respIdle("SELECT_ACTIVATE", a);
@@ -1656,7 +1737,7 @@ export class HeuristicBot {
     const mon: PlanMon = { atk: st.atk, def: st.def, faceDown: set, attackPos: !set, known: true, flipRisk: 0, seq: free,
       battleProof: BATTLE_PROOF.has(code), afterlife: afterlife(code) };
     const my = [...input.my.filter((m) => !tributes.includes(m.seq)), mon];
-    const attackers = [...input.attackers.filter((a) => !tributes.includes(a.seq)), ...(set ? [] : [{ index: free, seq: free, atk: st.atk, canDirect: false, bounces: this.#bounces(code), pierce: PIERCE.has(code) }])];
+    const attackers = [...input.attackers.filter((a) => !tributes.includes(a.seq)), ...(set ? [] : [{ index: free, seq: free, atk: st.atk, canDirect: DIRECT.has(code), bounces: this.#bounces(code), pierce: PIERCE.has(code) }])];
     const { end } = planEnd({ ...input, my, attackers });
     // the same summon judged with my other monsters in their real positions, against the reply (#tradeWith)
     const real = new Map(this.#monstersOf(this.#me()).map((m) => [m.seq, m]));
@@ -1837,7 +1918,7 @@ export class HeuristicBot {
     const ctx = this.#ctx();
     for (let i = 0; i < ev.activatable.length; i++) {
       const a = ev.activatable[i]!;
-      const key = `b:${a.location}:${a.sequence}:${a.description}`;
+      const key = `b:${a.code}:${a.location}:${a.sequence}:${a.description}`;
       if (this.#activatedThisTurn.has(key)) continue;
       if (!this.#ruleFor(a.code)?.battleActivate?.(this.#withSelf(ctx, a.code, a, { prompt: ev, resp: respBattle("SELECT_CHAIN", i) }))) continue;
       this.#activatedThisTurn.add(key);
@@ -2397,6 +2478,11 @@ export class HeuristicBot {
       // only monster over two dead Ritual Spells, and a Gravekeeper's Spy over a Brain Control at 100 LP)
       if ((k.type & TYPE_RITUAL) && !(me0?.hand.some((c) => ((this.#cards.brain.get(c)?.type ?? 0) & (TYPE_MONSTER | TYPE_RITUAL)) === (TYPE_MONSTER | TYPE_RITUAL)) ?? false)) v -= 1000;
       if ((LP_COST[name] ?? 0) >= (me0?.lp ?? 8000)) v -= 1000;
+      // half of a pair: dead without its partner on my field or in my hand, worth more beside it (production discarded
+      // Necrovalley and kept the Royal Tribute that needs it)
+      const partner = NEEDS[name];
+      if (partner && me0 && ![...me0.hand, ...me0.szone.map((c) => c?.code ?? 0)].some((c) => c && this.#nameOf(c) === partner)) v -= 1000;
+      if (me0 && Object.entries(NEEDS).some(([card, need]) => need === name && me0.hand.some((c) => this.#nameOf(c) === card))) v += 300;
       const answer = (k.type & (TYPE_TRAP | TYPE_QUICKPLAY)) !== 0;
       if (answer && THREAT_BACKROW.test(name)) v += 500;
       if (answer && this.#oppMonsters().some((m) => m.attackPos)) v += 300;
@@ -2472,7 +2558,10 @@ export class HeuristicBot {
     const opp = this.#oppMonsters();
     const beats = opp.some((o) => !o.faceDown && !o.battleProof && atk > (o.attackPos ? o.atk : o.def));
     const doomed = this.#battleAhead() && def < oppMax && beats;
-    const up = this.#allIn || this.#style.attackOnly || doomed || (atk >= oppMax + 400 * this.#picky && !(def > atk && atk < 1500));
+    // a "?" ATK set by its own summon (Chimeratech Overdragon: 800 per material, Dark Gaia) attacks on my turn (production
+    // put a 4800 Overdragon in defence: its printed ATK read -2)
+    const variable = atk < 0 && this.#battleAhead();
+    const up = this.#allIn || this.#style.attackOnly || doomed || variable || (atk >= oppMax + 400 * this.#picky && !(def > atk && atk < 1500));
     const order = up
       ? [POS.FACEUP_ATTACK, POS.FACEUP_DEFENSE, POS.FACEDOWN_DEFENSE, POS.FACEDOWN_ATTACK]
       : [POS.FACEUP_DEFENSE, POS.FACEDOWN_DEFENSE, POS.FACEUP_ATTACK, POS.FACEDOWN_ATTACK];

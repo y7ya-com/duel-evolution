@@ -68,6 +68,8 @@ export const EXT_BOOL = [
   /** The opponent's attack would destroy the monster of mine it targets; its attacker came from the Extra Deck; the
    *  monster it targets gets something back when it is destroyed (a search, a summon, a revival: Peten the Dark Clown). */
   "attackTargetLoses", "attackerExtra", "attackTargetFloats",
+  /** The battle under way (either side's attack): the opponent's monster in it is not destroyed by it. */
+  "oppBattlerSurvives",
   /** The card the rule is about is hit by a live opponent link; a face-up copy of it is already on the field. */
   "selfThreatened", "sameCardActive",
   /** Master Duel's attack-response facts: the attack would cost me LP or the monster it hits; the attacker is the

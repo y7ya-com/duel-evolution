@@ -12,7 +12,8 @@
 //   - revenge: monsters whose destruction destroys a monster (a destroy target picked on its EVENT_DESTROYED /
 //     EVENT_BATTLE_DESTROYED trigger: Newdoria): killing one in battle costs the attacker;
 //   - pierce: monsters that deal piercing damage (EFFECT_PIERCE on themselves, unconditionally: Gravekeeper's Spear
-//     Soldier).
+//     Soldier);
+//   - direct: monsters that can attack directly (EFFECT_DIRECT_ATTACK on themselves, unconditionally: Spell Striker).
 //
 //   node scripts/ai_battle_proof.mjs
 import { readFileSync, writeFileSync } from "node:fs";
@@ -64,6 +65,10 @@ const pierce = pool.filter((code) => {
   const src = scriptOf(code);
   return !!src && effects(src).some((e) => /SetCode\(EFFECT_PIERCE\)/.test(e) && /SetType\(EFFECT_TYPE_SINGLE\)/.test(e) && !/SetCondition\(/.test(e));
 }).sort((a, b) => a - b);
+const direct = pool.filter((code) => {
+  const src = scriptOf(code);
+  return !!src && effects(src).some((e) => /SetCode\(EFFECT_DIRECT_ATTACK\)/.test(e) && /SetType\(EFFECT_TYPE_SINGLE\)/.test(e) && !/SetCondition\(/.test(e));
+}).sort((a, b) => a - b);
 const revenge = pool.filter((code) => {
   const src = scriptOf(code);
   return !!src && /LOCATION_MZONE/.test(src) && /HINTMSG_DESTROY/.test(src)
@@ -71,7 +76,7 @@ const revenge = pool.filter((code) => {
 }).sort((a, b) => a - b);
 
 writeFileSync(join(root, "src/duel/ai/battleProof.json"), JSON.stringify({
-  note: "Monsters that cannot be destroyed by battle (unconditionally), the Equip Spells that make theirs so, the monsters whose surviving a battle triggers them, those whose destruction destroys a monster, and those that pierce: from the card scripts, scripts/ai_battle_proof.mjs",
-  codes, equips, battleTrigger, revenge, pierce,
+  note: "Monsters that cannot be destroyed by battle (unconditionally), the Equip Spells that make theirs so, the monsters whose surviving a battle triggers them, those whose destruction destroys a monster, and those that pierce, and those that attack directly: from the card scripts, scripts/ai_battle_proof.mjs",
+  codes, equips, battleTrigger, revenge, pierce, direct,
 }) + "\n");
-console.log(`${codes.length} of ${pool.length} cards; ${equips.length} equips, ${battleTrigger.length} battle triggers, ${revenge.length} revenge, ${pierce.length} pierce`);
+console.log(`${codes.length} of ${pool.length} cards; ${equips.length} equips, ${battleTrigger.length} battle triggers, ${revenge.length} revenge, ${pierce.length} pierce, ${direct.length} direct`);

@@ -414,4 +414,113 @@ describe.skipIf(!haveData)("NPC scenarios (real engine)", () => {
     expect(attack).toBeGreaterThanOrEqual(0);
     if (summon >= 0) expect(attack).toBeLessThan(summon);
   });
+
+  // ---- rev 10 (rev 8's duels 470-670)
+  it("casts Megamorph when it makes the attack lethal (duel 512)", () => {
+    const p = play(dc, {
+      npcId: 66, first: "player", turns: 2,
+      npc: { lp: 2300, hand: ["Megamorph"], mzone: ["Etoile Cyber"], szone: [["The A. Forces", "up"]], deck: Array(20).fill("Reckless Greed") },
+      player: { lp: 2400 },
+    });
+    expect(npcActivated(p, "Megamorph")).toBe(true);
+    expect(p.end?.winner).toBe(1);
+  });
+
+  it("feeds Overload Fusion every Machine it can for a lethal Chimeratech Overdragon (duel 588)", () => {
+    const p = play(dc, {
+      npcId: 80, first: "player", turns: 2,
+      npc: { lp: 3400, hand: ["Overload Fusion"], mzone: ["Proto-Cyber Dragon"],
+        grave: ["Red Gadget", "Drillroid", "Yellow Gadget", "Green Gadget", "Cyber Dragon"],
+        extra: ["Chimeratech Overdragon"], deck: Array(20).fill("Reckless Greed") },
+      player: { lp: 1900, mzone: ["Goldd, Wu-Lord of Dark World"] },
+    });
+    expect(npcActivated(p, "Overload Fusion")).toBe(true);
+    expect(p.end?.winner).toBe(1);
+  });
+
+  it("casts the next hand spell after one resolves in the same hand slot (duel 503)", () => {
+    const p = play(dc, {
+      npcId: 49, first: "player", turns: 2,
+      npc: { hand: ["Tremendous Fire", "Restructer Revolution"], deck: Array(20).fill("Reckless Greed") },
+      player: { hand: ["Petit Moth", "Petit Moth", "Petit Moth"], mzone: ["Mystic Tomato"] },
+    });
+    expect(npcActivated(p, "Tremendous Fire")).toBe(true);
+    expect(npcActivated(p, "Restructer Revolution")).toBe(true);
+  });
+
+  it("raises Swords of Revealing Light at 600 LP against an empty field and a full hand (duel 507)", () => {
+    const p = play(dc, {
+      npcId: 3, first: "player", turns: 2,
+      npc: { lp: 600, hand: ["Swords of Revealing Light"], deck: Array(20).fill("Reckless Greed") },
+      player: { hand: ["Petit Moth", "Petit Moth", "Petit Moth", "Petit Moth", "Petit Moth"] },
+    });
+    expect(npcActivated(p, "Swords of Revealing Light")).toBe(true);
+  });
+
+  it("summons Snipe Hunter with an Ojama to discard to it (duel 654)", () => {
+    const p = play(dc, {
+      npcId: 65, first: "player", turns: 2,
+      npc: { hand: ["Snipe Hunter", "Ojama Green", "Ojama Black"], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: ["Lyla, Lightsworn Sorceress", "Garoth, Lightsworn Warrior"] },
+    });
+    expect(msgs(p, "SUMMONING", "Snipe Hunter")).toHaveLength(1);
+  });
+
+  it("searches Bladedge with Necroshade in the graveyard and summons it without a tribute (duel 579)", () => {
+    const p = play(dc, {
+      npcId: 61, first: "player", turns: 2,
+      npc: { hand: ["E - Emergency Call"], grave: ["Elemental HERO Necroshade"],
+        deck: [...Array(5).fill("Elemental HERO Sparkman"), "Elemental HERO Bladedge", "Elemental HERO Clayman", ...Array(10).fill("Reckless Greed")] },
+      player: { mzone: ["Goldd, Wu-Lord of Dark World"] },
+    });
+    expect(msgs(p, "SUMMONING", "Elemental HERO Bladedge")).toHaveLength(1);
+  });
+
+  it("keeps King of the Swamp as a blocker against lethal with a dead Polymerization (duel 579)", () => {
+    const p = play(dc, {
+      npcId: 61, first: "npc", turns: 2,
+      npc: { lp: 4600, hand: ["R - Righteous Justice", "Fusion Recovery", "King of the Swamp"], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: ["Brron, Mad King of Dark World", "Goldd, Wu-Lord of Dark World", "Brron, Mad King of Dark World"] },
+    });
+    expect(npcActivated(p, "King of the Swamp")).toBe(false);
+  });
+
+  it("casts Royal Tribute under its Necrovalley (duel 561)", () => {
+    const p = play(dc, {
+      npcId: 31, first: "npc", turns: 1,
+      npc: { hand: ["Necrovalley", "Royal Tribute"], deck: Array(20).fill("Reckless Greed") },
+      player: { hand: ["Petit Moth", "Petit Moth", "Petit Moth", "Petit Moth", "Petit Moth"] },
+    });
+    expect(npcActivated(p, "Royal Tribute")).toBe(true);
+  });
+
+  it("does not banish D.D. Warrior Lady with a monster the battle destroys anyway (duel 512)", () => {
+    const p = play(dc, {
+      npcId: 66, first: "player", turns: 2,
+      npc: { mzone: ["D.D. Warrior Lady"], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: ["Armageddon Knight"] },
+    });
+    expect(leftField(p, "Armageddon Knight")).toBe(true);
+    expect(leftField(p, "D.D. Warrior Lady")).toBe(false);
+  });
+
+  it("attacks directly with Spell Striker past a bigger monster (duel 507)", () => {
+    const p = play(dc, {
+      npcId: 3, first: "player", turns: 2,
+      npc: { mzone: ["Spell Striker"], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: ["Mystic Tomato"] },
+    });
+    expect(msgs(p, "ATTACK").length).toBeGreaterThanOrEqual(1);
+    expect(msgs(p, "DAMAGE").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("summons a body face-up into an empty field and backrow (duel 565)", () => {
+    const p = play(dc, {
+      npcId: 66, first: "player", turns: 2,
+      npc: { hand: ["Warrior Lady of the Wasteland", "Call of the Haunted"], deck: Array(20).fill("Reckless Greed") },
+      player: {},
+    });
+    expect(msgs(p, "SUMMONING", "Warrior Lady of the Wasteland")).toHaveLength(1);
+    expect(msgs(p, "ATTACK")).toHaveLength(1);
+  });
 });
