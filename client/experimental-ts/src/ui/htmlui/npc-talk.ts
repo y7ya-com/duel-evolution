@@ -67,10 +67,11 @@ function balloon(d: NpcTalkDeps, name: string, text: string, label: string, bloc
   return b.spec();
 }
 
-// The NPC's card: 0, 222, 335 x 382 (live), its name red over the record rows and its text (bio) under them
+// The NPC's card (CNpcListMenu, 336 wide, its bottom at 607): its name red over the record rows and its text (bio) under
+// them; the window here is the tallest card's room (0, 222 to 607), the card itself as tall as its text (npcInfoScreen)
 function infoCard(s: Readonly<NpcState>, d: NpcTalkDeps): WindowSpec {
   const r = s.record;
-  return new WindowBuilder(d.ids, 'npc-talk:info', 'CNpcTalkInfo', { x: 0, y: 222, w: 335, h: 382 }, { z: 51005,
+  return new WindowBuilder(d.ids, 'npc-talk:info', 'CNpcTalkInfo', { x: 0, y: 222, w: 336, h: 385 }, { z: 51005,
     name: s.npc?.name ?? '', record: `Wins${r?.wins ?? 0}/Losses${r?.loses ?? 0}`, deck: '?????', bio: s.bio ?? '' }).spec();
 }
 
@@ -103,13 +104,15 @@ const CSS = `.npc-balloon { position: absolute; left: 0; top: 0; width: 446px; h
 .npc-balloon .mark::before { content: ''; position: absolute; left: 3px; top: 0; width: 8px; height: 8px; background: #f08a1c; clip-path: polygon(30% 0, 70% 0, 70% 40%, 100% 40%, 50% 100%, 0 40%, 30% 40%); }
 .npc-balloon .mark::after { content: ''; position: absolute; left: 0; top: 9px; width: 14px; height: 4px; border: 1px solid #555; border-top: 0; box-sizing: border-box; }
 .npc-balloon:disabled .mark { visibility: hidden; }
-.npc-info { position: absolute; left: 0; top: 0; width: 335px; height: 382px; box-sizing: border-box; border: 4px solid #4ae36a;
-  border-radius: 3px; background: rgba(255,255,255,.62); font: 16px/16px Arial, Helvetica, sans-serif; letter-spacing: 1px; color: #111; }
+.npc-info { position: absolute; left: 0; top: 0; width: 336px; height: 116px; box-sizing: border-box; font: 16px/16px Arial, Helvetica, sans-serif;
+  letter-spacing: 1px; color: #111; border: 4px solid; border-color: rgb(120,248,206) rgb(56,226,100) rgb(48,214,88) rgb(86,248,150);
+  box-shadow: inset 0 0 0 3px rgb(71,248,121), inset 0 0 0 4px rgb(240,249,248); }
 .npc-info > div { position: absolute; left: 4px; right: 4px; white-space: nowrap; }
-.npc-info .name { top: 4px; height: 34px; background: rgba(150,150,150,.35); color: #ec1c1c; text-align: center; line-height: 22px; }
-.npc-info .band { top: 38px; height: 32px; background: rgba(140,140,140,.45); }
-.npc-info .white { top: 70px; height: 32px; background: rgba(255,255,255,.75); }
-.npc-info .bio { top: 104px; white-space: pre-wrap; word-break: break-all; line-height: 15.6px; letter-spacing: .75px; overflow: hidden; }
+.npc-info .name, .npc-info .bio { background: rgba(255,255,255,.7); }
+.npc-info .name { top: 4px; height: 36px; color: #ff0000; text-align: center; white-space: pre; }
+.npc-info .band { top: 40px; height: 32px; background: rgba(204,204,204,.83); }
+.npc-info .white { top: 72px; height: 32px; background: linear-gradient(rgba(255,255,255,.82) 0 16px, rgba(255,255,255,.92) 16px); }
+.npc-info .bio { top: 104px; bottom: 4px; white-space: pre-wrap; word-break: break-all; letter-spacing: .75px; overflow: hidden; }
 .npc-info .l { line-height: 16px; } .npc-info .v { text-align: right; line-height: 16px; }`;
 const css = () => { if (!document.getElementById('npc-talk-css')) { const st = document.createElement('style'); st.id = 'npc-talk-css'; st.textContent = CSS; document.head.append(st); } };
 type BalloonWin = { name?: string; text?: string; next?: number; label?: string; blocked?: boolean };
@@ -156,11 +159,13 @@ export const npcInfoScreen: HtmlUiScreen = {
   update(win, _prev, _root, _api, st) {
     const w = win as InfoWin, s = st as { card: HTMLElement; name: HTMLElement; band: HTMLElement; white: HTMLElement; bio: HTMLElement };
     s.bio.textContent = w.bio ?? '';
-    // live's card is as tall as its text: name, Win%, Deck Name and the biography's lines, its bottom where the window's
-    // is (604); an NPC with no biography has the short card
-    const h = 104 + (w.bio ? s.bio.scrollHeight + 8 : 4);
-    if (s.card.style.height !== `${h}px`) Object.assign(s.card.style, { height: `${h}px`, top: `${382 - h}px` });
-    s.name.textContent = w.name ?? '';
+    // live's card is as tall as its text (CNpcListMenu::showInfo): name 8, Win% 44, Deck Name 76, the biography's 16-px
+    // lines from 108, 8 under them; its bottom at 607 (kOpenBottom): 116 high without a biography
+    s.bio.style.bottom = 'auto'; const bioH = w.bio ? Math.ceil(s.bio.scrollHeight / 16) * 16 : 0; s.bio.style.bottom = '';
+    const h = 116 + bioH;
+    if (s.card.style.height !== `${h}px`) Object.assign(s.card.style, { height: `${h}px`, top: `${385 - h}px` });
+    // the name as live prints it ("%8s": padded to eight places, then centred)
+    s.name.textContent = (w.name ?? '').padStart(8);
     const [wl, wv] = s.band.children as unknown as HTMLElement[], [dl, dv] = s.white.children as unknown as HTMLElement[];
     wl!.textContent = 'Win%'; wv!.textContent = w.record ?? ''; dl!.textContent = 'Deck Name'; dv!.textContent = w.deck ?? '';
     s.card.setAttribute('aria-label', `${w.name ?? ''}: ${w.record ?? ''}`);
