@@ -167,6 +167,12 @@ export class DeckScene {
     if (!this.live() || !(passcode > 0)) return;
     this.ui.shown = passcode; this.ui.drag = { passcode, from, index: from === 'trunk' ? -1 : index, at, start: at, moved: false }; this.o.rerender();
   }
+  /** The pointer over a card (a trunk row or a deck card): the detail shows it (live: it follows the mouse, and keeps the
+   * last card when the pointer leaves). */
+  show(passcode: number): void {
+    if (!(passcode > 0) || this.ui.shown === passcode || this.ui.drag || !this.live()) return;
+    this.ui.shown = passcode; this.o.rerender();
+  }
   /** The pointer while a card is held (game pixels: where the dragged card is drawn). */
   dragTo(at: [number, number]): void {
     const d = this.ui.drag; if (!d) return;
