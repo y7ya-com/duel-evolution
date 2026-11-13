@@ -147,9 +147,12 @@ describe('the PixiJS world renderer', () => {
     f.view.setAvatars([actor(1, 512, 384, { self: true }), actor(2, 300, 300, { direction: 0 })]); await flush();
     f.view.setAvatars([actor(1, 512, 384, { self: true }), actor(2, 330, 300, { direction: 2 })]);
     const shown = () => f.view.inspect().avatars.find(a => a.id === 2)!;
-    f.host.run(1000 / 30); expect(shown()).toMatchObject({ x: 303, y: 300, walking: true, direction: 6 });   // 3 px per 30 fps step, facing right
+    f.host.run(1000 / 30); expect(shown()).toMatchObject({ x: 300, y: 300, walking: true, direction: 6 });   // under way, facing right (drawn a frame behind)
     await flush(); expect(f.view.actors.get(2)!.wanted).toContain('/walk/6/');
-    f.host.run(1000 / 30, 9); expect(shown()).toMatchObject({ x: 330, walking: false, direction: 2 });   // arrived: the server's facing
+    // the chibi's eased steps (0, 0, 1.63, 2.07, 2.46 ... px a 30 fps frame), drawn between frames
+    f.host.run(1000 / 30, 3); expect(shown().x).toBeCloseTo(301.626, 2);
+    f.host.run(1000 / 60); expect(shown().x).toBeCloseTo(301.626 + 2.0638 / 2, 2);
+    f.host.run(1000 / 30, 12); expect(shown()).toMatchObject({ x: 330, walking: false, direction: 2 });   // arrived: the server's facing
     // a far jump (a teleport) snaps
     f.view.setAvatars([actor(1, 512, 384, { self: true }), actor(2, 1300, 900)]); expect(shown()).toMatchObject({ x: 1300, y: 900 });
     // self is the runtime's: never smoothed

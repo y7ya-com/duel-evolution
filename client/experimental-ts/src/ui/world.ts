@@ -88,7 +88,8 @@ async function defaultHost(parent: HTMLElement): Promise<WorldHost | null> {
  *   objects' container at 30724), as the original's CZSort;
  * - the camera is the exe's dead zone (camera.ts), the world container at -trunc(camera);
  * - each avatar is a sprite showing one frame of its pose's baked strip (world-avatars.ts), its name and flag above;
- *   the others walk to each new server position at the original's pace (actors.ts ActorMotion);
+ *   the others walk to each new server position at the original's pace (actors.ts ActorMotion); every walker (self,
+ *   the others, wandering NPCs) steps at 30 Hz as the exe and is drawn between its last two steps at the screen's rate;
  * - the DOM keeps one transparent hit target per avatar (button.de-avatar, written at most 10 times a second and only
  *   when it moved) for the pointer, assistive tools and the acceptance tests.
  */
@@ -477,7 +478,7 @@ export class WorldRenderer {
     const was = this.drawn; this.drawn = drawnAvatars(this.placed(this.lastList), this.camera?.viewport ?? null);
     for (const [id, actor] of this.actors) if (was.has(id) !== this.drawn.has(id)) { const last = this.lastAvatars.get(id); if (last) this.pose(actor, last, this.drawn.has(id), t); }
   }
-  private wanderPlace(motion: ActorMotion, w: NpcWanderer): void { motion.retarget(w, w.direction, true); motion.direction = w.direction; motion.walking = w.walking; }
+  private wanderPlace(motion: ActorMotion, w: NpcWanderer): void { motion.retarget({ x: w.drawX, y: w.drawY }, w.direction, true); motion.direction = w.direction; motion.walking = w.walking; }
   /** The NPC whose card or talk is open (its avatar id): it stops wandering (0x009d8d60). */
   setBusyNpc(id: number | null): void { this.busyNpc = id; }
   /** A remote that started or stopped walking (or turned) asks for that pose. */

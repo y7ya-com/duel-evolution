@@ -14,11 +14,15 @@
 // - 0x009d9f70: the path step under 20 px away (int 0xd0e300) is passed and the next one steered to (0x009da260);
 //   past the last, a wander point is drawn (rand() % count) and the A* (0x00a04a30, pathfinding.ts astarCells) makes the
 //   path to it from where the NPC stands, steered from its first cell.
-// - the chibi's own mover walks at the steered point: the player's pace (FUN_009cd5c0: the step eased toward the way,
-//   at most 3 px, none under 1.2 px; FUN_009cd4e0 snaps a point under 6 px away). When the walk time ends mid-path the
-//   NPC still arrives at the point it was steering to, and stands.
+// - the chibi's own mover walks at the steered point: the player's pace (FUN_009cd5c0: the step eased toward a 6 px
+//   one, none of 1.2 px or less; FUN_009cd4e0 snaps a point under 6 px away; world/actors.ts chibiStep). Live's NPCs
+//   walk at up to 6.0 px a frame (measured 2026-11-13); the 3 px cap (6.0f * 0.5f) is the wall solver's, after a probe
+//   hit, which a walk along the A* cells does not meet. When the walk time ends mid-path the NPC still arrives at the
+//   point it was steering to, and stands.
+// - drawn (drawX / drawY) between its last two frames' points at the screen's own rate, as the player's own avatar.
 import { avatarDirection } from '../avatars/appearance';
 import { astarCells, cellOf, PATH_STEP_REACHED } from './pathfinding';
+import { chibiStep, CHIBI_MIN_STEP_PX, CHIBI_STEP_PX } from './actors';
 import type { Point, WalkGrid, WorldPosition } from './maps';
 
 export const NPC_TICK_MS = 1000 / 30;
@@ -37,6 +41,9 @@ export interface NpcWanderOptions {
 /** One wandering NPC: its place, facing and whether it walks this frame; tick() is one 30 fps frame. */
 export class NpcWanderer {
   x: number; y: number; direction: number;
+  /** Where it is drawn: between the last two frames' points (x, y is the latest), as the time to the next frame passes. */
+  drawX: number; drawY: number;
+  private px: number; private py: number;
   walking = false;
   /** The one being talked to (0x009d8d60): no new walk while set. */
   busy = false;
@@ -49,17 +56,20 @@ export class NpcWanderer {
   private elapsed = 0;
   private readonly rand: () => number;
   constructor(at: WorldPosition, private readonly points: readonly Point[], private readonly grid: WalkGrid | null, options: NpcWanderOptions = {}) {
-    this.x = at.x; this.y = at.y; this.direction = at.direction;
+    this.x = this.drawX = this.px = at.x; this.y = this.drawY = this.py = at.y; this.direction = at.direction;
     this.rand = options.rand ?? (() => Math.floor(Math.random() * (RAND_MAX + 1)));
     this.idleTimer = npcFirstIdle(this.rand());
   }
-  /** Advance by real time: whole 30 fps frames (a long pause catches up at most 8 of them). */
+  /** Advance by real time: whole 30 fps frames (a long pause catches up at most 8 of them), and the drawn point; true
+   * when it moved (drawn), turned or started / stopped walking. */
   update(dtMs: number): boolean {
     this.elapsed += Math.min(Math.max(dtMs, 0), 250);
     let moved = false;
-    for (let n = 0; n < 8 && this.elapsed >= NPC_TICK_MS; n++) { this.elapsed -= NPC_TICK_MS; if (this.tick()) moved = true; }
+    for (let n = 0; n < 8 && this.elapsed >= NPC_TICK_MS; n++) { this.elapsed -= NPC_TICK_MS; this.px = this.x; this.py = this.y; if (this.tick()) moved = true; }
     if (this.elapsed >= NPC_TICK_MS) this.elapsed = 0;
-    return moved;
+    const bx = this.drawX, by = this.drawY, a = Math.min(1, this.elapsed / NPC_TICK_MS);
+    this.drawX = this.px + (this.x - this.px) * a; this.drawY = this.py + (this.y - this.py) * a;
+    return moved || this.drawX !== bx || this.drawY !== by;
   }
   /** One frame; true when the NPC moved, turned or started / stopped walking. */
   tick(): boolean {
@@ -96,14 +106,13 @@ export class NpcWanderer {
     const target = this.steer;
     if (!target) { this.walking = false; return; }
     const dx = target.x - this.x, dy = target.y - this.y, d = Math.hypot(dx, dy);
-    if (d < 6) {
+    if (d < CHIBI_STEP_PX) {
       if (d > 0) { this.x = target.x; this.y = target.y; }
       this.step = { x: 0, y: 0 }; this.steer = null; this.walking = false; this.still = 3; return;
     }
-    let sx = this.step.x * 0.9 + dx / d * 0.6, sy = this.step.y * 0.9 + dy / d * 0.6;
-    const len = Math.hypot(sx, sy); if (len > 3) { sx *= 3 / len; sy *= 3 / len; }
-    this.step = { x: sx, y: sy };
-    if (Math.hypot(sx, sy) <= 1.2) { this.still++; this.walking = this.still < 3; return; }
+    this.step = chibiStep(this.step, dx, dy, d);
+    const sx = this.step.x, sy = this.step.y;
+    if (Math.hypot(sx, sy) <= CHIBI_MIN_STEP_PX) { this.still++; this.walking = this.still < 3; return; }
     this.x += sx; this.y += sy; this.direction = avatarDirection(sx, sy); this.still = 0; this.walking = true;
   }
 }
