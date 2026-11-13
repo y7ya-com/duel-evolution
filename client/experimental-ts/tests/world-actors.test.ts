@@ -1,18 +1,29 @@
 import { describe, expect, it, vi } from 'vitest';
+import { WORLD_TICK_MS } from '../src/world/navigator';
 import { ActorMotion, drawnAvatars, MAX_DRAWN_AVATARS, MAX_STRIP_FRAMES, REMOTE_SNAP_PX, stripFrame } from '../src/world/actors';
 import { bakeStrip } from '../src/ui/world-avatars';
 import type { AvatarResource } from '../src/avatars';
 
 describe('world actors (pure rules of the PixiJS world)', () => {
-  it('walks toward the server position 3 px per 30 fps step, any frame rate', () => {
-    const m = new ActorMotion({ x: 0, y: 0 }, 0); m.retarget({ x: 0, y: 30 }, 4);
-    for (let i = 0; i < 4; i++) m.step(1000 / 120);
-    expect(m.y).toBeCloseTo(3); expect(m.walking).toBe(true); expect(m.direction).toBe(0);   // walking down: direction 0
-    for (let i = 0; i < 40; i++) m.step(1000 / 60);
-    expect(m.y).toBe(30); expect(m.walking).toBe(false); expect(m.direction).toBe(4);       // arrived: the server's facing
+  it('walks toward the server position at the chibi pace (eased to 6 px per 30 fps step, 180 px/s), drawn between steps at any frame rate', () => {
+    const m = new ActorMotion({ x: 0, y: 0 }, 0); m.retarget({ x: 0, y: 319 }, 4);
+    // the eased steps 0.6, 1.14 are not taken (1.2 px or less); the third, 1.63 px, is
+    m.step(WORLD_TICK_MS); m.step(WORLD_TICK_MS); expect(m.y).toBe(0); expect(m.walking).toBe(true); expect(m.direction).toBe(0);   // walking down: direction 0
+    // drawn one logic frame behind: the point a frame reached shows as the next frame's time passes
+    m.step(WORLD_TICK_MS); expect(m.y).toBe(0); m.step(WORLD_TICK_MS); expect(m.y).toBeCloseTo(1.626, 2);
+    // half a frame later it is drawn half way to the next step (60 Hz: a new point every screen frame)
+    m.step(WORLD_TICK_MS / 2); expect(m.y).toBeCloseTo(1.626 + 2.0638 / 2, 2); m.step(WORLD_TICK_MS / 2); expect(m.y).toBeCloseTo(1.626 + 2.0638, 2);
+    // under way: 6 px a frame, 180 px/s, the same at 60 or 144 Hz
+    for (let i = 0; i < 26; i++) m.step(WORLD_TICK_MS);
+    m.retarget({ x: 0, y: Math.round(m.y) + 300 }, 4);   // the server's next point, farther on
+    const a = m.y; for (let i = 0; i < 144; i++) m.step(1000 / 144); expect(m.y - a).toBeGreaterThan(175); expect(m.y - a).toBeLessThan(181);
+    const ys: number[] = []; for (let i = 0; i < 6; i++) { m.step(1000 / 60); ys.push(m.y); }
+    expect(new Set(ys).size).toBe(6);   // a new point every 60 Hz frame
+    for (let i = 0; i < 400; i++) m.step(1000 / 60);
+    expect(m.y).toBe(Math.round(a) + 300); expect(m.walking).toBe(false); expect(m.direction).toBe(4);       // arrived: the server's facing
   });
   it('faces each of the eight directions as the exe (5 to 7 are the mirrored right side)', () => {
-    const dir = (dx: number, dy: number) => { const m = new ActorMotion({ x: 100, y: 100 }); m.retarget({ x: 100 + dx, y: 100 + dy }, undefined); m.step(1); return m.direction; };
+    const dir = (dx: number, dy: number) => { const m = new ActorMotion({ x: 100, y: 100 }); m.retarget({ x: 100 + dx, y: 100 + dy }, undefined); m.step(WORLD_TICK_MS); return m.direction; };
     expect([dir(0, 50), dir(-50, 50), dir(-50, 0), dir(-50, -50), dir(0, -50), dir(50, -50), dir(50, 0), dir(50, 50)]).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
   });
   it('snaps a far jump or the player\'s own position', () => {

@@ -21,7 +21,8 @@ describe('NPC wandering (CNpcChibiAvatar 0x009d9dc0 / 0x009d9f70)', () => {
     expect(w.walkTimer).toBe(60);
     let maxStep = 0;
     for (let i = 0; i < 60; i++) { const x = w.x; w.tick(); maxStep = Math.max(maxStep, w.x - x); }
-    expect(w.x).toBeGreaterThan(150); expect(w.x).toBeLessThan(410); expect(maxStep).toBeLessThanOrEqual(3);
+    // the chibi pace, as live's NPCs (up to 6 px a frame): 60 frames reach the spot 360 px away
+    expect(w.x).toBeGreaterThan(300); expect(maxStep).toBeLessThanOrEqual(6); expect(maxStep).toBeGreaterThan(5.5);
     expect(w.direction).toBe(6);   // walking right (avatarDirection(+x, 0))
     // the walk time out: it finishes its step and stands
     for (let i = 0; i < 30; i++) w.tick();
@@ -38,5 +39,13 @@ describe('NPC wandering (CNpcChibiAvatar 0x009d9dc0 / 0x009d9f70)', () => {
     const w = new NpcWanderer({ x: 50, y: 50, direction: 0 }, [{ x: 410, y: 50 }], grid, { rand: seq(0) });
     w.update(1000); expect(w.idleTimer).toBe(300 - 7);   // a long frame counts as 250 ms
     w.update(100); expect(w.idleTimer).toBe(300 - 10);
+  });
+  it('is drawn between its frames at the screen rate', () => {
+    const w = new NpcWanderer({ x: 50, y: 50, direction: 0 }, [{ x: 50, y: 50 }, { x: 410, y: 50 }], grid, { rand: seq(0, 0, 0, 1) });
+    for (let i = 0; i < 301 + 20; i++) w.tick();   // its first idle, then 20 frames into the walk
+    const xs: number[] = []; for (let i = 0; i < 8; i++) { w.update(1000 / 60); xs.push(w.drawX); }
+    expect(new Set(xs).size).toBe(8);   // a new point every 60 Hz frame
+    for (let i = 1; i < xs.length; i++) expect(xs[i]!).toBeGreaterThan(xs[i - 1]!);
+    expect(w.drawX).toBeLessThanOrEqual(w.x);   // never ahead of the walk
   });
 });

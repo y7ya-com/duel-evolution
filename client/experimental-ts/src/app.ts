@@ -177,6 +177,9 @@ export class ClientApp implements ClientController {
   private runtimeMap: number | null = null;
   private runtimeLoad: Promise<void> | null = null;
   private worldTransition = false;
+  /** Each walk command's turn, and the last one sent before the held button was let go (dispatch 'walkRelease'). */
+  private moveOrder = 0;
+  private walkReleased = 0;
   private arrivalFrom: {from:number;to:number} | null = null;
   /** The Move list's area: CWorldMng::enterArea's arrival (map 8's entries, jittered), not the old map's spot. */
   private arrivalArea: number | null = null;
@@ -523,10 +526,14 @@ export class ClientApp implements ClientController {
         });
       }
     }
-    if (worldMap && selfAt && (this.worldArea !== state.area || !this.world.moving)) {
+    if (worldMap && selfAt && (this.worldArea !== state.area || !this.world.moving && !this.world.settling)) {
       this.world.reset(worldMap, spawn ?? selfAt); this.worldArea = state.area;
       if(this.worldRuntime && this.runtimeMap!==state.area) this.loadWorldRuntime(worldMap,this.world.position!);
     }
+    // the player's own avatar: the arrival spot, else where the walk is drawn (a server packet mid-walk rebuilt it at the
+    // last wire point, the truncated step before: the avatar jumped back under a pixel and forward again every packet)
+    const walkShown = this.worldArea === state.area && (this.world.moving || this.world.settling) ? this.world.drawn : null;
+    const selfShown = (p: { x?: number; y?: number; direction?: number }) => spawn ? { x:spawn.x,y:spawn.y,direction:p.direction } : walkShown ? { x:walkShown.x,y:walkShown.y,direction:walkShown.direction } : { x:p.x ?? 0,y:p.y ?? 0,direction:p.direction };
     const connection = state.connection === 'connected' ? 'online' : state.connection === 'connecting' ? 'connecting'
       : state.connection === 'reconnecting' ? 'reconnecting' : state.connection === 'error' ? 'error' : 'offline';
     const duelPreparing = ['preparing-duel', 'rock-paper-scissors', 'choose-first'].includes(state.phase);
@@ -555,7 +562,7 @@ export class ClientApp implements ClientController {
         outgoing: this.project('outgoing', state.outgoingChallengeRoom, room => room ? this.outgoingView(state, room) : undefined),
         ...(this.requestRefused(state) ? { refused: this.requestRefused(state)! } : {}),
         // All areas of a world share one server block; only players in this area (its area block) are on this map.
-        avatars: state.players.filter(p => p.pid === profile.pid || p.areaBlock === state.areaBlock).map(p => ({ id:p.pid,name:p.name,level:p.level,country:p.country,x:p.pid === profile.pid && spawn ? spawn.x : p.x ?? 0,y:p.pid === profile.pid && spawn ? spawn.y : p.y ?? 0,self:p.pid === profile.pid,parts:p.parts,direction:p.direction,world:this.lobbyWorld(state),duelling:p.state !== undefined && p.state >= 0x67 && p.state <= 0x6a,nameColor:nameTagColor(p.state),motion:p.pid === profile.pid && this.world.walking ? 'walk' as const : 'stand' as const }) as LobbyAvatar).concat(this.mapNpcAvatars(state,worldMap)),
+        avatars: state.players.filter(p => p.pid === profile.pid || p.areaBlock === state.areaBlock).map(p => ({ id:p.pid,name:p.name,level:p.level,country:p.country,...(p.pid === profile.pid ? selfShown(p) : { x:p.x ?? 0,y:p.y ?? 0,direction:p.direction }),self:p.pid === profile.pid,parts:p.parts,world:this.lobbyWorld(state),duelling:p.state !== undefined && p.state >= 0x67 && p.state <= 0x6a,nameColor:nameTagColor(p.state),motion:p.pid === profile.pid && this.world.walking ? 'walk' as const : 'stand' as const }) as LobbyAvatar).concat(this.mapNpcAvatars(state,worldMap)),
         chat: this.project('chat', state.chat, chat => chat.map((m, i) => ({ id: String(i), sender: m.name, text: m.text, channel: channelName(m.channel) }))),
         channels: ['global', 'trade', 'whisper', 'team'],
       } : null,
@@ -727,17 +734,18 @@ export class ClientApp implements ClientController {
   }
   private scheduleWorld(): void {
     const request = this.frameRequest;
-    if (!request || !this.world.moving || this.worldFrame !== null || this.disposed) return;
+    if (!request || !(this.world.moving || this.world.settling) || this.worldFrame !== null || this.disposed) return;
     this.worldFrame = request(time => {
       this.worldFrame = null; if (this.disposed) return;
       const delta = this.worldLastFrame === null ? 1000 / 30 : time - this.worldLastFrame; this.worldLastFrame = time;
       try {
         this.world.update(delta);
         if(this.worldRuntime?.status.error)throw new Error(this.worldRuntime.status.error);
-        const position = this.world.position, lobby = this.view.lobby;
+        // the avatar (and the camera that follows it) is drawn where the walk is at this frame, between its 30 Hz steps
+        const position = this.world.position, drawn = this.world.drawn, lobby = this.view.lobby;
         if (this.shopDoor && position && Math.hypot(position.x-this.shopDoor.x,position.y-this.shopDoor.y) >= SHOP_DOOR_REARM) this.shopDoor = null;
-        if (position && lobby) this.patch({ lobby: { ...lobby, avatars: lobby.avatars.map(a => a.self ? { ...a,x:position.x,y:position.y,direction:position.direction,motion:this.world.walking ? 'walk' : 'stand' } : a) } });
-        if (this.world.moving) this.scheduleWorld(); else this.worldLastFrame = null;
+        if (drawn && lobby) this.patch({ lobby: { ...lobby, avatars: lobby.avatars.map(a => a.self ? { ...a,x:drawn.x,y:drawn.y,direction:drawn.direction,motion:this.world.walking ? 'walk' : 'stand' } : a) } });
+        if (this.world.moving || this.world.settling) this.scheduleWorld(); else this.worldLastFrame = null;
       } catch (e) { this.stopWorld(); this.failure(e); }
     });
   }
@@ -1047,8 +1055,8 @@ export class ClientApp implements ClientController {
     if (this.disposed) throw new Error('Client is disposed.');
     // Reject rather than queue stale prompt actions behind an unrelated request.
     // The Tag Duel window serializes its own requests (TagLobbyController.busy); picking seats never waits on the lobby.
-    if (this.lockToken && !['disconnect', 'move', 'settings', 'inspectCard', 'tagAction', 'tournamentRefresh'].includes(command.type)) throw new Error('Wait for the current action to finish.');
-    const locking = !['move', 'settings', 'inspectCard', 'disconnect', 'tagAction', 'tournamentRefresh'].includes(command.type);
+    if (this.lockToken && !['disconnect', 'move', 'walkRelease', 'settings', 'inspectCard', 'tagAction', 'tournamentRefresh'].includes(command.type)) throw new Error('Wait for the current action to finish.');
+    const locking = !['move', 'walkRelease', 'settings', 'inspectCard', 'disconnect', 'tagAction', 'tournamentRefresh'].includes(command.type);
     const token = {};
     if (locking) { this.lockToken = token; this.patch({ busy: true, error: undefined }); }
     const epoch = this.epoch;
@@ -1089,16 +1097,24 @@ export class ClientApp implements ClientController {
           if (['deck', 'shop'].includes(command.scene)) await this.refresh(command.scene); break;
         case 'refresh': await this.refresh(command.scene); break;
         case 'refreshFriends': await this.refreshFriends(); break;
-        case 'move':
+        case 'walkRelease': this.walkReleased = this.moveOrder; this.world.release(); break;
+        case 'move': {
+          const order = ++this.moveOrder;
           this.requireGame();
           if (!this.options.worldMaps || !this.world.position) throw new Error('Original collision data is unavailable. Generate the world maps before walking.');
           if (!this.frameRequest) throw new Error('Animated movement is unavailable.');
           // a map whose collision scene could not be read (its art unreachable as it loaded) is read again: a walk after
           // the connection came back would otherwise find no collision for good
           if(this.worldRuntime && !this.runtimeLoad && !this.worldRuntime.definition){const map=this.options.worldMaps.maps.find(m=>m.id===this.game?.state.area);if(map&&this.runtimeMap===map.id)this.loadWorldRuntime(map,this.world.position);}
+          // a held button steers on while a door's map change runs (the old map left, the new one not joined): those
+          // re-aims are dropped, or the walk they restart sends a step with no lobby ("Join the lobby first")
+          if (this.worldTransition) break;
           if(this.worldRuntime){this.worldRuntime.retry();await this.runtimeLoad;this.assertEpoch(epoch);await this.worldRuntime.prepare(this.world.position,this.connectionScope.signal);this.assertEpoch(epoch);}
+          if (this.worldTransition) break;
+          // a held button's last re-aim still waiting on the collision tiles when the button was let go: the glide wins
+          if (order <= this.walkReleased) break;
           if (!this.world.moveTo({ x: command.x, y: command.y })) throw new Error('That destination is blocked or unreachable.');
-          this.scheduleWorld(); break;
+          this.scheduleWorld(); break; }
         case 'myRoom': this.stopWorld();this.arrivalFrom=null;this.arrivalArea=command.enter?null:-1;if(command.enter)await this.requireGame().enterMyRoom();else await this.requireGame().leaveMyRoom();break;
         case 'moveArea': this.stopWorld();this.arrivalFrom=null;this.arrivalArea=command.area===8?null:command.area;await this.requireGame().enterArea(command.area);break;
         case 'chat': {
