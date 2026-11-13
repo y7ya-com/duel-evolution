@@ -33,7 +33,7 @@ export interface CostView {
   isMonster: (code: number) => boolean;
   /** Printed ATK (0 for a spell/trap). */
   atk: (code: number) => number;
-  /** This monster could be Normal Summoned by me now (my Main Phase, Normal Summon unused). */
+  /** This monster can be Normal Summoned by me (now, or on my next turn: the tributes it needs are on my field). */
   canNormalSummon: (code: number) => boolean;
   /** A piece of the deck's plan its card rule keeps in hand (Exodia): given up last of all. */
   keep?: (code: number) => boolean;
@@ -41,14 +41,17 @@ export interface CostView {
   worth?: (code: number) => number;
   /** A Destiny Board is still in my hand, on my field or in my Deck: its Spirit Messages are not dead cards. */
   destinyLive?: boolean;
+  /** A card whose own effect pays off when it is discarded (a Dark World monster): it wants the graveyard. */
+  payoff?: (code: number) => boolean;
 }
 
 /** 0 = expendable; 1 / 2 / 3 = kept, 1 the strongest (D-costs.md §1.2). */
 export function importance(code: number, v: CostView): 0 | 1 | 2 | 3 {
   const copies = v.hand.filter((c) => c === code).length;
   if (v.isMonster(code)) {
-    // my only monster in hand while I can still Normal Summon it
-    const monsters = v.hand.filter((c) => c && v.isMonster(c)).length;
+    // the only monster in my hand I can Normal Summon (production discarded its only one, a Spirit Reaper, on the
+    // opponent's turn and kept two End of Anubis it had nothing to tribute for)
+    const monsters = v.hand.filter((c) => c && v.isMonster(c) && v.canNormalSummon(c)).length;
     if (monsters === 1 && v.canNormalSummon(code)) return 1;
   }
   if (copies < 2) {
@@ -62,9 +65,9 @@ export function importance(code: number, v: CostView): 0 | 1 | 2 | 3 {
 }
 
 /** A card the picker takes before any other: it wants the graveyard (2) or it is a preferred discard (1). */
-export function discardBenefit(code: number, v?: Pick<CostView, "destinyLive">): number {
+export function discardBenefit(code: number, v?: Pick<CostView, "destinyLive" | "payoff">): number {
   if (SPIRIT_MESSAGES.has(code) && v?.destinyLive) return 0;
-  return WANTS_GRAVE.has(code) ? 2 : DISCARD_FIRST.has(code) ? 1 : 0;
+  return WANTS_GRAVE.has(code) || v?.payoff?.(code) ? 2 : DISCARD_FIRST.has(code) ? 1 : 0;
 }
 
 /** A card never set on its own (the Spirit Messages, the Sarcophagi: dead in the Spell & Trap Zone). */

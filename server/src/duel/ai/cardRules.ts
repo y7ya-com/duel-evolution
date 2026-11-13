@@ -42,6 +42,8 @@ export interface RuleCard extends RuleMon {
   copyOnField: boolean;
   /** Its worth as the NPC's own picks price it (the discard / search order). */
   worth: number;
+  /** A monster whose destruction destroys a monster (Newdoria): destroying it costs one of mine. */
+  revenge: boolean;
 }
 
 /** My cards by zone, as lowercase names (the named-card operators: inMyHand, inMyDeck, onMyField, inMyGrave). */
@@ -106,6 +108,9 @@ export interface CardRule {
   specialSummon?: (ctx: RuleCtx) => boolean;
   /** This monster of mine stays out of my attacks (its survival is the plan: Des Wombat under Dark Snake Syndrome). */
   noAttack?: (ctx: RuleCtx) => boolean;
+  /** This set FLIP monster of mine: Flip Summon it now? No rule = when its flip, played out on the engine, leaves the
+   *  board better (a flip that refills both hands needs one: the board value counts only my hand). */
+  flip?: (ctx: RuleCtx) => boolean;
   /** Never Normal Summon or Set it (an Exodia piece: it wins from the hand). */
   keepInHand?: boolean;
   /** Set, and about to be destroyed by the opponent's chain: use it now? No rule = yes (it is lost otherwise). */
@@ -162,7 +167,8 @@ export function tagRule(c: Card | undefined): CardRule | undefined {
     if (c.has("revive")) return { idleActivate: (x) => Math.max(x.myGraveMaxAtk, x.oppGraveMaxAtk) >= 1500, idlePriority: 95, chainReact };
     if (c.has("stall")) return { idleActivate: outgunned, chainReact };
     // An equip needs a monster of mine worth it (the engine also offers the opponent's).
-    if (c.type & TYPE_EQUIP) return { idleActivate: (x) => (c.any(M_REMOVES_MON) ? x.oppMaxAtk >= 1500 : x.myMon.some((m) => !m.faceDown)) };
+    // A boost waits for my Battle Phase (production equipped Mage Power going first, and Book of Moon took both).
+    if (c.type & TYPE_EQUIP) return { idleActivate: (x) => (c.any(M_REMOVES_MON) ? x.oppMaxAtk >= 1500 : x.myMon.some((m) => !m.faceDown) && !!x.ext?.battlePhaseAhead) };
     if (quick) return { idleActivate: never, chainReact };
     return undefined;
   }

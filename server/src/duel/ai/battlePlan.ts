@@ -26,7 +26,11 @@ export interface PlanMon extends EvalMon { seq: number }
  *  directly while the opponent still has monsters. */
 export interface PlanAttacker { index: number; seq: number; atk: number; canDirect: boolean;
   /** Its attack returns the target and itself to the hand before damage (Neo-Spacian Grand Mole). */
-  bounces?: boolean }
+  bounces?: boolean;
+  /** Borrowed until the End Phase (Brain Control): losing it costs nothing. */
+  lent?: boolean;
+  /** It deals piercing damage (Gravekeeper's Spear Soldier). */
+  pierce?: boolean }
 export interface PlannedAttack { index: number; seq: number; atk: number; /** The opponent's zone, null = direct. */ target: number | null }
 
 export interface Outcome {
@@ -66,6 +70,10 @@ const EPS = 1;
 /** What an unknown face-down monster is taken to hold: a wall of at least this DEF (Master Duel's estimate for a set
  *  Level 4 or lower monster, the band a set monster nearly always is; it peeks at the real level, we do not). */
 export const UNKNOWN_WALL = 1600;
+/** What a surviving Gladiator Beast's tag-out gives its owner (two monsters from the Deck for one). */
+const BATTLE_TRIGGER_COST = 1500;
+/** The most LP a borrowed monster's probe into an unknown set monster may cost (its loss is free). */
+const PROBE_COST = 500;
 
 /** The stat a target defends with (an unknown face-down is a ~1500 DEF wall). */
 function guardOf(t: EvalMon): number {
@@ -86,18 +94,25 @@ function resolve(s: State, a: PlanAttacker, t: PlanMon | null, bit: number): Sta
   const dropOpp = () => { if (!t.battleProof) opp = opp.filter((m) => m.seq !== t.seq); };
   const dropMine = () => { if (!me?.battleProof) my = my.filter((m) => m.seq !== a.seq); };
   if (t.faceDown) flipCost += t.flipRisk ?? 0;
-  // a kill that hands the opponent its afterlife (Sangan's search, Treeborn Frog's return) is worth that much less
-  const kill = () => { if (!t.battleProof) flipCost += t.afterlife ?? 0; };
+  // a kill that hands the opponent its afterlife (Sangan's search, Treeborn Frog's return) is worth that much less; one
+  // that destroys a monster as it dies (Newdoria) takes the attacker with it
+  const kill = () => {
+    if (t.battleProof) return;
+    flipCost += t.afterlife ?? 0;
+    if (t.revenge) my = my.filter((m) => m.seq !== a.seq);
+  };
   if (t.attackPos) {
     if (atk > guard) { oppLp -= atk - guard; dropOpp(); kill(); }
     else if (atk === guard) { dropOpp(); dropMine(); kill(); }
     else { myLp -= guard - atk; dropMine(); }
-  } else if (atk > guard) { dropOpp(); kill(); }
+  } else if (atk > guard) { if (a.pierce) oppLp -= atk - guard; dropOpp(); kill(); }
   else {
     if (atk < guard) myLp -= guard - atk;
     // a face-down that survived is face-up now: its DEF is what it showed
     if (t.faceDown) opp = opp.map((m) => (m.seq === t.seq ? { ...m, faceDown: false, known: true, def: guard } : m));
   }
+  // a Gladiator Beast that battled and is still there tags out into two more at the end of the Battle Phase
+  if (t.battleTrigger && opp.some((m) => m.seq === t.seq)) flipCost += BATTLE_TRIGGER_COST;
   return { myLp, oppLp, my, opp, used, flipCost };
 }
 
@@ -274,11 +289,16 @@ export function attackClass(input: PlanInput, a: PlanAttacker, t: PlanMon | null
   const killed = t !== null && !r.opp.some((m) => m.seq === t.seq);
   const damage = s.oppLp - r.oppLp;
   if (kept && killed) return ATTACK_CLASS.KILL;
+  // damage into a Gladiator Beast that survives buys it two monsters
+  if (t?.battleTrigger && !killed) return ATTACK_CLASS.NOTHING;
   if (kept && damage > 0) return ATTACK_CLASS.DAMAGE;
   if (!kept && killed) {
     const me = input.my.find((m) => m.seq === a.seq);
-    return me && bodyWorth(t!) > bodyWorth(me) ? ATTACK_CLASS.TRADE : ATTACK_CLASS.NOTHING;
+    return a.lent || (me && bodyWorth(t!) > bodyWorth(me)) ? ATTACK_CLASS.TRADE : ATTACK_CLASS.NOTHING;
   }
+  // a borrowed monster goes back at the End Phase: probing an unknown set monster with it costs at most a little LP
+  // (production held a stolen Mystic Tomato back from a lone set monster)
+  if (a.lent && t !== null && t.faceDown && !t.known && s.myLp - r.myLp <= PROBE_COST && !t.battleTrigger) return ATTACK_CLASS.TRADE;
   return ATTACK_CLASS.NOTHING;
 }
 
@@ -352,6 +372,27 @@ export function tradeValue(input: PlanInput): number {
   const reply = replyPosition(end);
   if (reply.myLp <= 0) return -1e6;
   return won - lost - (end.myLp - reply.myLp) - (worth(end.myMon) - worth(reply.myMon));
+}
+
+/** tradeValue with the opponent's monster `take` on my side for this Battle Phase (Brain Control): it attacks with
+ *  nothing to lose, and if it lives it goes back to them before their reply. */
+export function stealValue(input: PlanInput, take: PlanMon): number {
+  const seq = 99;
+  const lent: PlanMon = { ...take, seq, faceDown: false, attackPos: true, noAttack: false };
+  const inp: PlanInput = { ...input, my: [...input.my, lent], opp: input.opp.filter((m) => m.seq !== take.seq),
+    attackers: [...input.attackers, { index: seq, seq, atk: take.atk, canDirect: false, lent: true }] };
+  const { end } = planEnd(inp);
+  if (end.oppLp <= 0) return 1e6;
+  const worth = (ms: EvalMon[]) => ms.reduce((n, m) => n + bodyWorth(m), 0);
+  const endMy = end.myMon as PlanMon[];
+  const myEnd = endMy.filter((m) => m.seq !== seq);
+  const oppEnd = endMy.some((m) => m.seq === seq) ? [...end.oppMon, take] : end.oppMon;
+  const won = (input.base.oppLp - end.oppLp) + worth(input.opp) - worth(oppEnd);
+  const lost = (input.base.myLp - end.myLp) + worth(input.my) - worth(myEnd);
+  const p = { ...end, myMon: myEnd, oppMon: oppEnd };
+  const reply = replyPosition(p);
+  if (reply.myLp <= 0) return -1e6;
+  return won - lost - (end.myLp - reply.myLp) - (worth(myEnd) - worth(reply.myMon));
 }
 
 /** The board after planAttacks' Battle Phase on this one: the attacks and the end position (for comparing plays). */

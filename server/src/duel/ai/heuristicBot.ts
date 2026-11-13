@@ -24,7 +24,7 @@
 //   - style: a personality on top of the tier (attackOnly, myTurnOnly, def, fool, light): see BotStyle.
 // The Battle Phase is planned whole (battlePlan.ts): every attack order and target, compared by survival, lethal,
 // the opponent's next Battle Phase, the board, then the fewest attacks.
-import { ATTACK_CLASS, attackClass, compareVerdicts, nextAttack, outcomeScore, planAttacks, planBattle, planEnd, PLAN_DEFAULTS, replyPosition, tradeValue, UNKNOWN_WALL, type PlanInput, type PlannedAttack, valueWithReply, type PlanAttacker, type PlanMon } from "./battlePlan.ts";
+import { ATTACK_CLASS, attackClass, compareVerdicts, nextAttack, outcomeScore, planAttacks, planBattle, planEnd, PLAN_DEFAULTS, replyPosition, stealValue, tradeValue, UNKNOWN_WALL, type PlanInput, type PlannedAttack, valueWithReply, type PlanAttacker, type PlanMon } from "./battlePlan.ts";
 import BATTLE_PROOF_JSON from "./battleProof.json";
 import ON_SUMMON_JSON from "./onSummon.json";
 import FLIP_SUMMON_JSON from "./flipSummon.json";
@@ -32,7 +32,7 @@ import CATEGORIES from "./aiCategories.json";
 import { type CardRule, type RuleCard, type RuleCtx, type RuleMon, type RuleZones, tagRule } from "./cardRules.ts";
 import type { RuleCtxExt } from "./ruleCtxExt.ts";
 import { activeRules, rulesOf, type RuleSet } from "./ruleSet.ts";
-import { H_ATOHAND, H_DISCARD, H_EQUIP, H_RELEASE, H_REMOVE, H_SPSUMMON, H_SUMMON, H_TODECK, H_TOGRAVE, TAGS_NO_BOOST, TYPE_EXTRA, TYPE_CONTINUOUS, TYPE_COUNTER, TYPE_EFFECT, TYPE_EQUIP, TYPE_FIELD, TYPE_FUSION, TYPE_MONSTER, TYPE_QUICKPLAY, TYPE_SPELL, TYPE_TRAP, tagMask } from "../brain/cards.ts";
+import { H_ATOHAND, H_DISCARD, H_EQUIP, H_RELEASE, H_REMOVE, H_SET, H_SPSUMMON, H_SUMMON, H_TODECK, H_TOGRAVE, TAGS_NO_BOOST, TYPE_EXTRA, TYPE_CONTINUOUS, TYPE_COUNTER, TYPE_EFFECT, TYPE_EQUIP, TYPE_FIELD, TYPE_FUSION, TYPE_MONSTER, TYPE_QUICKPLAY, TYPE_RITUAL, TYPE_SPELL, TYPE_TRAP, tagMask } from "../brain/cards.ts";
 import { COMBO_PLANS, type ComboPlan } from "./comboPlans.ts";
 import { evaluate, type EvalMon, type Position } from "./evaluate.ts";
 import { canPay, costOrder, discardBenefit, expendable, neverSet, type CostView } from "./costPick.ts";
@@ -77,14 +77,25 @@ const NO_TRIBUTE_STATS: Record<string, { atk: number; def: number }> = {
   "fusilier dragon, the dual-mode beast": { atk: 1400, def: 1000 },
   "beast king barbaros": { atk: 1900, def: 1200 },
 };
+/** Monsters whose effect works only face-down (Blast Sphere: attacked while set, it takes the attacker): always set, never
+ *  flipped (production Normal Summoned two face-up). */
+const STAYS_SET = /^(blast sphere)$/;
+/** Monsters whose battles hurt only the opponent (Amazoness Swords Woman): in attack position they cost me nothing. */
+const REFLECTS_DAMAGE = /^(amazoness swords woman)$/;
 /** A card rule's summon score at least this is the turn's plan (made first). */
 const PLANNED_SUMMON = 1500;
 /** Face-up cards that stop monsters attacking (#attackLocked). */
 const ATTACK_LOCKS = /^(nightmare's steelcage|swords of revealing light|messenger of peace|gravity bind|level limit - area b)$/;
 /** A lock of mine already running: a second one adds nothing. */
 const LOCKS = /^(swords of revealing light|swords of concealing light|nightmare's steelcage|messenger of peace|level limit - area b|gravity bind)$/;
-/** Monsters that cannot be destroyed by battle (scripts/ai_battle_proof.mjs). */
+/** Monsters that cannot be destroyed by battle, Equip Spells that make theirs so, Gladiator Beasts (a battle they survive
+ *  triggers them) and monsters whose destruction destroys a monster (scripts/ai_battle_proof.mjs). */
 const BATTLE_PROOF = new Set<number>(BATTLE_PROOF_JSON.codes);
+const BATTLE_PROOF_EQUIP = new Set<number>(BATTLE_PROOF_JSON.equips);
+const BATTLE_TRIGGER = new Set<number>(BATTLE_PROOF_JSON.battleTrigger);
+const REVENGE = new Set<number>(BATTLE_PROOF_JSON.revenge);
+/** Monsters that deal piercing damage (production never counted Gravekeeper's Spear Soldier's on a 200 DEF Spirit Reaper). */
+const PIERCE = new Set<number>(BATTLE_PROOF_JSON.pierce);
 /** Monsters whose own effect a Normal Summon triggers (scripts/ai_on_summon.mjs): summoned face-up for it. */
 const ON_SUMMON = new Set<number>(ON_SUMMON_JSON.codes);
 /** Monsters with no FLIP type whose effect only a Flip Summon triggers (scripts/ai_flip_summon.mjs): played as flip monsters. */
@@ -101,6 +112,30 @@ const TRAP_LOCK = /^(royal decree|jinzo|jinzo - lord)$/;
 const SPELL_LOCK = /^(imperial order|spell canceller)$/;
 /** Continuous / Equip cards that keep a revived monster on the field: it leaves with them. */
 const LINKED_REVIVAL = /^(call of the haunted|glorious illusion|premature burial|limit reverse|the shallow grave|soul resurrection)$/;
+/** Burn cards a chain can stack, and what each deals now (Chain Strike: 400 per link, #burnChain). */
+const BURN: Record<string, (c: RuleCtx) => number> = {
+  "secret barrel": (c) => 200 * (c.oppHand + c.oppMon.length + c.oppBackrow),
+  "just desserts": (c) => 500 * c.oppMon.length,
+  "ceasefire": (c) => 500 * ((c.ext?.myEffectMon ?? 0) + (c.ext?.oppEffectMon ?? 0) + c.myMon.filter((m) => m.faceDown).length + c.oppMon.filter((m) => m.faceDown).length),
+  "dimension wall": (c) => c.ext?.incomingDamage ?? 0,
+  "magic cylinder": (c) => c.attackAtk,
+  "chain strike": () => 0,
+};
+/** Set cards that answer an attack on me (the rule fact mySetAttackAnswers: a wipe on a summon can wait for them). */
+const ATTACK_ANSWER = /^(sakuretsu armor|mirror force|magic cylinder|negate attack|dimension wall|draining shield|justi-break|raigeki break|ring of destruction|widespread ruin|magical arm shield|enemy controller)$/;
+/** Cards in hand or set that stop an attack or a whole Battle Phase: with one, an Exodia piece is not set as a wall. */
+const STOPS_ATTACKS = /^(sakuretsu armor|mirror force|magic cylinder|negate attack|dimension wall|draining shield|justi-break|raigeki break|ring of destruction|widespread ruin|magical arm shield|scapegoat|waboku|threatening roar|gravity bind|messenger of peace|swords of revealing light|nightmare's steelcage|level limit - area b)$/;
+/** Cards that gain from being discarded (Dark World): an opponent's shown one makes "they discard" a gift. */
+const DISCARD_PAYOFF = / of dark world$|^dark world /;
+/** Control cards whose monster goes back at the End Phase (their text tags miss it: Brain Control's monster was never
+ *  read as borrowed, so production tributed two of them before they could attack). */
+const LENDS = /^(brain control|mind control|enemy controller)$/;
+/** Spells and traps with an LP cost (a card worth nothing once it cannot be paid). */
+const LP_COST: Record<string, number> = { "brain control": 800, "premature burial": 800, "final countdown": 2000, "ultimate offering": 500, "skill drain": 1000 };
+/** Equips that hold a monster taken from the opponent: it goes back when they leave. */
+const STEALS = /^(snatch steal|mind control)$/;
+/** Set cards whose cost is a discard: the last card in hand is kept for them. */
+const DISCARD_COST = /^(raigeki break|divine wrath|magic jammer|forced back|dark coffin|hallowed life barrier|spiritualism)$/;
 /** Cards that take a monster off the opponent's field. */
 const REMOVAL = tagMask("destroy_monster", "nuke_opp", "nuke_all", "control", "bounce");
 
@@ -167,7 +202,9 @@ interface OppMon { seq: number; code: number; level: number; atk: number; def: n
   /** Taken from the other player until the End Phase (Brain Control): it goes back, so it is the first tribute. */
   stolen: boolean;
   /** A face-up lock stops it attacking (#attackLocked). */
-  noAttack: boolean }
+  noAttack: boolean;
+  /** A Gladiator Beast (a battle it survives triggers it); destroyed, it destroys a monster (Newdoria). */
+  battleTrigger: boolean; revenge: boolean }
 /** Live combo-assembly state: how many pieces are in hand/field and whether the payoff can be made now. */
 interface ComboState { plan: ComboPlan; pieces: number; ready: boolean; haveEnabler: boolean }
 
@@ -205,15 +242,18 @@ export class HeuristicBot {
   #attackSeen = true;
   #deadAttackers = new Set<number>();
   /** The opponent's attack of this Battle Phase (their monster's zone; ours it targets), until the phase changes. */
-  #attack: { sequence: number; direct: boolean; target: number | null } | null = null;
+  #attack: { sequence: number; direct: boolean; target: number | null; resolved?: boolean } | null = null;
   /** Who activated the chain's last link (null outside a chain). */
   #chainTop: number | null = null;
   /** The link of the chain resolving now (1-based, CHAIN_SOLVING), 0 outside a resolution. */
   #solving = 0;
   /** The chain's links so far (cleared at its end). */
   #links: ChainLink[] = [];
-  /** ATK of the monster the opponent just summoned (its response window), until a chain starts or the phase moves. */
+  /** ATK of the monster the opponent just summoned (its response window), until a chain starts or the phase moves, and
+   *  its zone: its ATK on the field is read there (Evil HERO Dark Gaia's printed ATK is "?": production read it as 1
+   *  and let a 6200 through Bottomless Trap Hole). */
   #oppSummonAtk = 0;
+  #oppSummonSeq = -1;
   /** The engine's hint for this seat's next card pick (HINT type 3: 518 = equip...). */
   #hint = 0;
   /** The card this seat activated last (what a following target pick belongs to). */
@@ -247,6 +287,8 @@ export class HeuristicBot {
   #myAttack: { sequence: number; target: number | null } | null = null;
   /** The chain length once our last answer in this window is on it (a later opponent link may be answered again). */
   #answeredAt = 0;
+  /** A burn card went on this chain to raise Chain Strike's link: Chain Strike follows it. */
+  #stacking = false;
   /** This seat Normal Summoned this turn (the cost picker keeps a summonable monster until then); the opponent did. */
   #normalSummoned = false;
   #oppNormalSummoned = false;
@@ -254,6 +296,12 @@ export class HeuristicBot {
   #standbys = new Map<string, number>();
   /** Whose turn it is by the duel's messages (NEW_TURN), for what happens between selects. */
   #msgTurnPlayer = -1;
+  /** Equip cards by their zone (`${controller}:${sequence}`) -> the monster zone they went onto (the EQUIP message). */
+  #equips = new Map<string, string>();
+  /** `${zone}:${code}` of the monsters I controlled but did not own at the start of this turn (a Creature Swap): not
+   *  what this turn's Brain Control lent me. */
+  #heldBefore = new Set<string>();
+  #heldTurn = -1;
 
   constructor(seat: number, cards: CardInfo, opts: BotOpts = {}) {
     this.seat = seat;
@@ -281,7 +329,7 @@ export class HeuristicBot {
   /** Public duel messages (ev.ev === "msg"): chain boundaries reset the per-window guard. */
   observe(ev: Json): void {
     switch (ev.type) {
-      case "CHAIN_END": this.#chainedThisWindow.clear(); this.#chainTop = null; this.#links = []; this.#solving = 0; this.#answeredAt = 0; break;
+      case "CHAIN_END": this.#chainedThisWindow.clear(); this.#chainTop = null; this.#links = []; this.#solving = 0; this.#answeredAt = 0; this.#stacking = false; break;
       case "CHAIN_SOLVING": this.#solving = Number(ev.chain_size ?? 0); break;
       case "CHAIN_SOLVED": this.#solving = 0; break;
       case "CHAINING": {
@@ -307,6 +355,7 @@ export class HeuristicBot {
       case "SUMMONING": case "SPSUMMONING": case "FLIPSUMMONING":
         if (ev.type === "SUMMONING") { if (Number(ev.controller) === this.seat) this.#normalSummoned = true; else this.#oppNormalSummoned = true; }
         this.#oppSummonAtk = Number(ev.controller) !== this.seat && Number(ev.code) ? Math.max(1, this.#stat(Number(ev.code)).atk) : 0;
+        this.#oppSummonSeq = this.#oppSummonAtk > 0 && (Number(ev.location) & LOCATION.MZONE) !== 0 ? Number(ev.sequence) : -1;
         break;
       case "SET":
         // a monster Set uses the Normal Summon too
@@ -325,6 +374,13 @@ export class HeuristicBot {
         break;
       }
       case "HINT": if (ev.hint_type === 3 && ev.player === this.seat) this.#hint = Number(ev.hint); break;
+      // the damage is calculated: removing the attacker now stops nothing
+      case "BATTLE": if (this.#attack) this.#attack = { ...this.#attack, resolved: true }; break;
+      case "EQUIP": {
+        const c = ev.card as Json | undefined, t = ev.target as Json | undefined;
+        if (c && t) this.#equips.set(`${Number(c.controller)}:${Number(c.sequence)}`, `${Number(t.controller)}:${Number(t.sequence)}`);
+        break;
+      }
     }
   }
 
@@ -350,6 +406,10 @@ export class HeuristicBot {
       if (this.#turnPlayer === this.seat) { this.#idleActions = 0; this.#activatedThisTurn.clear(); this.#allIn = false; }
     }
     this.#board = (this.#vision && this.#peek ? boardFromState(this.#peek(), this.seat, true) : null) ?? boardFromView(sel, this.seat) ?? this.#board;
+    if (turn !== this.#heldTurn) {
+      this.#heldTurn = turn;
+      this.#heldBefore = new Set((this.#me()?.mzone ?? []).flatMap((c, i) => (c && c.owner !== undefined && c.owner !== c.controller ? [`${i}:${c.code}`] : [])));
+    }
   }
 
   /** Copies another player's per-turn bookkeeping (a rollout pilot continuing the live player's turn). */
@@ -368,9 +428,14 @@ export class HeuristicBot {
     this.#hint = from.#hint;
     this.#lastActivated = from.#lastActivated;
     this.#oppSummonAtk = from.#oppSummonAtk;
+    this.#oppSummonSeq = from.#oppSummonSeq;
     this.#solving = from.#solving;
+    this.#stacking = from.#stacking;
     this.#standbys = new Map(from.#standbys);
     this.#msgTurnPlayer = from.#msgTurnPlayer;
+    this.#equips = new Map(from.#equips);
+    this.#heldBefore = new Set(from.#heldBefore);
+    this.#heldTurn = from.#heldTurn;
   }
 
   /** The value of a duelcore `state` from this seat (masked for it unless spy): evaluate(), counting what the
@@ -457,7 +522,7 @@ export class HeuristicBot {
   #activated(code: number): void {
     this.#lastActivated = code;
     const k = this.#cards.brain.get(code);
-    if (k && k.has("control") && k.descTemporal) this.#lentTurn = this.#turn;
+    if (k && k.has("control") && (k.descTemporal || LENDS.test(this.#nameOf(code)))) this.#lentTurn = this.#turn;
   }
 
   // ---- combo planner ----------------------------------------------------------------------------------------------
@@ -498,21 +563,40 @@ export class HeuristicBot {
   /** A monster set for its flip: a FLIP monster, or one whose effect only its Flip Summon triggers (Swarm of Locusts). */
   #isFlip(code: number): boolean { return !!code && (!!this.#cards.brain.get(code)?.is_flip || FLIP_SUMMON.has(code)); }
 
+  /** The monster in this zone cannot be destroyed by battle: by its own text, or by a face-up Equip Spell on it
+   *  (Gladiator Beast's Battle Manica: production attacked a Secutor wearing one three times). */
+  #battleProofAt(controller: number, seq: number, code: number): boolean {
+    if (code && BATTLE_PROOF.has(code)) return true;
+    const b = this.#board;
+    if (!b) return false;
+    for (const [at, on] of this.#equips) {
+      if (on !== `${controller}:${seq}`) continue;
+      const [who, zone] = at.split(":").map(Number) as [number, number];
+      const e = b.players[who]?.szone[zone];
+      if (e && e.code && !isFaceDown(e.position) && BATTLE_PROOF_EQUIP.has(e.code)) return true;
+    }
+    return false;
+  }
+
   /** A player's monsters with their current stats. A masked face-down has unknown stats (known = false). */
   #monstersOf(p: PlayerBoard | null): OppMon[] {
     if (!p) return [];
     const out: OppMon[] = [];
+    const who = p === this.#me() ? this.seat : 1 - this.seat;
     p.mzone.forEach((c, seq) => {
       if (!c) return;
       const faceDown = isFaceDown(c.position);
       out.push({
         seq, code: c.code, level: c.level ?? (c.code ? this.#stat(c.code).level : 0), atk: c.attack ?? 0, def: c.defense ?? 0, faceDown,
-        battleProof: !!c.code && BATTLE_PROOF.has(c.code), afterlife: c.code ? afterlife(c.code) : 0,
+        battleProof: this.#battleProofAt(who, seq, c.code), afterlife: c.code ? afterlife(c.code) : 0,
         attackPos: (c.position & POS.ATTACK) !== 0 && !faceDown,
         known: !faceDown || c.code !== 0,
         flipRisk: faceDown ? (c.code ? this.#cards.flipRisk(c.code) : 300) : 0,
-        stolen: c.owner !== undefined && c.owner !== c.controller && this.#lentTurn === this.#turn,
+        // lent by this turn's Brain Control (not a monster I already held when the turn began: a Creature Swap)
+        stolen: c.owner !== undefined && c.owner !== c.controller && this.#lentTurn === this.#turn && !(who === this.seat && this.#heldBefore.has(`${seq}:${c.code}`)),
         noAttack: false,
+        battleTrigger: !!c.code && BATTLE_TRIGGER.has(c.code),
+        revenge: !!c.code && REVENGE.has(c.code),
       });
     });
     const locks = this.#faceUpLocks();
@@ -577,9 +661,13 @@ export class HeuristicBot {
     const free = me ? me.szone.slice(0, 5).filter((c) => !c).length : 5;
     const handSpell = !!me && me.hand.some((c) => { const t = this.#cards.brain.get(c)?.type ?? 0; return (t & TYPE_SPELL) !== 0 && (t & (TYPE_QUICKPLAY | TYPE_FIELD)) === 0 && !neverSet(c); });
     if (free <= 1 && handSpell && (me?.hand.length ?? 0) < 7) return -1;
+    // a last card in hand that only repeats a card already on my field stays there while a set card needs a discard to
+    // work (production set a second Macro Cosmos, and its Divine Wrath could not answer)
+    const keepFodder = !!me && me.hand.length <= 1 && me.szone.some((c) => c && c.code && isFaceDown(c.position) && DISCARD_COST.test(this.#nameOf(c.code)));
     const setCodes = new Set(me ? me.szone.filter((c): c is BoardCard => !!c && isFaceDown(c.position)).map((c) => c.code) : []);
     for (let i = 0; i < ev.spellSet.length; i++) {
       if (free <= 2 && setCodes.has(ev.spellSet[i]!.code)) continue;
+      if (keepFodder && me!.szone.some((c) => c && c.code === ev.spellSet[i]!.code)) continue;
       const t = this.#cards.brain.get(ev.spellSet[i]!.code)?.type ?? 0;
       // not into a face-up Royal Decree / Jinzo (a port choice: Master Duel's set routine has no lock check), and never a
       // card dead in hand (the Spirit Messages, the Sarcophagi: Master Duel never sets them on their own)
@@ -622,6 +710,17 @@ export class HeuristicBot {
     return play && play.cmd === "SELECT_SUMMON" && play.stat >= 1000 ? respIdle(play.cmd, play.index) : null;
   }
 
+  /** Before my Battle Phase with my Normal Summon unused: the summon whose battle (and the reply to it) comes out clearly
+   *  better than going in without it (production went to battle with three Diamond Dudes in hand next to an 800 ATK
+   *  Summoner Monk facing a lone Brron, and later had nothing on the field). */
+  #battleSummon(ev: P<"selectIdleCmd">): Json | null {
+    if (!ev.canBattlePhase || !this.#battleAhead() || this.#normalSummoned || this.#oppMonsters().length === 0) return null;
+    const play = this.#summonPlays(ev, this.#ctx())[0];
+    // a real attacker, clearly better (a weak body thrown in beside the search's choice lost lab duels)
+    if (!play || play.trade === undefined || play.cmd !== "SELECT_SUMMON" || play.stat < 1400) return null;
+    return play.trade > this.#tradeWith(new Set()) + 600 ? respIdle(play.cmd, play.index) : null;
+  }
+
   /** Ending the turn over the hand size: the best card I can set goes to the field instead of the graveyard (production
    *  discarded Messenger of Peace with three empty zones). */
   #setOverHandLimit(ev: P<"selectIdleCmd">): Json | null {
@@ -643,8 +742,10 @@ export class HeuristicBot {
     if (this.#combo?.afterPayoff?.includes(name) && !this.#comboPayoffLive()) return -Infinity;
     const rule = this.#ruleFor(code);
     if (rule?.idleActivate && !rule.idleActivate(this.#withSelf(ctx, code, ref, action))) return -Infinity;
-    // a Field Spell already face-up on our field: a second copy only replaces it (production: Luminous Spark over Luminous Spark)
-    if (((this.#cards.brain.get(code)?.type ?? 0) & TYPE_FIELD) && this.#me()?.szone.some((c) => c && c.code === code && !isFaceDown(c.position))) return -Infinity;
+    // a Field Spell already face-up on our field: a second copy only replaces it (production: Luminous Spark over Luminous
+    // Spark); the face-up one's own effect is not a copy (production never used Mausoleum of the Emperor's summon)
+    const fromField = !!ref && ref.controller === this.seat && (ref.location & LOCATION.SZONE) !== 0;
+    if (!fromField && ((this.#cards.brain.get(code)?.type ?? 0) & TYPE_FIELD) && this.#me()?.szone.some((c) => c && c.code === code && !isFaceDown(c.position))) return -Infinity;
     return rule?.idlePriority ?? 0;
   }
 
@@ -759,14 +860,15 @@ export class HeuristicBot {
       myBanishedMaxAtk: maxAtk(me.removed), oppRemoved: opp.removed.filter(isMon).length, oppRemovedMaxAtk: maxAtk(opp.removed),
       myEffectMon: effectMon(me), oppEffectMon: effectMon(opp),
       oppChainThreat: threat, oppChainHitsMine: hits,
-      oppSummonAtk: this.#oppSummonAtk,
+      oppSummonAtk: this.#summonedAtk(),
       incomingDamage: incoming,
       myBattlerAtk: oppAttack && guard ? guard.attack ?? 0 : myTurn && this.#myAttack ? me.mzone[this.#myAttack.sequence]?.attack ?? 0 : 0,
       oppBattlerValue: oppAttack ? attackAtk : myTurn && this.#myAttack && this.#myAttack.target !== null ? (() => {
         const t = opp.mzone[this.#myAttack!.target!];
         return !t ? 0 : isFaceDown(t.position) ? UNKNOWN_WALL : (t.position & POS.DEFENSE) !== 0 ? t.defense ?? 0 : t.attack ?? 0;
       })() : 0,
-      preBattle: myTurn && (phase === PHASE.MAIN1 || battlePhase),
+      // (no Battle Phase on the duel's first turn: production equipped Mage Power going first)
+      preBattle: myTurn && (phase === PHASE.MAIN1 || battlePhase) && this.#turn > 1,
       afterBattle: myTurn && phase === PHASE.MAIN2,
       inBattle: battlePhase && (myTurn ? !!this.#declaredAttacker : !!this.#attack),
       oppStandby: !myTurn && phase === PHASE.STANDBY,
@@ -782,7 +884,8 @@ export class HeuristicBot {
       oppSummoning: this.#oppSummonAtk > 0,
       lethalOnEmpty: myTurn && swinging >= opp.lp,
       attackTargetLoses: !!guard && attackAtk > guardValue,
-      attackHurts: incoming > 0 || (!!guard && attackAtk > guardValue && !(guard.code && BATTLE_PROOF.has(guard.code))),
+      attackTargetFloats: !!guard && !!guard.code && afterlife(guard.code) > 0,
+      attackHurts: incoming > 0 || (!!guard && attackAtk > guardValue && !this.#battleProofAt(this.seat, guard.sequence, guard.code)),
       attackerIsStrongest: !!oppAttack && oppMon.every((m) => m.seq === this.#attack!.sequence || !m.attackPos || m.atk <= attackAtk || this.#oppAttackedThisTurn.has(m.seq)),
       oppPlanLethal: !myTurn && replyPosition(this.#boardPosition()).myLp <= 0,
       trapLock: this.#trapLock(),
@@ -812,9 +915,21 @@ export class HeuristicBot {
         }
         return false;
       })(),
+      oppDiscardPayoff: [...opp.grave, ...opp.removed, ...[...opp.mzone, ...opp.szone].filter((c): c is BoardCard => !!c && !isFaceDown(c.position)).map((c) => c.code)]
+        .filter((c) => c && DISCARD_PAYOFF.test(this.#nameOf(c))).length,
+      myLinkedCards: me.szone.filter((c) => c && c.code && !isFaceDown(c.position) && (LINKED_REVIVAL.test(this.#nameOf(c.code)) || STEALS.test(this.#nameOf(c.code)))).length,
+      myArchfiends: me.mzone.filter((c) => c && c.code && !isFaceDown(c.position) && /archfiend/.test(this.#nameOf(c.code))).length,
+      mySetAttackAnswers: me.szone.filter((c) => c && c.code && isFaceDown(c.position) && ATTACK_ANSWER.test(this.#nameOf(c.code))).length,
       attackerLevel: oppAttack ? oppAttack.level ?? (oppAttack.code ? this.#stat(oppAttack.code).level : 0) : 0,
       attackerExtra: !!oppAttack && !!oppAttack.code && ((type(oppAttack.code) & TYPE_EXTRA) !== 0),
     };
+  }
+
+  /** ATK of the monster the opponent just summoned: its current ATK on the field, else its printed ATK; 0 none. */
+  #summonedAtk(): number {
+    if (this.#oppSummonAtk <= 0) return 0;
+    const c = this.#oppSummonSeq >= 0 ? this.#opp()?.mzone[this.#oppSummonSeq] : null;
+    return c && c.code && !isFaceDown(c.position) && c.attack !== undefined ? Math.max(1, c.attack) : this.#oppSummonAtk;
   }
 
   /** A face-up Trap lock (Royal Decree, Jinzo) on either field that is not itself being negated: a Trap does nothing. */
@@ -839,17 +954,18 @@ export class HeuristicBot {
   #costView(hand?: number[]): CostView {
     const me = this.#me();
     const isMonster = (c: number) => ((this.#cards.brain.get(c)?.type ?? 0) & TYPE_MONSTER) !== 0;
-    const myMain = this.#turnPlayer === this.seat && (this.#board?.phase === PHASE.MAIN1 || this.#board?.phase === PHASE.MAIN2);
     const monsters = me ? me.mzone.filter(Boolean).length : 0;
     return {
       hand: hand ?? me?.hand ?? [],
       field: me ? [...me.mzone, ...me.szone].filter((c): c is BoardCard => !!c).map((c) => c.code) : [],
       isMonster,
       atk: (c) => this.#stat(c).atk,
-      canNormalSummon: (c) => myMain && !this.#normalSummoned && (this.#cards.brain.get(c)?.tributes() ?? 0) <= monsters,
+      canNormalSummon: (c) => (this.#cards.brain.get(c)?.tributes() ?? 0) <= monsters,
       keep: (c) => !!this.#ruleFor(c)?.keepInHand,
       worth: (c) => this.#worth(c, true),
       destinyLive: (() => { const z = this.#zones(); return [...z.hand, ...z.field, ...z.deck].includes("destiny board"); })(),
+      // a Dark World monster discarded summons itself (production kept Sillva for Dark World Dealings' discard)
+      payoff: (c) => isMonster(c) && DISCARD_PAYOFF.test(this.#nameOf(c)),
     };
   }
 
@@ -880,6 +996,8 @@ export class HeuristicBot {
     const ext: RuleCtxExt = { ...ctx.ext, myHandSpare: spare, discardFodder: canPay(costs, { exclude: self, safe: this.#safePayment() }), selfAtk: atk, selfDef: def, selfValue: onField ? ((snap!.position & POS.DEFENSE) !== 0 ? def : atk) : 0,
       selfStandbys: standbys,
       selfThreatened: threatened, sameCardActive: same(this.#me()) || same(this.#opp()) };
+    // the steal's battle is planned only if a rule reads it
+    Object.defineProperty(ext, "stealGain", { get: () => this.#stealGain(), enumerable: true });
     if (action) {
       // the what-if runs only if a rule reads it
       const result = () => this.#whatIf(action);
@@ -968,6 +1086,11 @@ export class HeuristicBot {
       if (pos) { this.#idleActions++; return pos; }
       if (r.action === "TO_EP" && ev.canBattlePhase && this.#mainOnePlan().length > 0) return respIdle("TO_BP");
       if (r.action === "TO_EP") { const keep = this.#setOverHandLimit(ev); if (keep) { this.#idleActions++; return keep; } }
+      // the turn does not end with a trap left in hand that could be set (Master Duel sets its backrow before it ends;
+      // the rollouts price a set card like a held one: production ended two turns on an empty field holding Bottomless
+      // Trap Hole and Call of the Haunted)
+      if (r.action === "TO_EP") { const set = this.#spellToSet(ev); if (set >= 0) { this.#idleActions++; return respIdle("SELECT_SPELL_SET", set); } }
+      if (r.action === "TO_BP") { const summon = this.#battleSummon(ev); if (summon) { this.#idleActions++; return summon; } }
     }
     return r;
   }
@@ -1267,7 +1390,8 @@ export class HeuristicBot {
   #planInput(raised: ReadonlySet<number> = new Set()): PlanInput {
     const base = this.#battlePosition();
     const toPlan = (o: OppMon): PlanMon => ({ atk: o.atk, def: o.faceDown && !o.known ? Math.max(o.def, UNKNOWN_WALL) : o.def, faceDown: o.faceDown,
-      attackPos: o.attackPos, known: o.known, flipRisk: o.flipRisk, battleProof: o.battleProof, afterlife: o.afterlife, seq: o.seq, noAttack: o.noAttack });
+      attackPos: o.attackPos, known: o.known, flipRisk: o.flipRisk, battleProof: o.battleProof, afterlife: o.afterlife, seq: o.seq, noAttack: o.noAttack,
+      battleTrigger: o.battleTrigger, revenge: o.revenge });
     const locks = this.#faceUpLocks();
     const my = this.#monstersOf(this.#me()).map((m) => {
       const up = !m.faceDown || raised.has(m.seq);
@@ -1277,8 +1401,9 @@ export class HeuristicBot {
     });
     // every face-up monster (and a raised set one) may attack: a defender the plan uses is switched up first; one a lock
     // stops attacking stays out (production flipped Emissary of the Afterlife under its own Level Limit - Area B)
+    const lent = new Set(this.#monstersOf(this.#me()).filter((m) => m.stolen).map((m) => m.seq));
     const attackers: PlanAttacker[] = my.filter((m) => !m.faceDown && m.atk > 0 && !m.noAttack && !this.#ruleNoAttack(m.seq))
-      .map((m) => ({ index: m.seq, seq: m.seq, atk: m.atk, canDirect: false, bounces: this.#bounces(this.#me()?.mzone[m.seq]?.code ?? 0) }));
+      .map((m) => { const code = this.#me()?.mzone[m.seq]?.code ?? 0; return { index: m.seq, seq: m.seq, atk: m.atk, canDirect: false, bounces: this.#bounces(code), lent: lent.has(m.seq), pierce: PIERCE.has(code) }; });
     return { base, my, opp: this.#monstersOf(this.#opp()).map(toPlan), attackers };
   }
 
@@ -1304,7 +1429,7 @@ export class HeuristicBot {
 
   /** "Better in defence": a face-up monster that could fight a known enemy monster but gains nothing doing it. */
   #betterInDefence(m: OppMon, input: PlanInput): boolean {
-    if (m.battleProof) return false;
+    if (m.battleProof || REFLECTS_DAMAGE.test(this.#nameOf(m.code))) return false;
     const self = input.my.find((x) => x.seq === m.seq);
     if (!self) return false;
     // nothing of theirs out-hits it in attack and its DEF is the weaker stat: defence only exposes it (production put a
@@ -1328,13 +1453,15 @@ export class HeuristicBot {
 
   /** Master Duel's Main-2 (and no-Battle-Phase) position for one monster: attack, defence or keep. */
   #mainTwoPosition(m: OppMon, input: PlanInput): "atk" | "def" | "keep" {
+    // one whose battle damage goes to the opponent stays in attack (production put Amazoness Swords Woman in defence)
+    if (!m.faceDown && REFLECTS_DAMAGE.test(this.#nameOf(m.code))) return m.attackPos ? "keep" : "atk";
     const lp = this.#me()?.lp ?? 8000;
     // staying in attack could be lethal
     const loss = this.#oppMonsters().filter((o) => !o.faceDown && !o.noAttack && o.atk > m.atk).reduce((n, o) => n + (o.atk - m.atk), 0);
     if (lp - loss <= 0) return "def";
     if (this.#betterInDefence(m, input)) return "def";
-    // a set flip monster stays set: its flip is judged for its effect (#flipForEffect)
-    if (m.faceDown && this.#isFlip(m.code)) return "keep";
+    // a set flip monster stays set: its flip is judged for its effect (#flipForEffect); a face-down-only one stays down
+    if (m.faceDown && (this.#isFlip(m.code) || STAYS_SET.test(this.#nameOf(m.code)))) return "keep";
     const atk = m.atk, def = m.def, threat = this.#threatAtk();
     if (atk === 0) return "def";
     const cap = Math.min(lp, 1000), gap = threat - atk;
@@ -1353,6 +1480,11 @@ export class HeuristicBot {
   /** The battle from my monsters' real positions, `raised` ones switched (or flipped) to attack: what my attacks win
    *  less what the opponent's reply takes back (battlePlan.ts tradeValue). */
   #tradeWith(raised: ReadonlySet<number>): number {
+    return tradeValue(this.#realInput(raised));
+  }
+
+  /** The battle planner's input with my monsters in their real positions, `raised` ones switched (or flipped) to attack. */
+  #realInput(raised: ReadonlySet<number>): PlanInput {
     const input = this.#planInput(raised);
     const real = new Map(this.#monstersOf(this.#me()).map((m) => [m.seq, m]));
     const my = input.my.map((pm) => {
@@ -1361,7 +1493,16 @@ export class HeuristicBot {
       return { ...pm, faceDown: !!r && r.faceDown && !raised.has(pm.seq), attackPos: up && !pm.noAttack };
     });
     const attackers = input.attackers.filter((a) => my.some((m) => m.seq === a.seq && m.attackPos));
-    return tradeValue({ ...input, my, attackers });
+    return { ...input, my, attackers };
+  }
+
+  /** What stealing the opponent's strongest face-up monster for this turn gains my Battle Phase (#ctxExt stealGain). */
+  #stealGain(): number {
+    if (!this.#battleAhead()) return 0;
+    const input = this.#realInput(new Set());
+    const take = input.opp.filter((m) => !m.faceDown).sort((a, b) => b.atk - a.atk)[0];
+    if (!take) return 0;
+    return Math.round(stealValue(input, take) - tradeValue(input));
   }
 
   /** Raising this monster to attack for the battle plan pays: its attacks win more than the reply takes through it
@@ -1391,7 +1532,7 @@ export class HeuristicBot {
       // a set monster without a flip effect: flipped when the battle plan with it face-up uses it
       for (let i = 0; i < ev.repositionable.length; i++) {
         const m = at(ev.repositionable[i]!);
-        if (!m || !m.faceDown || this.#isFlip(m.code)) continue;
+        if (!m || !m.faceDown || this.#isFlip(m.code) || STAYS_SET.test(this.#nameOf(m.code))) continue;
         if (this.#mainOnePlan(new Set([m.seq])).some((a) => a.seq === m.seq) && this.#raisePays(m.seq)) return respIdle("SELECT_POS_CHANGE", i);
       }
       return null;
@@ -1410,11 +1551,14 @@ export class HeuristicBot {
    *  its flip, played out on the engine with its effect, leaves the board better. */
   #flipForEffect(ev: P<"selectIdleCmd">): Json | null {
     if (!this.#search || !this.#sel) return null;
+    if (this.#turnPlayer !== this.seat) return null;
     for (let i = 0; i < ev.repositionable.length; i++) {
       const r = ev.repositionable[i]!;
       const s = this.#snap(r);
       if (!s || !isFaceDown(s.position) || !this.#isFlip(r.code)) continue;
-      if (this.#whatIf({ prompt: ev, resp: respIdle("SELECT_POS_CHANGE", i) }).gain > 0) {
+      // its card rule says when (Morphing Jar refills both hands: the board value sees only mine), else the what-if
+      const rule = this.#ruleFor(r.code)?.flip;
+      if (rule ? rule(this.#withSelf(this.#ctx(), r.code, r)) : this.#whatIf({ prompt: ev, resp: respIdle("SELECT_POS_CHANGE", i) }).gain > 0) {
         // a flip that discards my hand (Morphing Jar): the traps in it are set first (production discarded Mirror Force
         // into three attackers)
         if (HAND_RESET.test(this.#nameOf(r.code))) { const set = this.#spellToSet(ev); if (set >= 0) return respIdle("SELECT_SPELL_SET", set); }
@@ -1478,10 +1622,13 @@ export class HeuristicBot {
     if (this.#style.attackOnly || this.#allIn) return "up";
     const { atk, def } = st;
     if (this.#isFlip(code) && atk < 2000 && !(atk >= 1200 && def <= atk + 200)) return "set";
+    if (STAYS_SET.test(this.#nameOf(code))) return "set";
+    if (REFLECTS_DAMAGE.test(this.#nameOf(code))) return "up";
     const T = this.#threatAtk(), lp = this.#me()?.lp ?? 8000;
     // a monster battle cannot destroy walls only in defence: summoned in attack under a bigger attacker it is a hole the
-    // damage goes through (production: Spirit Reaper face-up at 200 LP, its card rule's summon score read as "face-up")
-    if (BATTLE_PROOF.has(code) && atk < T) return "set";
+    // damage goes through (production: Spirit Reaper face-up at 200 LP, its card rule's summon score read as "face-up";
+    // and face-up at 100 LP onto an empty field, where its direct attack fed a Dark World discard)
+    if (BATTLE_PROOF.has(code) && (atk < T || (atk < 1000 && lp <= 1000))) return "set";
     // a card rule that wants it on the field for its effect (a Monarch), or an effect that only a Normal Summon
     // triggers (Manju of the Ten Thousand Hands: set, it never searches): Master Duel's per-card effect-use table
     if (bonus > 0 || ON_SUMMON.has(code)) return "up";
@@ -1509,7 +1656,7 @@ export class HeuristicBot {
     const mon: PlanMon = { atk: st.atk, def: st.def, faceDown: set, attackPos: !set, known: true, flipRisk: 0, seq: free,
       battleProof: BATTLE_PROOF.has(code), afterlife: afterlife(code) };
     const my = [...input.my.filter((m) => !tributes.includes(m.seq)), mon];
-    const attackers = [...input.attackers.filter((a) => !tributes.includes(a.seq)), ...(set ? [] : [{ index: free, seq: free, atk: st.atk, canDirect: false, bounces: this.#bounces(code) }])];
+    const attackers = [...input.attackers.filter((a) => !tributes.includes(a.seq)), ...(set ? [] : [{ index: free, seq: free, atk: st.atk, canDirect: false, bounces: this.#bounces(code), pierce: PIERCE.has(code) }])];
     const { end } = planEnd({ ...input, my, attackers });
     // the same summon judged with my other monsters in their real positions, against the reply (#tradeWith)
     const real = new Map(this.#monstersOf(this.#me()).map((m) => [m.seq, m]));
@@ -1528,7 +1675,7 @@ export class HeuristicBot {
    *  strongest opposing monster (a card rule's summon score, a Monarch, skips the test), a Tribute Set otherwise only
    *  to wall an opponent's lethal with more than the tributes stopped; never an attacker of the turn's stored battle
    *  plan as a tribute; and in Main 2 nothing at all when a safe monster is out, the NPC is not behind and no candidate beats both. */
-  #summonPlays(ev: P<"selectIdleCmd">, ctx: RuleCtx): { cmd: "SELECT_SUMMON" | "SELECT_MONSTER_SET"; index: number; score: number; stat: number }[] {
+  #summonPlays(ev: P<"selectIdleCmd">, ctx: RuleCtx): { cmd: "SELECT_SUMMON" | "SELECT_MONSTER_SET"; index: number; score: number; stat: number; trade?: number }[] {
     const holdOf = (m: OppMon): number => (m.faceDown && !m.known ? Math.max(m.def, UNKNOWN_WALL) : m.attackPos ? m.atk : m.def);
     const mine = this.#monstersOf(this.#me()), opp = this.#oppMonsters();
     const planned = new Set(this.#mainOnePlan().map((a) => a.seq));
@@ -1536,14 +1683,32 @@ export class HeuristicBot {
     // monster flipped up since then is fair game), a borrowed monster first, then the weakest by ATK, as the tribute
     // prompt gives them up (#selectTribute: ranking a set Mystical Elf by its 2000 DEF priced the wrong tribute)
     const stored = this.#storedPlan();
-    const fodder = mine.filter((m) => !stored.has(m.seq)).sort((x, y) => Number(y.stolen) - Number(x.stolen) || (x.atk - x.afterlife) - (y.atk - y.afterlife));
+    // nor, before my battle, a borrowed monster that attacks in the plan: it attacks first and is tributed in Main 2
+    // (production tributed a Brain Controlled Goldd and Brron for one monster that Book of Moon then stopped); a planned
+    // attacker that wants the graveyard (Emissary of the Afterlife's search) is fodder for a bigger monster all the same
+    const planNow = ev.canBattlePhase && this.#battleAhead() ? new Set(this.#mainOnePlan().map((a) => a.seq)) : new Set<number>();
+    const fodder = mine.filter((m) => (!stored.has(m.seq) || m.afterlife > 0) && !(m.stolen && planNow.has(m.seq)))
+      .sort((x, y) => Number(y.stolen) - Number(x.stolen) || (x.atk - x.afterlife) - (y.atk - y.afterlife));
     const bar = opp.reduce((n, m) => Math.max(n, holdOf(m)), 0);
     const lethalOnMe = replyPosition(this.#boardPosition()).myLp <= 0;
     const stops = (def: number) => opp.filter((m) => m.attackPos && m.atk <= def).length;
     const battleAhead = ev.canBattlePhase && this.#battleAhead();
-    const out: { cmd: "SELECT_SUMMON" | "SELECT_MONSTER_SET"; index: number; score: number; stat: number; verdict: number; planned: boolean }[] = [];
+    const out: { cmd: "SELECT_SUMMON" | "SELECT_MONSTER_SET"; index: number; score: number; stat: number; verdict: number; planned: boolean; hold: boolean; trade?: number }[] = [];
     const seen = new Set<number>();
     const burnOnKill = opp.some((o) => !o.faceDown && o.code && BURN_ON_KILL.test(this.#nameOf(o.code)));
+    // a piece kept in hand (Exodia) is still set as a wall when the opponent's next Battle Phase would kill me without it
+    // (production died at 1300 LP to a lone Celestia holding Left Arm of the Forbidden One)
+    // (the last resort: not with a card in hand or set that stops attacks, Scapegoat, Gravity Bind, Mirror Force...)
+    const me = this.#me();
+    const stopper = !!me && [...me.hand, ...me.szone.filter((c): c is BoardCard => !!c).map((c) => c.code)].some((c) => c && STOPS_ATTACKS.test(this.#nameOf(c)));
+    const lethalNext = !stopper && replyPosition(this.#boardPosition()).myLp <= 0;
+    ev.monsterSet.forEach((c, i) => {
+      if (!lethalNext || !this.#ruleFor(c.code)?.keepInHand || seen.has(c.code)) return;
+      seen.add(c.code);
+      const st = this.#stat(c.code);
+      if (st.level > 4) return;
+      out.push({ cmd: "SELECT_MONSTER_SET", index: i, score: st.def * 0.5 - 5000, stat: st.def, verdict: 0, planned: false, hold: true });
+    });
     ev.summonable.forEach((c, i) => {
       if (seen.has(c.code) || this.#ruleFor(c.code)?.keepInHand) return;
       seen.add(c.code);
@@ -1558,7 +1723,7 @@ export class HeuristicBot {
       // before a Battle Phase against a monster: the position whose battle and the reply to it come out better (Master
       // Duel judges only one; production set a 2000/100 Warwolf, which walls nothing, and summoned a 300 ATK Spirit
       // Reaper into a 3000)
-      if (battleAhead && opp.length > 0 && setIndex >= 0 && !this.#isFlip(c.code) && !ON_SUMMON.has(c.code) && bonus <= 0) {
+      if (battleAhead && opp.length > 0 && setIndex >= 0 && !this.#isFlip(c.code) && !STAYS_SET.test(this.#nameOf(c.code)) && !ON_SUMMON.has(c.code) && bonus <= 0) {
         const tributes = n > 0 ? fodder.slice(0, n).map((t) => t.seq) : [];
         const up = this.#afterSummon(c.code, false, tributes, st).trade, down = this.#afterSummon(c.code, true, tributes, st).trade;
         if (Math.abs(up - down) > 200) set = down > up;
@@ -1577,7 +1742,9 @@ export class HeuristicBot {
       const after = battleAhead ? this.#afterSummon(c.code, set, fodder.slice(0, n).map((t) => t.seq), st) : null;
       // set into a monster that burns for what it destroys (Shining Flare Wingman): the smallest ATK goes there
       const score = (after ? after.value + bonus : (set ? st.def * 0.5 : st.atk) + bonus) - (set && burnOnKill ? st.atk : 0);
-      out.push({ cmd: set ? "SELECT_MONSTER_SET" : "SELECT_SUMMON", index: set ? setIndex : i, score, stat, verdict: after?.verdict ?? 0, planned: bonus >= PLANNED_SUMMON });
+      // a set flip monster, or a monster whose summon triggers its effect, is played for the effect, not the body
+      const hold = (set && this.#isFlip(c.code)) || (!set && ON_SUMMON.has(c.code));
+      out.push({ cmd: set ? "SELECT_MONSTER_SET" : "SELECT_SUMMON", index: set ? setIndex : i, score, stat, verdict: after?.verdict ?? 0, planned: bonus >= PLANNED_SUMMON, hold, trade: after?.trade });
     });
     // Main 2 (or no Battle Phase): two safe monsters of my own out and not behind: only a play that beats both (Master
     // Duel's; with one monster it held every second body and on-summon effect: Sparkman on turn 1, Stratos's search,
@@ -1588,7 +1755,9 @@ export class HeuristicBot {
       const safe = own.filter((m) => holdOf(m) >= threat).reduce((n, m) => Math.max(n, holdOf(m)), -1);
       const hand = this.#me()?.hand.length ?? 0;
       if (own.length >= 2 && safe >= 0 && outcomeScore(this.#boardPosition()) >= 0 && hand < 6) {
-        const keep = out.filter((o) => o.stat > Math.max(bar, safe));
+        // (a set flip monster, an on-summon effect, a wall against lethal are played all the same: production held
+        // Gravekeeper's Spy, Guard and Kycoo for a turn next to two Spear Soldiers)
+        const keep = out.filter((o) => o.hold || o.stat > Math.max(bar, safe));
         out.length = 0;
         out.push(...keep);
       }
@@ -1606,7 +1775,7 @@ export class HeuristicBot {
     const toEval = (o: OppMon): EvalMon => ({
       atk: o.atk, def: o.faceDown && !o.known ? Math.max(o.def, UNKNOWN_WALL) : o.def,
       faceDown: o.faceDown, attackPos: o.attackPos, known: o.known, flipRisk: o.flipRisk, battleProof: o.battleProof,
-      afterlife: o.afterlife, noAttack: o.noAttack,
+      afterlife: o.afterlife, noAttack: o.noAttack, battleTrigger: o.battleTrigger, revenge: o.revenge,
     });
     return {
       myMon: this.#monstersOf(me).map(toEval), oppMon: this.#monstersOf(opp).map(toEval),
@@ -1720,9 +1889,10 @@ export class HeuristicBot {
     const withSeq = (p: PlayerBoard | null, mons: EvalMon[]): PlanMon[] =>
       this.#monstersOf(p).map((m, i) => ({ ...mons[i]!, seq: m.seq }));
     const attackers: PlanAttacker[] = [];
+    const lent = new Set(this.#monstersOf(me).filter((m) => m.stolen).map((m) => m.seq));
     ev.attackable.forEach((a, index) => {
       if (this.#deadAttackers.has(a.sequence) || this.#ruleNoAttack(a.sequence)) return;
-      attackers.push({ index, seq: a.sequence, atk: me?.mzone[a.sequence]?.attack ?? this.#stat(a.code).atk, canDirect: a.directAttackable, bounces: this.#bounces(a.code) });
+      attackers.push({ index, seq: a.sequence, atk: me?.mzone[a.sequence]?.attack ?? this.#stat(a.code).atk, canDirect: a.directAttackable, bounces: this.#bounces(a.code), lent: lent.has(a.sequence), pierce: PIERCE.has(a.code) });
     });
     const input = { base, my: withSeq(me, base.myMon), opp: withSeq(opp, base.oppMon), attackers };
     return { input, plan: planBattle(input, this.#planOpts()) };
@@ -1746,7 +1916,7 @@ export class HeuristicBot {
     // the replay goes on when the attack would still gain something (Master Duel's attack classes, battlePlan.ts)
     const direct = description === "31" || base.oppMon.length === 0;
     const self: PlanMon = { atk, def: live.defense ?? this.#stat(live.code).def, faceDown: false, attackPos: true, known: true, seq: -1, battleProof: BATTLE_PROOF.has(live.code) };
-    const input = { base, my: [self], opp: base.oppMon.map((m, i) => ({ ...m, seq: i })), attackers: [{ index: 0, seq: -1, atk, canDirect: direct }] };
+    const input = { base, my: [self], opp: base.oppMon.map((m, i) => ({ ...m, seq: i })), attackers: [{ index: 0, seq: -1, atk, canDirect: direct, pierce: PIERCE.has(live.code) }] };
     const targets: (PlanMon | null)[] = direct ? [null] : input.opp;
     const yes = targets.some((target) => attackClass(input, input.attackers[0]!, target) > 0);
     if (yes) this.#pendingAttacker = atk;
@@ -1768,12 +1938,35 @@ export class HeuristicBot {
       this.#activated(c.code);
       return respChain(doomedIdx);
     }
+    // Burn that adds up to the opponent's LP on one chain, Chain Strike on top (production fired two Secret Barrels as two
+    // chains and a lone Chain Strike for 800, twice short of a win), and the normal traps cleared off my field for Gorz.
+    if (!this.#style.myTurnOnly || this.#turnPlayer === this.seat) {
+      const burn = this.#burnChain(ev) ?? this.#gorzClear(ev);
+      if (burn !== null) {
+        const c = ev.chains[burn]!;
+        this.#chainedThisWindow.add(`${c.code}:${c.description}`);
+        this.#answeredAt = this.#links.length + 1;
+        this.#activated(c.code);
+        return respChain(burn);
+      }
+    }
     // Set traps / quick effects on the OPPONENT's turn (removal and negation timing), one answer per window (a second
     // trap on the same attack is a card wasted) unless the opponent has chained a new link since our answer (Master
     // Duel answers each new link). On our own turn only a negation of the opponent's link: no optional self-chains
     // that would interrupt our own plays.
     const top = this.#links[this.#links.length - 1];
     const newLink = this.#links.length > this.#answeredAt && !!top && top.controller !== this.seat;
+    if (this.#stacking) {
+      const strike = ev.chains.findIndex((c) => this.#nameOf(c.code) === "chain strike" && !this.#chainedThisWindow.has(`${c.code}:${c.description}`) && !this.#locked(c.code));
+      if (strike >= 0) {
+        const c = ev.chains[strike]!;
+        this.#stacking = false;
+        this.#chainedThisWindow.add(`${c.code}:${c.description}`);
+        this.#answeredAt = this.#links.length + 1;
+        this.#activated(c.code);
+        return respChain(strike);
+      }
+    }
     if (this.#chainedThisWindow.size > 0 && !newLink) return respChain(null);
     const ctx = this.#ctx();
     const own = this.#turnPlayer === this.seat;
@@ -1809,6 +2002,18 @@ export class HeuristicBot {
       if (own && !this.#ruleFor(c.code)?.ownTurn && !(ctx.oppChained && this.#cards.brain.get(c.code)?.has("negate"))) continue;
       const rule = this.#ruleFor(c.code);
       if (rule?.chainReact && !rule.chainReact(this.#withSelf(ctx, c.code, c, { prompt: ev, resp: respChain(i) }))) continue;
+      // Chain Strike about to go: a burn card that deals 1000 or more goes under it first, raising its link
+      if (this.#nameOf(c.code) === "chain strike") {
+        const under = this.#strikeFodder(ev, ctx);
+        if (under >= 0) {
+          const u = ev.chains[under]!;
+          this.#chainedThisWindow.add(`${u.code}:${u.description}`);
+          this.#answeredAt = this.#links.length + 1;
+          this.#stacking = true;
+          this.#activated(u.code);
+          return respChain(under);
+        }
+      }
       // (No what-if veto: Master Duel has none on its responses, only "would this be negated" (#locked). Rev 6 held a
       // response that left the board worse than passing: the board value prices a set card at a whole card, cannot see
       // the opponent's cards it stops, and the what-if ends with the chain, before the attack the trap stops, so it
@@ -1819,6 +2024,68 @@ export class HeuristicBot {
       return respChain(i);
     }
     return respChain(null);
+  }
+
+  /** My burn cards offered in this chain window (not used in it yet, not negated by a lock), with what each deals now. */
+  #burnOffered(ev: P<"selectChain">, ctx: RuleCtx): { i: number; name: string; dmg: number }[] {
+    return ev.chains.map((c, i) => ({ c, i, name: this.#nameOf(c.code) }))
+      .filter(({ c, name }) => BURN[name] && c.controller === this.seat && !this.#chainedThisWindow.has(`${c.code}:${c.description}`) && !this.#locked(c.code))
+      .map(({ i, name }) => ({ i, name, dmg: BURN[name]!(ctx) }));
+  }
+
+  /** The next card of a burn chain that ends the duel, or null: what my links on this chain already deal, plus every
+   *  burn card offered; or Chain Strike on top of one of each name (it needs no name twice in the chain), 400 per link. */
+  #burnChain(ev: P<"selectChain">): number | null {
+    if (ev.chains.every((c) => !BURN[this.#nameOf(c.code)])) return null;
+    const ctx = this.#ctx();
+    const offered = this.#burnOffered(ev, ctx);
+    if (offered.length === 0) return null;
+    const names = this.#links.map((l) => this.#nameOf(l.code));
+    const queued = this.#links.reduce((n, l, k) => {
+      if (l.controller !== this.seat) return n;
+      const name = this.#nameOf(l.code);
+      return n + (name === "chain strike" ? 400 * (k + 1) : BURN[name]?.(ctx) ?? 0);
+    }, 0);
+    const others = offered.filter((x) => x.name !== "chain strike" && x.dmg > 0).sort((a, b) => b.dmg - a.dmg);
+    const strike = offered.find((x) => x.name === "chain strike");
+    const all = queued + others.reduce((n, x) => n + x.dmg, 0);
+    if (strike && new Set(names).size === names.length && !names.includes("chain strike")) {
+      const seen = new Set(names), under: typeof others = [];
+      for (const x of others) if (!seen.has(x.name)) { seen.add(x.name); under.push(x); }
+      const link = this.#links.length + under.length + 1;
+      if (link >= 2 && queued + under.reduce((n, x) => n + x.dmg, 0) + 400 * link >= ctx.oppLp) return (under[0] ?? strike).i;
+    }
+    return all >= ctx.oppLp && others.length > 0 ? others[0]!.i : null;
+  }
+
+  /** A burn card worth 1000 or more to chain under Chain Strike (a name not in the chain yet), or -1. */
+  #strikeFodder(ev: P<"selectChain">, ctx: RuleCtx): number {
+    const names = new Set(this.#links.map((l) => this.#nameOf(l.code)));
+    const x = this.#burnOffered(ev, ctx).filter((b) => b.name !== "chain strike" && !names.has(b.name) && b.dmg >= 1000).sort((a, b) => b.dmg - a.dmg)[0];
+    return x ? x.i : -1;
+  }
+
+  /** Gorz the Emissary of Darkness in hand, no monster of mine, a direct attack about to hurt: every card on my field is a
+   *  set card that leaves as it resolves and can go now, so they all go, and the damage summons Gorz (production took
+   *  4200 holding Gorz over a set Secret Barrel and Just Desserts). The next one to chain, or null. */
+  #gorzClear(ev: P<"selectChain">): number | null {
+    const me = this.#me();
+    if (!me || this.#turnPlayer === this.seat || !this.#attack?.direct || me.mzone.some(Boolean)) return null;
+    if (!me.hand.some((c) => this.#nameOf(c) === "gorz the emissary of darkness")) return null;
+    const mine = this.#links.filter((l) => l.controller === this.seat).map((l) => `${l.location}:${l.sequence}`);
+    const offered = new Map<string, number>(ev.chains.map((c, i) => [`${c.location}:${c.sequence}`, i]));
+    let next: number | null = null;
+    for (let z = 0; z < me.szone.length; z++) {
+      const c = me.szone[z];
+      if (!c) continue;
+      const key = `${LOCATION.SZONE}:${z}`;
+      if (mine.includes(key)) continue;
+      const i = offered.get(key);
+      if (i === undefined || !isFaceDown(c.position) || ((this.#cards.brain.get(ev.chains[i]!.code)?.type ?? 0) & LASTING) !== 0) return null;
+      if (this.#chainedThisWindow.has(`${ev.chains[i]!.code}:${ev.chains[i]!.description}`) || this.#locked(ev.chains[i]!.code)) return null;
+      next ??= i;
+    }
+    return next;
   }
 
   /** What answering an attack with this card costs me beyond the card: a mass removal on a lone attacker (its other
@@ -1902,9 +2169,10 @@ export class HeuristicBot {
     return out;
   }
 
-  /** The opponent's monster attacking me now (their Battle Phase, its attack declared). */
+  /** The opponent's monster attacking me now (their Battle Phase, its attack declared, its damage not calculated yet:
+   *  production bounced a Dark Nephthys whose attack was over and Sillva's 2300 came through for the duel). */
   #isAttacker(c: CardRef): boolean {
-    return !!this.#attack && this.#turnPlayer !== this.seat && c.controller !== this.seat && (c.location & LOCATION.MZONE) !== 0 && c.sequence === this.#attack.sequence;
+    return !!this.#attack && !this.#attack.resolved && this.#turnPlayer !== this.seat && c.controller !== this.seat && (c.location & LOCATION.MZONE) !== 0 && c.sequence === this.#attack.sequence;
   }
 
   /** An offered card as a pick rule reads it. */
@@ -1940,6 +2208,7 @@ export class HeuristicBot {
         return ups.some(({ loc, i }) => !(c.controller === this.seat && (L & loc) !== 0 && c.sequence === i));
       })(),
       worth: code ? this.#worth(code, (L & LOCATION.HAND) !== 0) : 0,
+      revenge: !!code && REVENGE.has(code),
     } as RuleCard;
   }
 
@@ -2013,6 +2282,14 @@ export class HeuristicBot {
     // the engine says the pick summons or adds the card (a Special Summon from the hand: Marauding Captain): our best,
     // not the cheapest as a cost would be
     const gain = hint === H_SPSUMMON || hint === H_SUMMON || hint === H_ATOHAND;
+    // a card from my hand to set (Dust Tornado's "Set 1 card"): a trap or quick-play that works from the field, my best
+    // one; else the least worth, a decoy
+    if (hint === H_SET && cards.length > 0 && cards.every((c) => c.controller === this.seat && (c.location & LOCATION.HAND) !== 0 && c.code)) {
+      const n = Math.min(Math.max(min, 1), max > 0 ? max : cards.length);
+      const live = (c: CardRef) => ((this.#cards.brain.get(c.code)?.type ?? 0) & (TYPE_TRAP | TYPE_QUICKPLAY)) !== 0 && !neverSet(c.code) && !this.#locked(c.code);
+      return cards.map((c, i) => ({ i, k: live(c) ? 1e5 + this.#worth(c.code, true) : -this.#worth(c.code, true) }))
+        .sort((a, b) => b.k - a.k).slice(0, n).map((x) => x.i);
+    }
     // giving up cards from my own hand (a discard, a cost): Master Duel's cost picker order
     if (!gain && cards.length > 0 && cards.every((c) => c.controller === this.seat && (c.location & LOCATION.HAND) !== 0 && c.code)) {
       const n = Math.min(Math.max(min, 0), max > 0 ? max : cards.length);
@@ -2037,6 +2314,7 @@ export class HeuristicBot {
         attackPos: (pos & POS.ATTACK) !== 0 && !faceDown,
         known,
         flipRisk: faceDown ? (code ? this.#cards.flipRisk(code) : 300) : 0,
+        battleProof: this.#battleProofAt(c.controller, c.sequence, code), battleTrigger: !!code && BATTLE_TRIGGER.has(code), revenge: !!code && REVENGE.has(code),
       };
       return { faceDown, exact };
     });
@@ -2068,9 +2346,14 @@ export class HeuristicBot {
     if (live !== undefined) {
       // Master Duel spends removal on the monsters its battle cannot handle: one our attackers already beat is worth half
       if (c.controller !== this.seat && (c.location & LOCATION.MZONE) !== 0) {
+        // in their Battle Phase, one that can still attack this turn comes first (production bounced a Dark Nephthys whose
+        // attack was over and Sillva's 2300 came through)
+        const phase = this.#board?.phase ?? 0;
         const s = this.#snap(c), myBest = this.#maxAttackAtk(this.#monstersOf(this.#me()));
+        if (this.#turnPlayer !== this.seat && phase > PHASE.MAIN1 && phase < PHASE.MAIN2 && s && !isFaceDown(s.position)
+          && (s.position & POS.ATTACK) !== 0 && !this.#oppAttackedThisTurn.has(c.sequence)) return live + 1500;
         const hold = s && (s.position & POS.DEFENSE) !== 0 ? s.defense ?? 0 : live;
-        if (myBest > hold && !(s?.code && BATTLE_PROOF.has(s.code))) return live * 0.5;
+        if (myBest > hold && !this.#battleProofAt(c.controller, c.sequence, s?.code ?? 0)) return live * 0.5;
       }
       return live;
     }
@@ -2101,9 +2384,19 @@ export class HeuristicBot {
       // one that can be summoned without tributes is worth at least that body (Fusilier Dragon's 1400)
       const free = NO_TRIBUTE_STATS[this.#nameOf(code)];
       if (free) v = Math.max(v, free.atk);
+      // in hand (a discard), one whose effect removes a card is more than its body (production discarded Exiled Force, its
+      // only removal), and so is one that brings another from the Deck (Gravekeeper's Spy, discarded over a second
+      // Brain Control); a search still takes the stronger body (the lab's HERO deck searched Exiled Force over Stratos)
+      if (inHand && (k.any(REMOVAL) || k.has("destroy_any"))) v += 500;
+      else if (inHand && CATEGORY.recruit.has(code)) v += 300;
     } else {
       v = 1300 + (this.#ruleFor(code)?.idlePriority ?? 0) * 4;
       const name = this.#nameOf(code);
+      const me0 = this.#me();
+      // a Ritual Spell with no Ritual Monster in hand, a card whose LP cost I cannot pay: dead (production discarded its
+      // only monster over two dead Ritual Spells, and a Gravekeeper's Spy over a Brain Control at 100 LP)
+      if ((k.type & TYPE_RITUAL) && !(me0?.hand.some((c) => ((this.#cards.brain.get(c)?.type ?? 0) & (TYPE_MONSTER | TYPE_RITUAL)) === (TYPE_MONSTER | TYPE_RITUAL)) ?? false)) v -= 1000;
+      if ((LP_COST[name] ?? 0) >= (me0?.lp ?? 8000)) v -= 1000;
       const answer = (k.type & (TYPE_TRAP | TYPE_QUICKPLAY)) !== 0;
       if (answer && THREAT_BACKROW.test(name)) v += 500;
       if (answer && this.#oppMonsters().some((m) => m.attackPos)) v += 300;

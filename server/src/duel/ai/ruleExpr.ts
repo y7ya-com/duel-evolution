@@ -4,7 +4,7 @@
 // error and the whole set is refused, so a bad rule never reaches a duel. A compiled expression never throws.
 //
 // A rule (every field optional):
-//   idleActivate, battleActivate, chainReact, yesNo, specialSummon, doomed, noAttack: a condition (true / false:
+//   idleActivate, battleActivate, chainReact, yesNo, specialSummon, doomed, noAttack, flip: a condition (true / false:
 //     always / never)
 //   idlePriority, chainPriority: a number;  keepInHand: true / false
 //   summonScore, option: a number expression (option: the index of the card's option to take)
@@ -35,7 +35,8 @@
 //   {"inMyHand": name} {"inMyDeck": name} {"onMyField": name} {"inMyGrave": name}   how many of my cards there have a
 //     name starting with this (the deck: my deck list less every copy seen); {"fieldSpellIs": name} a face-up Field
 //     Spell (either side) is it
-//   inside pick.score also: canAttack, alreadyHave, copyOnField (true / false), worth (a number)
+//   inside pick.score also: canAttack, alreadyHave, copyOnField, revenge (destroyed, it destroys a monster: Newdoria)
+//     (true / false), worth (a number)
 //   ownTurn: true   the card's chainReact is asked on my own turn too (not only as a negation)
 //
 // Example: { "premature burial": { "idleActivate": { "all": [{ ">=": ["myGraveMaxAtk", 1700] },
@@ -57,7 +58,7 @@ const NUM_FIELDS = ["myLp", "oppLp", "myMaxAtk", "oppMaxAtk", "myBackrow", "oppB
 const BOOL_FIELDS = ["myTurn", "oppEndPhase", "attackLethal", "attackOnDefense", "oppChained"] as const;
 const MON_NUM = ["atk", "def", "level"] as const, MON_BOOL = ["faceDown", "attackPos", "fusion", "chainHit", "blocksLethal"] as const;
 const CARD_BOOL = ["mine", "onField", "inHand", "inGrave", "inDeck", "inExtra", "banished", "isMonster", "isSpell", "isTrap", "copyInHand",
-  "canAttack", "alreadyHave", "copyOnField"] as const;
+  "canAttack", "alreadyHave", "copyOnField", "revenge"] as const;
 const CARD_NUM = ["worth"] as const;
 
 // the helpers of cardRules.ts, as names
@@ -73,7 +74,7 @@ export const HELPERS = {
 };
 const BOOL_HELPERS = ["realThreat", "worthwhileWipe", "worthwhileStorm", "lastWindow", "outgunned"] as const;
 
-const COND_FIELDS = ["idleActivate", "battleActivate", "chainReact", "yesNo", "specialSummon", "doomed", "noAttack"] as const;
+const COND_FIELDS = ["idleActivate", "battleActivate", "chainReact", "yesNo", "specialSummon", "doomed", "noAttack", "flip"] as const;
 const NUM_RULE_FIELDS = ["summonScore", "option"] as const;
 const MAX_NODES = 400;          // per expression
 const MAX_RULES = 2000;         // per set

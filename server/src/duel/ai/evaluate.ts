@@ -21,6 +21,10 @@ export interface EvalMon {
   afterlife?: number;
   /** A face-up lock stops it attacking (Messenger of Peace at 1500 ATK, Gravity Bind, Swords of Revealing Light...). */
   noAttack?: boolean;
+  /** A battle it survives sets off its own effect (a Gladiator Beast: battleProof.json battleTrigger). */
+  battleTrigger?: boolean;
+  /** Destroyed, it destroys a monster (Newdoria: battleProof.json revenge): its killer goes with it. */
+  revenge?: boolean;
 }
 export interface Position {
   myMon: EvalMon[];

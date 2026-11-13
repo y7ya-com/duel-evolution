@@ -38,6 +38,19 @@ export const EXT_NUM = [
   /** How many of my Standby Phases the card the rule is about has spent face-up on my field (Wave-Motion Cannon's
    *  counters: 1000 damage each). */
   "selfStandbys",
+  /** The opponent's cards seen (field, graveyard, banished) that gain from being discarded (Dark World): a card that
+   *  makes them discard feeds them. */
+  "oppDiscardPayoff",
+  /** My set Spell/Trap cards that answer an attack (Sakuretsu Armor, Mirror Force, Magic Cylinder...). */
+  "mySetAttackAnswers",
+  /** What my Battle Phase gains with the opponent's strongest face-up monster on my side instead (a steal: battlePlan.ts
+   *  tradeValue, it goes back at the End Phase), 0 without one. */
+  "stealGain",
+  /** My face-up "Archfiend" monsters (Falling Down is destroyed without one). */
+  "myArchfiends",
+  /** My face-up Spell/Trap cards that hold a monster on my field (Call of the Haunted, Premature Burial, Snatch Steal):
+   *  destroying them takes the monster too. */
+  "myLinkedCards",
 ] as const;
 export const EXT_BOOL = [
   /** My turn, before my Battle Phase is over (Main Phase 1 or the Battle Phase); my Main Phase 2; a battle under way. */
@@ -52,8 +65,9 @@ export const EXT_BOOL = [
   /** My attacking monsters (face-up, attack position) would be lethal with the opponent's field empty; my attacks
    *  this turn are lethal on the board as it is (the battle plan, set cards aside). */
   "lethalOnEmpty", "lethalThrough",
-  /** The opponent's attack would destroy the monster of mine it targets; its attacker came from the Extra Deck. */
-  "attackTargetLoses", "attackerExtra",
+  /** The opponent's attack would destroy the monster of mine it targets; its attacker came from the Extra Deck; the
+   *  monster it targets gets something back when it is destroyed (a search, a summon, a revival: Peten the Dark Clown). */
+  "attackTargetLoses", "attackerExtra", "attackTargetFloats",
   /** The card the rule is about is hit by a live opponent link; a face-up copy of it is already on the field. */
   "selfThreatened", "sameCardActive",
   /** Master Duel's attack-response facts: the attack would cost me LP or the monster it hits; the attacker is the

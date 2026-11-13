@@ -330,4 +330,88 @@ describe.skipIf(!haveData)("NPC scenarios (real engine)", () => {
     });
     expect(msgs(p, "SPSUMMONING", "Lava Golem")).toHaveLength(1);
   });
+
+  // ---- AI rev 8's live duels (rev8-review: duel_archive 428-469)
+  it("uses Mausoleum of the Emperor's summon once it is on the field (duel 450)", () => {
+    const p = play(dc, {
+      npcId: 38, first: "player", turns: 2,
+      npc: { hand: ["Dark Magician of Chaos", "Mausoleum of the Emperor"], mzone: ["Jinzo"], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: [["Mystic Tomato", "set"]] },
+    });
+    expect(msgs(p, "SUMMONING", "Dark Magician of Chaos")).toHaveLength(1);
+  });
+
+  it("springs Ojama Trio on the opponent's turn when it fills their last three zones (duel 431)", () => {
+    const p = play(dc, {
+      npcId: 65, first: "player", turns: 1,
+      npc: { szone: ["Ojama Trio"] },
+      player: { mzone: ["Mezuki", "Ryko, Lightsworn Hunter"] },
+    });
+    expect(npcActivated(p, "Ojama Trio")).toBe(true);
+  });
+
+  it("Mirror Force on the first of three attacks, even into its own wall (duel 442)", () => {
+    const p = play(dc, {
+      npcId: 40, first: "npc", turns: 2,
+      npc: { mzone: [["Big Shield Gardna", "set"]], szone: ["Mirror Force"], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: ["Brron, Mad King of Dark World", "Goldd, Wu-Lord of Dark World", "Sillva, Warlord of Dark World"] },
+      player_policy: attacker,
+    });
+    expect(npcActivated(p, "Mirror Force")).toBe(true);
+    expect(msgs(p, "ATTACK")).toHaveLength(1);
+  });
+
+  it("stacks its burn traps with Chain Strike on top for lethal (duel 466)", () => {
+    const p = play(dc, {
+      npcId: 32, first: "player", turns: 1,
+      npc: { szone: ["Secret Barrel", "Just Desserts", "Chain Strike"] },
+      player: { lp: 3000, hand: ["Petit Moth", "Petit Moth", "Petit Moth", "Petit Moth", "Petit Moth"], mzone: ["Mezuki", "Ryko, Lightsworn Hunter"] },
+    });
+    expect(npcActivated(p, "Chain Strike")).toBe(true);
+    expect(p.end?.winner).toBe(1);
+  });
+
+  it("empties its field of traps under a direct attack to bring out Gorz (duel 432)", () => {
+    const p = play(dc, {
+      npcId: 32, first: "npc", turns: 2,
+      npc: { hand: ["Gorz the Emissary of Darkness"], szone: ["Secret Barrel", "Just Desserts"], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: ["Zombie Master"] },
+      player_policy: attacker,
+    });
+    expect(msgs(p, "SPSUMMONING", "Gorz the Emissary of Darkness")).toHaveLength(1);
+  });
+
+  it("sets an Exodia piece to stop a lethal attack (duel 441)", () => {
+    const p = play(dc, {
+      npcId: 44, first: "npc", turns: 2,
+      npc: { lp: 1300, hand: ["Left Arm of the Forbidden One"], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: ["Celestia, Lightsworn Angel"] },
+      player_policy: attacker,
+    });
+    expect(msgs(p, "SET", "Left Arm of the Forbidden One")).toHaveLength(1);
+    expect(p.end?.winner).not.toBe(0);
+  });
+
+  it("Gravity Bind goes up before the attack, not after it is declared (duel 441)", () => {
+    const p = play(dc, {
+      npcId: 44, first: "npc", turns: 2,
+      npc: { szone: ["Gravity Bind"], deck: Array(20).fill("Reckless Greed") },
+      player: { hand: ["Gene-Warped Warwolf"] },
+      player_policy: summoning(attacker),
+    });
+    expect(npcActivated(p, "Gravity Bind")).toBe(true);
+    expect(msgs(p, "ATTACK")).toHaveLength(0);
+  });
+
+  it("attacks with Brain Controlled monsters before tributing them (duel 448)", () => {
+    const p = play(dc, {
+      npcId: 35, first: "player", turns: 2,
+      npc: { hand: ["Brain Control", "Cosmic Horror Gangi'el", "Brain Control"], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: ["Goldd, Wu-Lord of Dark World", "Brron, Mad King of Dark World"] },
+    });
+    const summon = p.msgs.findIndex((m) => m.type === "SUMMONING");
+    const attack = p.msgs.findIndex((m) => m.type === "ATTACK");
+    expect(attack).toBeGreaterThanOrEqual(0);
+    if (summon >= 0) expect(attack).toBeLessThan(summon);
+  });
 });

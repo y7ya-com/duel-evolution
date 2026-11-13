@@ -121,5 +121,33 @@ describe("next attack (Master Duel's decision)", () => {
   it("a blocker the strongest attacker runs over goes first: the strongest, so the next can follow", () => {
     expect(next([up(0, 1900), up(1, 2000)], [up(3, 1500)])).toMatchObject({ seq: 1, target: 3 });
   });
-});
 
+  // ---- rev 9 (AI rev 8's live duels)
+  const input = (my: PlanMon[], opp: PlanMon[], attackers: PlanAttacker[]) => ({
+    base: { myMon: my, oppMon: opp, myLp: 8000, oppLp: 8000, myHand: 3, myBackrow: 0, oppBackrow: 0 } as Position, my, opp, attackers });
+
+  it("a piercing attacker hits a defending Spirit Reaper for the difference (duel 467)", () => {
+    const spear = up(0, 700);
+    const reaper = { ...guard(2, 300, 200), battleProof: true };
+    expect(nextAttack(input([spear], [reaper], [atk(0, spear)]))).toBeNull();
+    expect(nextAttack(input([spear], [reaper], [{ ...atk(0, spear), pierce: true }]))).toMatchObject({ seq: 0, target: 2 });
+  });
+
+  it("does not attack a Gladiator Beast it cannot destroy (duel 446)", () => {
+    const maiden = up(0, 850);
+    const secutor = { ...up(2, 400, 300), battleProof: true, battleTrigger: true };
+    expect(nextAttack(input([maiden], [secutor], [atk(0, maiden)]))).toBeNull();
+  });
+
+  it("killing Newdoria costs the attacker (duel 457)", () => {
+    const newdoria = { ...up(2, 1200, 800), revenge: true };
+    const big = up(0, 2400);
+    expect(nextAttack(input([big], [newdoria], [atk(0, big)]))).toBeNull();
+  });
+
+  it("a borrowed monster probes a lone set monster (duel 435)", () => {
+    const tomato = up(0, 1400, 1100);
+    expect(nextAttack(input([tomato], [set(2)], [atk(0, tomato)]))).toBeNull();
+    expect(nextAttack(input([tomato], [set(2)], [{ ...atk(0, tomato), lent: true }]))).toMatchObject({ seq: 0, target: 2 });
+  });
+});
