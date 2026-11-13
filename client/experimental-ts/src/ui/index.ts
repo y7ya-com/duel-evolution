@@ -308,7 +308,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // a tunnel resume underneath (reconnecting) keeps it, its tab and an open pack reveal in place.
   const useCardShop = () => state.scene === 'shop' && state.mode !== 'free';
   const pictureArt = new PictureArt({ ...(controller.loadArchiveImage ? { loadArchiveImage: controller.loadArchiveImage.bind(controller) } : {}), ...(controller.loadCardImage ? { loadCardImage: controller.loadCardImage.bind(controller) } : {}) });
-  setPictureResolver(pictureArt.resolve);
+  setPictureResolver(pictureArt.resolve, pictureArt.eyes);
   // main's Wardrobe previews and card shop faces read the game's files through lazyfs's Module.yo2Lazy on live
   if (controller.readGameFile) installLazyShim(controller.readGameFile.bind(controller), controller.readCardArt?.bind(controller), controller.gameArchiveUrl, controller.passcodeTableUrl);
   // the nation flag before a name over the head (nation-flag.ts: CNationFlag's small atlas cell), the atlas from the archive
