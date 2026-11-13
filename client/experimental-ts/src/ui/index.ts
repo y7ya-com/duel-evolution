@@ -903,7 +903,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const send = (command: ClientCommand) => {
     if (disposed) return;
     local.message = '';
-    if (command.type === 'move') { const current = controller.getState(); if (current.scene !== 'lobby') return; if (current.npc && !['idle', 'done'].includes(current.npc.stage)) { local.message = 'Finish the NPC interaction before moving.'; requestRender(); return; } }
+    if (command.type === 'move') { const current = controller.getState(); if (current.scene !== 'lobby') return; if (current.npc && !['idle', 'done'].includes(current.npc.stage)) return; }   // live ignores the floor while an NPC talks (no message)
     if (['duelRespond', 'duelAction', 'surrender'].includes(command.type) && controller.getState().relay?.canAct === false) { local.message = 'Your tag partner is playing this turn.'; requestRender(); return; }
     try {
       const result = controller.dispatch(command);
