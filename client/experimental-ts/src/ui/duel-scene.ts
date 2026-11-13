@@ -35,6 +35,8 @@ const CSS = `
 .de-duel-portrait>img { position:absolute; inset:0; width:100%; height:100%; display:block; }
 .de-duel-fx { position:absolute; inset:0; pointer-events:none; z-index:7; }
 .de-duel-fx>.de-duel-fx-layer { position:absolute; inset:0; }
+.de-duel-fx.front { z-index:41; }
+.de-duel-fx>.de-duel-fx-dim { position:absolute; inset:0; background:#000; opacity:0; pointer-events:none; }
 .de-duel-board>.de-duel-stats { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:6; }
 .de-duel-stats>i { position:absolute; width:${7 / 1024 * 100}%; height:${16 / 768 * 100}%; background-repeat:no-repeat; }
 .de-duel-info { position:absolute; z-index:8; container-type:inline-size; pointer-events:auto; --px:calc(100cqw / 248); }
