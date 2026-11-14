@@ -18,7 +18,24 @@ export interface Picture {
   flip?: boolean; alpha?: number; shown: boolean;
   /** What the picture shows, for assistive technology (a card's name). */
   label?: string;
+  /** live's talk portrait (CWaistUpAvatar in an NPC's talk): it slides in from the right as it comes, and out to the
+   * right as the window goes (SLIDE below) */
+  slide?: { enter?: boolean; exit?: boolean };
 }
+/** The talk portrait's slide (live's film, de-scratch/jkn talk-L / talk2-L / close-L: 30 fps): k frames from home it
+ * stands 4k(k+1) px to the right (224, 168, 120, 80, 48, 24, 8, 0) at opacity 1 - 0.15k; in, k from 7 to 0, out the
+ * reverse. */
+export const SLIDE_FRAMES = 7;
+const slideKeys = (out: boolean): Keyframe[] => {
+  const ks = Array.from({ length: SLIDE_FRAMES + 1 }, (_, i) => SLIDE_FRAMES - i).map(k => ({ translate: `${4 * k * (k + 1)}px 0`, opacity: Math.max(0, 1 - 0.15 * k) }));
+  return out ? ks.reverse() : ks;
+};
+const reducedMotion = (el: Element): boolean => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true || !!el.closest?.('[data-motion="reduced"]');
+/** Fired on window (detail: the picture's key) when a sliding picture is home: the talk's balloon waits for it. */
+export const PICTURE_ENTERED = 'de-picture-entered';
+const entered = new Map<string, number>();
+/** When the picture `key` last came home (performance.now()), if it has since its window came. */
+export const pictureEntered = (key: string): number | undefined => entered.get(key);
 /** A picture's URL (an archive lease, a card face, a composed picture's object URL). */
 export type PictureResolver = (source: PictureSource, signal: AbortSignal) => Promise<string>;
 /** A waist-up picture's three eye frames (open, half shut, shut) as URLs, or null if it does not blink. */
@@ -102,6 +119,16 @@ function draw(p: Picture, signal: AbortSignal): Drawn {
     Object.assign(inner.style, { position: 'absolute', display: 'block' });
     d.inner = inner; el.append(inner); place(d, current.get(d) ?? p);
     blink(d, p.source, d.abort.signal);
+    const home = () => { entered.set(p.key, performance.now()); globalThis.dispatchEvent?.(new CustomEvent(PICTURE_ENTERED, { detail: p.key })); };
+    if ((current.get(d) ?? p).slide?.enter && typeof el.animate === 'function' && !reducedMotion(el)) {
+      // in from the right once its picture is ready to show
+      inner.style.visibility = 'hidden';
+      void inner.decode().catch(() => {}).then(() => {
+        inner.style.visibility = '';
+        if (signal.aborted || d.abort.signal.aborted) return;
+        el.animate(slideKeys(false), { duration: SLIDE_FRAMES * 1000 / 30, easing: 'linear', fill: 'backwards' }).finished.then(home, () => {});
+      });
+    } else home();
   });
   return d;
 }
@@ -113,7 +140,7 @@ export const pictures: HtmlUiScreen = {
   classes: ['CEnginePictures'],
   mode: 'pass',
   rootInput: 'none',
-  mount: () => ({ drawn: new Map(), abort: new AbortController() } satisfies State),
+  mount: (win) => { for (const p of (win as { pics?: Picture[] }).pics ?? []) entered.delete(p.key); return { drawn: new Map(), abort: new AbortController() } satisfies State; },
   update(win, _prev, root, _api, st) {
     const s = st as State, pics = ((win as { pics?: Picture[] }).pics ?? []).slice().sort((a, b) => a.z - b.z);
     const seen = new Set<string>();
@@ -129,7 +156,19 @@ export const pictures: HtmlUiScreen = {
     });
     for (const [k, d] of s.drawn) if (!seen.has(k)) { d.abort.abort(); d.el.remove(); s.drawn.delete(k); }
   },
-  unmount(root, st) { const s = st as State; s.abort.abort(); for (const d of s.drawn.values()) d.abort.abort(); s.drawn.clear(); root.replaceChildren(); },
+  unmount(root, st) {
+    const s = st as State;
+    // a sliding picture goes out to the right: on a copy of the window's box beside it, gone when it is out
+    const out = [...s.drawn.values()].filter(d => current.get(d)?.slide?.exit && d.inner && typeof d.el.animate === 'function' && !reducedMotion(root));
+    if (out.length && root.parentElement) {
+      const ghost = root.cloneNode(false) as HTMLElement; ghost.style.pointerEvents = 'none'; ghost.removeAttribute('data-window-id');
+      root.parentElement.insertBefore(ghost, root.nextSibling);
+      for (const d of out) { if (d.blink) clearTimeout(d.blink); ghost.append(d.el); }
+      void Promise.all(out.map(d => d.el.animate(slideKeys(true), { duration: SLIDE_FRAMES * 1000 / 30, easing: 'linear', fill: 'forwards' }).finished.catch(() => {}))).then(() => { ghost.remove(); for (const d of out) d.abort.abort(); });
+      for (const d of out) s.drawn.delete([...s.drawn.entries()].find(([, v]) => v === d)![0]);
+    }
+    s.abort.abort(); for (const d of s.drawn.values()) d.abort.abort(); s.drawn.clear(); root.replaceChildren();
+  },
 };
 /** The page's client went away: loads in flight stop, nothing is kept. */
 export const disposePictures = (): void => { abort.abort(); abort = new AbortController(); looks.clear(); eyeLooks.clear(); };

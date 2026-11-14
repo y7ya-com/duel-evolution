@@ -388,11 +388,11 @@ export class ClientApp implements ClientController {
   readonly loadArchiveImage?: (path: string, signal: AbortSignal) => Promise<{ url: string; release(): void }>;
   private async readArchiveImage(path: string, signal: AbortSignal): Promise<{ url: string; release(): void }> {
     if (!this.options.assets) throw new Error('Original artwork is not configured.');
-    // Duel effects are also movie/sheet scripts (.txt) next to their PNGs; the waist-up avatar parts are listed in .csv;
+    // Duel effects are also movie/sheet scripts (.txt) next to their PNGs (the end word's in data/y/duel_end); the waist-up avatar parts are listed in .csv;
     // the menu bar and windows use data/common/window and data/common/icon (the duel bar's ring: an icon movie); card-get uses data/y/result and data/card_get;
     // the shop data/shop and its clerk's picture data/avatar/npc (tiles listed in its .csv); the trade's lamps data/deck; the lobby data/menu;
     // My Room's shelf (data/Map/Map_r01, Map_switch) and its TV's pictures (data/tv).
-    if (!/^data\/(?:(?:cardpack|y\/duel|y\/duel_end|y\/janken|y\/result|result|card_get|card|avatar\/wu|avatar\/npc|avatar\/flag|shop|deck|common\/window|common\/icon|menu|tv|itemget|scene\/avatarchange|map\/map_r01|map\/map_switch)\/(?:[\w#.-]+\/)*[\w#.-]+\.png|(?:y2?\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.txt|menu\/menu_mark_a01\.txt|common\/window\/icon\/menuicon_03_a0\d\.txt|title\/title_flash_01\.txt|title\/(?:title_\w+|option_\w+)\.png|y2\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.png|y2\/duel_(?:window|gauge|font|icon)_0\d_c0\d\.png|y2\/duel_turn_01_c00(?:_[efgijks])?\.png|avatar\/wu\/w[mw]_data\.csv|avatar\/npc\/[ad]\d\d\.csv))$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
+    if (!/^data\/(?:(?:cardpack|y\/duel|y\/duel_end|y\/janken|y\/result|result|card_get|card|avatar\/wu|avatar\/npc|avatar\/flag|shop|deck|common\/window|common\/icon|menu|tv|itemget|scene\/avatarchange|map\/map_r01|map\/map_switch)\/(?:[\w#.-]+\/)*[\w#.-]+\.png|(?:y2?\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.txt|y\/duel_end\/duel_ef_(?:win|lose|drow)_a01_j\.txt|menu\/menu_mark_a01\.txt|common\/window\/icon\/menuicon_03_a0\d\.txt|title\/title_flash_01\.txt|title\/(?:title_\w+|option_\w+)\.png|y2\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.png|y2\/duel_(?:window|gauge|font|icon)_0\d_c0\d\.png|y2\/duel_turn_01_c00(?:_[efgijks])?\.png|avatar\/wu\/w[mw]_data\.csv|avatar\/npc\/[ad]\d\d\.csv))$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
     const lease = await this.options.assets.readScene(path, signal);
     return { url: lease.value.url, release: () => lease.release() };
   }

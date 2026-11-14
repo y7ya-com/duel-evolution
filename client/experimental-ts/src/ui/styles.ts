@@ -116,7 +116,7 @@ button.de-card { padding:2px; min-height:0; color:#fff; background:linear-gradie
 .de-match-mark.game-0 { left:${257 / 472 * 100}%; } .de-match-mark.game-1 { left:${321 / 472 * 100}%; } .de-match-mark.game-2 { left:${385 / 472 * 100}%; }
 .de-match-mark>.de-match-sheet { position:absolute; width:400%; height:200%; }
 /* behind the duel's result board live dims the field, its plates and its bar */
-.de-duel-board>.de-result-dim { position:absolute; inset:0; z-index:40; background:rgba(0,0,0,.45); pointer-events:none; }
+.de-duel-board>.de-result-dim { position:absolute; inset:0; z-index:40; background:rgba(0,0,0,.5); pointer-events:none; }
 .de-client button.de-deck-zone { position:absolute; transform:translate(-50%,-50%); pointer-events:auto; min-height:0; padding:0; background:none; border:0; box-shadow:none; cursor:pointer; }
 /* a card the duel asks for (an attack's target, a card to choose on the field): live leaves the card as it is and lights its
    cell's frame in a slow pulse; the one under the pointer is framed as a card whose menu is open (de-scratch/hand at3 / tgt) */
