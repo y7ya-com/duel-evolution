@@ -17,6 +17,14 @@ export type ArchiveLoader = (path: string, signal: AbortSignal) => Promise<{ url
 export interface DuelFxOptions { now?: () => number; requestFrame?: (cb: FrameRequestCallback) => number; cancelFrame?: (id: number) => void }
 
 const E = 'data/y/duel/effect/';
+const F30 = 1000 / 30;
+/** live's coin toss (L-coin films): each coin's flight, the next one's start, the lift and size at the top, where they
+ * lie and for how long after the last lands */
+const COIN = { flight: 1000, stagger: 500, lift: 90, scale: 0.9, peak: 1.75, gap: 100, restY: 300, hold: 1600, fade: 150 } as const;
+const coinsMs = (n: number): number => (Math.max(1, n) - 1) * COIN.stagger + COIN.flight + COIN.hold + COIN.fade;
+/** live's die (L-dice1): its flight, its roll, its face shown in the field's middle, its way up to the phase row, the
+ * end (lying 1.3 s on the row) and its fade */
+const DIE = { flight: 870, rolled: 1150, shown: 1640, rested: 1880, end: 3350, fade: 130, lift: 110 } as const;
 const PHASE_ART: Record<NonNullable<DuelCue['phase']>, string> = { draw: 'dr', standby: 'st', main1: 'm1', battle: 'ba', main2: 'm2', end: 'en' };
 /** Original field-theme kinds (src/duel/theme.ts) in data/y/duel/field/field.txt order; titles are fie_<name>_fe.png. */
 const FIELD_TITLES = ['mori', 'kouya', 'yama', 'sougen', 'umi', 'yami', 'sanctu', 'gaia', 'water', 'burn', 'desert', 'shine', 'dark', 'fusion', 'shine', 'umi', 'kouya', 'dark', 'sanctu', 'desert', 'fusion', 'yami'];
@@ -295,12 +303,14 @@ export class DuelFx {
       case 'coin': {
         const sheet = `${E}duel_ef_coin.png`, shadow = `${E}duel_ef_coin_kage.png`; this.want(sheet, shadow);
         const faces = cue.values?.length ? cue.values : [1], at = cue.at ? this.where(cue.at) : { x: 512, y: 318, w: 0, h: 0 };
-        return this.push(cue, this.reduced ? 1400 : 2200, (ctx, t) => this.coins(ctx, sheet, faces, at, t));
+        return this.push(cue, this.reduced ? 1400 : coinsMs(faces.length), (ctx, t) => this.coins(ctx, sheet, faces, at, t));
       }
       case 'dice': {
-        const spin = `${E}dice_random.png`, face = `${E}dice_decide${clamp(cue.value ?? 1, 1, 6)}.png`; this.want(spin, face);
+        const value = clamp(cue.value ?? 1, 1, 6), spin = `${E}dice_random.png`, face = `${E}dice_decide${value}.png`;
+        const roll = `${E}dice_ani_${[1, 5, 6].includes(value) ? 5621 : 2453}.png`, shadow = `${E}dice_shadow.png`;
+        this.want(spin, face, roll, shadow);
         const at = cue.at ? this.where(cue.at) : { x: 512, y: 318, w: 0, h: 0 };
-        return this.push(cue, this.reduced ? 1400 : 2000, (ctx, t) => this.die(ctx, spin, face, at, t));
+        return this.push(cue, this.reduced ? 1400 : DIE.end, (ctx, t) => this.die(ctx, { spin, face, roll, shadow }, at, t));
       }
       case 'field': {
         const name = FIELD_TITLES[(cue.value ?? 0) - 1]; if (!name) return;
@@ -449,31 +459,49 @@ export class DuelFx {
     const img = this.image(path); if (!img || alpha <= 0) return;
     ctx.save(); ctx.globalAlpha = clamp(alpha); ctx.translate(x, y); ctx.rotate(rot); ctx.drawImage(img, -img.width / 2, -img.height / 2); ctx.restore();
   }
-  /** coin_new.txt: duel_ef_coin is 14 frames of 50×50 (0 the puzzle face = heads, 7 the eye = tails). */
+  /** coin_new.txt: duel_ef_coin is 14 frames of 50×50 (0 the puzzle face = heads, 7 the eye = tails), its shadow
+   * duel_ef_coin_kage 4 of 52×52. live's toss (its film L-coin / L-coin3, 30 fps): each coin leaves the tossing card,
+   * spinning two sheet frames a game frame, and flies 1 s up and over (90 px at the top, twice its size there) to its
+   * place on the phase row (512, 300; three coins 100 px apart, each 0.5 s after the last); its shadow falls on the
+   * ground below and to the right (half the coin's height off). The coins lie on their faces 1.6 s after the last one
+   * lands, then fade. */
   private coins(ctx: PixiPainter, sheet: string, faces: number[], at: Point, t: number): void {
     const img = this.image(sheet), shadow = this.image(sheet.replace('duel_ef_coin', 'duel_ef_coin_kage')); if (!img) return;
-    const spin = this.reduced ? 0 : 1300, spacing = 60;
+    const n = faces.length, total = this.reduced ? 1400 : coinsMs(n);
+    ctx.globalAlpha = 1 - clamp((t - (total - COIN.fade)) / COIN.fade);
+    const alpha = ctx.globalAlpha;
     faces.forEach((face, i) => {
-      const x = at.x - (faces.length - 1) * spacing / 2 + i * spacing, settled = t >= spin;
-      const lift = settled ? 0 : Math.sin(clamp(t / spin) * Math.PI) * 90;
-      const frame = settled ? face ? 0 : 7 : Math.floor(t / 40) % 14;
-      ctx.globalAlpha = 1 - clamp((t - (this.reduced ? 1200 : 2000)) / 200);
-      if (shadow) ctx.drawImage(shadow, 0, 0, shadow.width / 4, shadow.height, x - 25, at.y + 18, 50, shadow.height);
-      ctx.drawImage(img, frame * 50, 0, 50, 50, x - 25, at.y - 25 - lift, 50, 50);
+      const end = { x: 512 + (i - (n - 1) / 2) * COIN.gap, y: COIN.restY };
+      const k = this.reduced ? 1 : clamp((t - i * COIN.stagger) / COIN.flight); if (!this.reduced && t < i * COIN.stagger) return;
+      const gx = at.x + (end.x - at.x) * k, gy = at.y + (end.y - at.y) * k, up = Math.sin(Math.PI * k);
+      const lift = COIN.lift * up, size = 50 * (COIN.scale + (COIN.peak - COIN.scale) * up);
+      const frame = k >= 1 ? face ? 0 : 7 : Math.floor((t - i * COIN.stagger) / F30) * 2 % 14;
+      if (shadow) { const sw = shadow.width / 4; ctx.globalAlpha = alpha * 0.55; ctx.drawImage(shadow, 0, 0, sw, shadow.height, gx + lift * 0.5 - 28, gy + lift * 0.5 - 28, 56, 56); ctx.globalAlpha = alpha; }
+      ctx.drawImage(img, frame * 50, 0, 50, 50, gx - size / 2, gy - lift - size / 2, size, size);
     });
   }
-  /** dice.txt: dice_random's 6 tumbling frames, then dice_decide<n> (the face). */
-  private die(ctx: PixiPainter, spin: string, face: string, at: Point, t: number): void {
-    const rolling = this.reduced ? 0 : 1000, fade = 1 - clamp((t - (this.reduced ? 1200 : 1800)) / 200);
-    ctx.globalAlpha = fade;
-    if (t < rolling) {
-      const img = this.image(spin); if (!img) return;
-      const w = img.width / 6, f = Math.floor(t / 60) % 6, hop = Math.abs(Math.sin(t / rolling * Math.PI * 3)) * 40 * (1 - t / rolling);
-      ctx.drawImage(img, f * w, 0, w, img.height, at.x - w / 2, at.y - img.height / 2 - hop, w, img.height);
-    } else {
-      const img = this.image(face); if (!img) return;
-      ctx.drawImage(img, at.x - img.width, at.y - img.height, img.width * 2, img.height * 2);
-    }
+  /** dice.txt: live's roll (its film L-dice1, 30 fps): the die leaves the rolling card tumbling (dice_random, 6 frames)
+   * and flies up and over to the middle of the field (512, 364) at nearly twice its size, rolls there (dice_ani_2453 or
+   * _5621, 16 frames), shows its face (dice_decide<n>), goes up onto the phase row (512, 300), lies there and fades. */
+  private die(ctx: PixiPainter, art: { spin: string; face: string; roll: string; shadow: string }, at: Point, t: number): void {
+    const D = DIE, land = { x: 512, y: 364 }, rest = { x: 512, y: 300 };
+    if (this.reduced) { const img = this.image(art.face); if (img) { ctx.globalAlpha = 1 - clamp((t - 1200) / 200); ctx.drawImage(img, rest.x - img.width * 0.6, rest.y - img.height * 0.6, img.width * 1.2, img.height * 1.2); } return; }
+    ctx.globalAlpha = 1 - clamp((t - (D.end - D.fade)) / D.fade);
+    const alpha = ctx.globalAlpha, shadow = this.image(art.shadow);
+    const put = (path: string, frames: number, f: number, x: number, y: number, scale: number, lift: number) => {
+      const img = this.image(path); if (!img) return;
+      const w = img.width / frames, h = img.height;
+      if (shadow) { const sw = shadow.width / 6; ctx.globalAlpha = alpha * 0.5; ctx.drawImage(shadow, 0, 0, sw, shadow.height, x + lift * 0.5 - sw * scale / 2, y + lift * 0.5 - shadow.height * scale / 2, sw * scale, shadow.height * scale); ctx.globalAlpha = alpha; }
+      ctx.drawImage(img, (f % frames) * w, 0, w, h, x - w * scale / 2, y - lift - h * scale / 2, w * scale, h * scale);
+    };
+    if (t < D.flight) {
+      const k = t / D.flight, up = Math.sin(Math.PI * Math.min(1, k * 1.1));
+      put(art.spin, 6, Math.floor(t / F30), at.x + (land.x - at.x) * k, at.y + (land.y - at.y) * k, 1 + 0.8 * up + 0.3 * k, D.lift * up);
+    } else if (t < D.rolled) {
+      const k = (t - D.flight) / (D.rolled - D.flight);
+      put(art.roll, 16, Math.min(15, Math.floor(k * 16)), land.x, land.y, 1.75 - 0.4 * k, 10 * Math.abs(Math.sin(Math.PI * 2 * k)) * (1 - k));
+    } else if (t < D.shown) put(art.face, 1, 0, land.x, land.y, 1.35, 0);
+    else { const k = clamp((t - D.shown) / (D.rested - D.shown)); put(art.face, 1, 0, land.x + (rest.x - land.x) * k, land.y + (rest.y - land.y) * k, 1.35 - 0.25 * k, 0); }
   }
   /** One original SWF movie at its frame rate around (x, y). Missing pieces draw nothing. */
   /** Whether a movie and every bitmap it draws are loaded (a failed one counts as done). */
