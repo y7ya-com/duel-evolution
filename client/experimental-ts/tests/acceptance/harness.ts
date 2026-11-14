@@ -599,7 +599,8 @@ export async function surrender(page:Page) {
  * (main's picker), then what the duel gave, as live: "You got <X>!" Ok dialogs (htmlui/npc-itemget.ts), each OK'd, the
  * last ending the talk. Returns the pack label, the received names (the cards first) and the dialog text seen. */
 export async function claimNpcReward(page:Page):Promise<{ pack:string|null; received:string[]; dialog:string }> {
-  if (await page.ev(resultShown)) await press(page,resultLeave);
+  let left = false;
+  if (await page.ev(resultShown)) { left = true; await press(page,resultLeave); }
   const balloon = `[...document.querySelectorAll('button[data-key="npc-talk:next"]')].find(b=>!b.disabled&&b.getClientRects().length)`;
   const itemOk = `[...document.querySelectorAll('[data-key="npc-itemget-ok"]')].find(b=>!b.disabled&&b.getClientRects().length)`;
   const htmlRow = `document.querySelector('.yo2ps-list .yo2ps-row')`, htmlOk = `document.querySelector('.yo2ps-ok:not([hidden])')`;
@@ -607,6 +608,9 @@ export async function claimNpcReward(page:Page):Promise<{ pack:string|null; rece
   let pack:string|null = null, dialog = '';
   const received:string[] = [];
   for (let i = 0; i < 60 && (await page.ev(npcUp) || i < 6); i++) {
+    // the result board once the end's word has had its 4 s (live's): its Next, once (a second press is refused while
+    // the first is under way: "Wait for the current action to finish.")
+    if (!left && await page.ev(resultShown)) { left = true; await press(page,resultLeave); await sleep(500); continue; }
     // the NPC's lines after the duel (its balloon): clicked on, the gift's line too (Receive Gift)
     if (await page.ev(`Boolean(${balloon})`)) { dialog ||= (await page.ev(`${balloon}.getAttribute('aria-label') ?? ''`) as string).slice(0,240); await press(page,balloon); await sleep(500); continue; }
     // the duel's last word (its result line as a duel.js dialog over the picker): acknowledged first, as a player would
