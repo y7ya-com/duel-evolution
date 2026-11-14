@@ -65,7 +65,7 @@ import { NetNote } from './htmlui/net-note';
 import { duelCmdWindow, duelCmdRect, menuCommand, SURRENDER_COMMAND, type DuelCmdRow, type DuelCmdUi } from './htmlui/duel-cmd';
 import { DuelSpeedButton } from './htmlui/duel-speed';
 import { duelResultWindows } from './htmlui/duel-result';
-import { jankenScene, jankenWinner, JANKEN_CSS, type JankenView } from './janken-scene';
+import { jankenScene, jankenMoments, JANKEN_CSS, JANKEN_DEAL_MS, JANKEN_CHOSEN_HOLD_MS, type JankenTimes, type JankenView } from './janken-scene';
 export type * from './contracts';
 
 type Child = Node | string | null | undefined;
@@ -496,7 +496,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     return challengeUnlockWindows(e, e.bits, { ids: htmlIds, ui: unlockUi, text: id => gameTexts.get(id), rerender: () => showHtml() });
   };
   // the NPC's windows wait for the scene-loading veil (the lobby reloading after the duel): they come as it lifts
-  const onVeil = (): void => { if (!disposed && state.npc?.npc) showHtml(); };
+  // (the janken scene starts its motions only once the veil is off it: a render then)
+  const onVeil = (): void => { if (disposed) return; if (state.scene === 'duel' && state.preparation) requestRender(); else if (state.npc?.npc) showHtml(); };
   globalThis.addEventListener?.(VEIL_EVENT, onVeil);
   // Tournaments (htmlui/tournament.ts): JoinGunsling from the Main Menu, the bracket while joined, the end result once;
   // the server's event state (EVENTINFO) in the Information window until closed. Over the lobby only (a pairing is a duel).
@@ -565,42 +566,54 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const htmlDuelPrompt = (prompt: DuelPromptView | null | undefined): boolean => !!prompt && duelDialogCovers(prompt) && !state.preparation;
   // Rock-paper-scissors and who goes first: live's own scene (janken-scene.ts) in place of the field; the step after
   // the hands goes straight on into the duel (live has no Start Duel: the app begins it, app.ts autoBeginDuel)
-  let jankenMine: number | null = null;
-  // live's reveal of each round's hands (janken-scene.ts): both in the middle, then the winner's; after a tie the hands again
-  const REVEAL_BOTH_MS = 1200, REVEAL_WINNER_MS = 1000;
-  let revealRound = 0, revealAt = 0, tieDone = 0, revealed: { mine: number; theirs: number } | null = null;
+  // The scene plays by its moments (JankenTimes: when it came, the deal, this side's pick, the hands shown, the plates,
+  // the plate chosen); each render draws it where those say it is by now, and a render is woken at each moment's end
+  let jk: JankenTimes | null = null, jkRound = 0, jkVeiled = false;
+  const jkWake = new Set<number>();
+  const VEILED_MS = 3_600_000;
+  const wakeAt = (at: number | undefined): void => {
+    if (at === undefined || !Number.isFinite(at)) return; const ms = at - Date.now(); if (ms <= 0 || ms >= VEILED_MS || jkWake.has(at)) return;
+    jkWake.add(at); setTimeout(() => { jkWake.delete(at); if (!disposed) requestRender(); }, ms + 20);
+  };
   const jankenView = (): JankenView | null => {
-    const prep = state.preparation;
-    // the duel may start as the hands are shown (the server's NPC picks at once): the reveal plays out first, as live's
-    if (!prep && !state.sideboarding && revealed && !state.settings.reducedMotion && Date.now() - revealAt < REVEAL_BOTH_MS + REVEAL_WINNER_MS) {
-      const mineWins = jankenWinner(revealed.mine, revealed.theirs), elapsed = Date.now() - revealAt;
-      return { phase: 'wait', mine: revealed.mine, theirs: revealed.theirs, busy: true, thinking: false, reveal: { stage: elapsed < REVEAL_BOTH_MS ? 'both' : 'winner', ...revealed, mineWins } };
+    const prep = state.preparation, now = Date.now(), reduced = !!state.settings.reducedMotion, clock = reduced ? Infinity : now;
+    if (!prep || state.sideboarding) {
+      // the duel may begin while the scene still plays (the NPC picks and chooses at once): it plays out first, as live's
+      let m = jk && !reduced ? jankenMoments(jk) : null;
+      // the opponent won and chose (the NPC at once): live's plates come for this side too and show its choice, the
+      // plate of this side's turn lit and gone to the middle (its first turn's player)
+      const duel = state.duel;
+      if (jk && m && m.mineWins === false && m.plates !== undefined && !jk.choice && duel && duel.turn >= 1) {
+        jk.plates = m.plates; jk.choice = { first: duel.turnPlayer === 0, at: m.plates + 250 }; m = jankenMoments(jk);
+      }
+      const until = !m ? 0 : m.chosen !== undefined ? m.chosen + JANKEN_CHOSEN_HOLD_MS : m.plates !== undefined && !jk!.plates ? m.plates : 0;
+      wakeAt(jk?.plates); wakeAt(jk?.choice?.at);
+      if (jk && !state.sideboarding && now < until) { wakeAt(until); return { phase: 'wait', busy: true, thinking: false, times: jk, now: clock }; }
+      jk = null; jkRound = 0; return null;
     }
-    // (each duel's hands anew: the last duel's pick is forgotten once its preparation is over)
-    if (!prep || state.sideboarding) { jankenMine = null; revealRound = tieDone = 0; revealed = null; return null; }
-    const phase = prep.phase.toLowerCase(), theirs = prep.opponentHand ?? null, busy = !!state.busy;
-    if (prep.role === 'partner' || prep.role === 'spectator') return { phase: 'wait', mine: null, theirs, busy, thinking: false, message: prep.role === 'partner' ? 'Your captain is preparing the duel…' : 'Waiting for duel preparation…' };
+    // the scene starts (its fade from black, then the deal) as the scene-loading veil comes off it, as live's does once
+    // its scene has loaded: under the veil, and at the first render after it, it starts anew (under the veil it stays
+    // black, its start not yet come: live's screen is black while its scene loads, then the scene fades in)
+    const veiled = sceneVeilUp();
+    if (!jk || !jk.pick && (veiled || jkVeiled)) { const at = veiled ? now + VEILED_MS : now; jk = { scene: at, deal: { at: at + JANKEN_DEAL_MS, from: 'deck' } }; }
+    jkVeiled = veiled;
     const hands = prep.hands ?? null;
-    if (hands && hands.round !== revealRound) {
-      revealRound = hands.round; revealAt = Date.now(); revealed = { mine: hands.mine, theirs: hands.theirs };
-      for (const ms of [REVEAL_BOTH_MS, REVEAL_BOTH_MS + REVEAL_WINNER_MS]) setTimeout(() => { if (!disposed) requestRender(); }, ms + 20);
+    if (hands && hands.round !== jkRound) { jkRound = hands.round; jk.reveal = { at: now, mine: hands.mine, theirs: hands.theirs }; jk.pick ??= { hand: hands.mine, at: now, raised: false }; }
+    let m = jankenMoments(jk);
+    // a tie's hands gone home: dealt again from their two stacks
+    if (m.tie && m.redeal !== undefined && clock >= m.redeal) { jk = { scene: jk.scene, deal: { at: m.redeal, from: 'stacks' } }; m = jankenMoments(jk); }
+    for (const at of [m.dealt, m.approach, m.met, m.settled, m.redeal, m.plates, m.chosen]) wakeAt(at);
+    const phase = prep.phase.toLowerCase(), busy = !!state.busy, times = jk;
+    if (prep.role === 'partner' || prep.role === 'spectator') return { phase: 'wait', busy, thinking: false, times, now: clock, message: prep.role === 'partner' ? 'Your captain is preparing the duel…' : 'Waiting for duel preparation…' };
+    if (jk.choice) return { phase: 'wait', busy: true, thinking: false, times, now: clock };
+    // who goes first, the winner's: the plates once the winner's card has had its moment
+    if (/first|order|turn/.test(phase) && !/wait|result/.test(phase) && m.mineWins !== false && (m.plates === undefined || clock >= m.plates)) {
+      jk.plates ??= Math.max(now, m.plates ?? now);
+      return { phase: 'first', busy, thinking: false, times, now: clock };
     }
-    if (hands) {
-      const mineWins = jankenWinner(hands.mine, hands.theirs), elapsed = Date.now() - revealAt, reduced = state.settings.reducedMotion;
-      if (!reduced && elapsed < REVEAL_BOTH_MS + (mineWins === null ? 0 : REVEAL_WINNER_MS))
-        return { phase: 'wait', mine: hands.mine, theirs: hands.theirs, busy, thinking: false, reveal: { stage: elapsed < REVEAL_BOTH_MS ? 'both' : 'winner', mine: hands.mine, theirs: hands.theirs, mineWins } };
-      // a tie shown: the hands again (once per round: the next pick waits for its own answer)
-      if (mineWins === null && tieDone !== hands.round) { tieDone = hands.round; jankenMine = null; }
-      // decided: the winner's card stays while the winner chooses who goes first (the winner's own plates replace it)
-      if (mineWins !== null && !(/first|order|turn/.test(phase) && !/wait|result/.test(phase)))
-        return { phase: 'wait', mine: hands.mine, theirs: hands.theirs, busy, thinking: false, reveal: { stage: 'winner', mine: hands.mine, theirs: hands.theirs, mineWins } };
-    }
-    if (/ready|begin|confirm|invitation/.test(phase)) return { phase: 'wait', mine: jankenMine, theirs, busy, thinking: false };
-    if (/rps|hand|rock|scissors/.test(phase) && !/wait|result/.test(phase)) {
-      return { phase: 'hand', mine: jankenMine, theirs: null, busy, thinking: true };
-    }
-    if (/first|order|turn/.test(phase) && !/wait|result/.test(phase)) return { phase: 'first', mine: jankenMine, theirs, busy, thinking: false };
-    return { phase: 'wait', mine: jankenMine, theirs, busy, thinking: /first/.test(phase) };
+    if (/ready|begin|confirm|invitation/.test(phase)) return { phase: 'wait', busy, thinking: false, times, now: clock };
+    if (/rps|hand|rock|scissors/.test(phase) && !/wait|result/.test(phase) && !jk.pick) return { phase: 'hand', busy, thinking: true, times, now: clock };
+    return { phase: 'wait', busy, thinking: !jk.reveal, times, now: clock };
   };
   // A card's open command menu (live's CUSummonDialogSp, htmlui/duel-cmd.ts): what renderDuel gathered for it; the row
   // under the pointer is the menu's own. As live (CUSummonDialogSp::onMain) it closes when the pointer leaves the card
@@ -654,7 +667,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   };
   const netNote = new NetNote();
   const duelSpecs = (): WindowSpec[] => {
-    const duel = state.duel; if (state.scene !== 'duel' || !duel) return [];
+    // (none while the janken scene plays its last motions out over a duel that has begun)
+    const duel = state.duel; if (state.scene !== 'duel' || !duel || jk) return [];
     const out: WindowSpec[] = [];
     // the end: main's result.js records and its Next plate (back to the lobby once the duel or the match is over); a
     // match's sideboarding (the original's Card Swap) replaces the game's result, as the result screen gives way to it there
@@ -702,7 +716,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const onTagDuel = () => { if (!state.tagLobby || state.scene !== 'lobby' || !state.lobby?.connected || state.busy) return; lobbyUi.open = null; send({ type: 'tagAction', action: { type: 'open' } }); showHtml(); };
   globalThis.addEventListener?.('yo2-tag-lobby-open', onTagDuel);
   const buildHtml = () => localized(htmlWindows({ state, ui: htmlUiState, ids: htmlIds, send, rerender: showHtml, changeAvatar: changeAvatar(), menu: menuView, social: socialLists(), mailBox: mailBox(), profileActions: profileActions(), cardActions: cardActions(), openPlayer: pid => send({ type: 'interact', playerId: pid }),
-    deckWindows: () => deckScene.windows(), deckChat: deckScene.chat(), scene: sceneWindows(), prompts: duelPrompts(), covered: !!state.socialDetail && tradeScene(state.socialDetail.trade), rewardScene: rewardScene(),
+    deckWindows: () => deckScene.windows(), deckChat: deckScene.chat(), scene: sceneWindows(), prompts: duelPrompts(), covered: !!state.socialDetail && tradeScene(state.socialDetail.trade), rewardScene: rewardScene(), janken: state.scene === 'duel' && jk !== null,
     text: id => gameTexts.get(id), lobby: { list: ctx => lobbyList(ctx, lobbyDeps(), pid => send({ type: 'interact', playerId: pid })), windows: ctx => lobbyWindows(ctx, lobbyDeps()) },
     ...(checkPassword ? { checkPassword: (password: string) => checkPassword(password, new AbortController().signal) } : {}) }));
   const localized = (specs: WindowSpec[]): WindowSpec[] => { localizeSpecs(specs, uiText); return specs; };
@@ -1216,7 +1230,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (jv) {
       duelNpcSets(); const portraits = duelScene.jankenPortraits(state.duel?.players ?? null);
       // (live's janken timer plate stands on the asking side of a duel request: livetour2 60 / 73)
-      stage.append(jankenScene({ ...jv, timer: challenger && state.npc?.stage !== 'duel' && !state.relay }, { hand: hand => { jankenMine = hand; send({ type: 'chooseHand', hand }); }, first: first => send({ type: 'chooseFirst', first }) },
+      stage.append(jankenScene({ ...jv, timer: challenger && state.npc?.stage !== 'duel' && !state.relay }, { hand: (hand, raised) => { if (jk) jk.pick = { hand, at: Date.now(), raised }; send({ type: 'chooseHand', hand }); requestRender(); }, first: first => { if (jk) jk.choice = { first, at: Date.now() }; send({ type: 'chooseFirst', first }); requestRender(); } },
         controller.loadArchiveImage ? loadArchiveArt : null, portraits));
       if (state.relay) stage.append(relayRoster());
       return;
@@ -1468,7 +1482,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (disposed || rendering) return; rendering = true;
     try {
       state = controller.getState();
-      if (!state.preparation) jankenMine = null;   // each duel's rock-paper-scissors anew
+      if (!state.preparation && state.scene !== 'duel') jk = null;   // each duel's rock-paper-scissors anew
       // whether this side asked for the coming duel (its request out) or was asked (an invitation came)
       if (state.lobby?.outgoing) challenger = true; else if (state.lobby?.invitation) challenger = false;
       if (optionsFromDuel && state.scene !== 'duel') { optionsFromDuel = false; if (optionsUi?.kind === 'options') optionsUi = null; }

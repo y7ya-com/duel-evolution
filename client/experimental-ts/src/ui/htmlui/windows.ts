@@ -114,6 +114,8 @@ export interface BuildContext {
   covered?: boolean;
   /** live's reward scenes after an NPC duel (the pack pick, the card get) fill the screen: no lobby window under them. */
   rewardScene?: boolean;
+  /** The janken scene is still up (its last motions play out after the duel has begun): no duel chat over it. */
+  janken?: boolean;
 }
 
 const byY = (cs: HtmlControl[], name: string) => cs.filter(c => c.name === name).sort((a, b) => a.y - b.y);
@@ -928,7 +930,7 @@ export function htmlWindows(ctx: BuildContext): WindowSpec[] {
   // the duel keeps the chat (live: the engine's chat under the hand, 248, 608), the Duels tab and whispers with it
   // (not over the side deck screen between a match's games: its panel fills the stage down to Submit Sideboard)
   // (live: no chat window during rock-paper-scissors, nor behind the result board; Card Swap keeps it)
-  if (state.scene === 'duel' && state.connection === 'online' && !state.preparation && !(state.duel?.ended && !state.replay && !state.sideboarding)) { const chat = chatWindow(ctx); if (chat) out.push(chat); }
+  if (state.scene === 'duel' && state.connection === 'online' && !state.preparation && !ctx.janken && !(state.duel?.ended && !state.replay && !state.sideboarding)) { const chat = chatWindow(ctx); if (chat) out.push(chat); }
   const mail = ctx.mailBox ? mailWindow(ctx, ctx.mailBox) : null; if (mail) out.push(mail); else if (!ctx.mailBox) ui.mail = null;
   const compose = ctx.mailBox ? composeWindow(ctx, ctx.mailBox.send) : null; if (compose) out.push(compose); else if (!ctx.mailBox) ui.compose = null;
   // the Friend List over Write Mail when it picks the recipient
