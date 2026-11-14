@@ -506,7 +506,8 @@ export async function startNpcDuel(page:Page,npc:string) {
 /** Rock-paper-scissors until decided, then go first if offered, and start. */
 export async function prepareDuel(page:Page,hand:'Rock'|'Scissors'|'Paper' = 'Rock') {
   await until(page,`[...document.querySelectorAll('button')].some(b=>['Rock','Go First','Go Second','Start Duel'].includes(b.textContent.trim())&&!b.disabled)||document.querySelectorAll('.de-field-card').length>0`,60000);
-  for (let round = 0; round < 20; round++) {
+  // (by time, not rounds: live's hands take about 3 s a round to be dealt, meet and, on a tie, be dealt again)
+  for (const start = Date.now(); Date.now() - start < 90000;) {
     if (await page.ev(`document.querySelectorAll('.de-field-card').length>0&&!document.querySelector('.de-duel-prompt')`)) return;
     for (const label of ['Go First','Start Duel']) if (await page.ev(`Boolean(${byText(label)})`)) { await press(page,byText(label)); await sleep(300); }
     if (await page.ev(`Boolean(${byText(hand)})`)) { await press(page,byText(hand)); hand = hand === 'Rock' ? 'Scissors' : hand === 'Scissors' ? 'Paper' : 'Rock'; }
