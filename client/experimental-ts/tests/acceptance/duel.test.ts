@@ -278,13 +278,23 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
         // Stale prompt: capture an answer button of the current prompt; after the next prompt arrives, press it.
         for (const [page,s,who] of [[a,sa,'A'],[b,sb,'B']] as const) {
           if (!stale && s.prompt && turnOf(s) >= 2) {
-            const key = await page.ev(`(()=>{const p=document.querySelector('.de-duel-prompt[role=dialog]')??document.querySelector('#htmlui-host');if(!p)return null;const b=[...p.querySelectorAll('button')].find(b=>b.dataset.key?.startsWith('prompt-option:')||b.dataset.key?.startsWith('prompt-candidate:'));if(!b)return null;window.__stale=b;return b.dataset.key})()`) as string | null;
+            // a button of this very prompt (its key names it), taken while the prompt is still the one asked: the page can
+            // have moved on since the snapshot (the next question drawn, or the same one asked again under a new id), and
+            // a button of that newer prompt is no stale one: pressed later, it answered the prompt it belongs to (a "Yes"
+            // from a bot that only ever says No)
+            const id = JSON.stringify(s.prompt.id);
+            const key = await page.ev(`(()=>{if(String(window.__deApp?.getState?.().duel?.prompt?.id)!==${id})return null;const p=document.querySelector('.de-duel-prompt[role=dialog]')??document.querySelector('#htmlui-host');if(!p)return null;const b=[...p.querySelectorAll('button')].find(b=>b.dataset.key?.startsWith('prompt-option:'+${id}+':')||b.dataset.key?.startsWith('prompt-candidate:'+${id}+':'));if(!b)return null;window.__stale=b;return b.dataset.key})()`) as string | null;
             if (key) stale = { page,who,prompt:s.prompt.id,key,captured:s.prompt.text };
           } else if (stale && stale.page === page && !staleResult && s.prompt && s.prompt.id !== stale.prompt) {
             const before = await snap(page);
+            // (the button captured is the old prompt's, never the one now asked)
+            expect(stale.key.split(':')[1]).not.toBe(before.prompt!.id);
             prompts.probing = true; await page.ev(`window.__stale.click()`); await sleep(400);
             const after = await snap(page);
-            staleResult = `${who}: old "${stale.captured}" answer pressed under new "${before.prompt!.text}": ${after.errors.join(' ') || 'no message'}; prompt ${after.prompt?.id === before.prompt!.id ? 'still active' : 'changed'}`;
+            // and nothing went to the server for the prompt now asked (a duel answer carries no prompt id: one sent now
+            // would answer whatever the server asks)
+            expect(await page.ev(`String(window.__deApp?.submittedPrompt ?? '')`)).not.toBe(before.prompt!.id);
+            staleResult = `${who}: old "${stale.captured}" answer (${stale.key}) pressed under new "${before.prompt!.text}": ${after.errors.join(' ') || 'no message'}; prompt ${after.prompt?.id === before.prompt!.id ? 'still active' : 'changed'}`;
             // the rewrite's panel says the choice expired; main's dialogs drop the old window's key with it (the press
             // reaches no handler): either way the new prompt stays and nothing is answered
             if (await page.ev(`Boolean(document.querySelector('.de-duel-prompt[role=dialog]'))`)) expect(after.errors.join(' ')).toContain('expired');

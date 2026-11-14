@@ -610,12 +610,18 @@ export async function surrender(page:Page) {
   await pressSurrender(page);
   // the client's own question first (main's YesNo, surrender-yes), then the server's when it asks one
   const ask = `[...document.querySelectorAll('button')].find(b=>b.dataset.key==='surrender-yes'&&!b.disabled)`;
-  const yes = `[...document.querySelectorAll('button')].find(b=>b.dataset.key?.startsWith('prompt-option:')&&b.textContent==='Yes'&&!b.disabled)`;
-  const ended = resultShown;
-  await until(page,`${ask}||${yes}||${ended}`,60000);
-  if (await page.ev(`Boolean(${ask})`)) { await press(page,ask); await until(page,`${yes}||${ended}`,60000); }
-  if (await page.ev(`Boolean(${yes})`)) await press(page,yes);
-  await until(page,resultShown,60000);
+  // the Yes of the server's surrender question only (dlg_text 6), never of another question it asks meanwhile (a chain's
+  // "Activate the effect of a card?" re-asked after the surrender: its Yes would activate a card the bot never plays)
+  const yes = `(()=>{const p=window.__deApp?.getState?.().duel?.prompt;if(!p||!/surrender/i.test(p.text??''))return null;return [...document.querySelectorAll('button')].find(b=>b.dataset.key?.startsWith('prompt-option:'+p.id+':')&&b.textContent==='Yes'&&!b.disabled)})()`;
+  const other = `document.querySelector('#htmlui-host [data-key^="prompt-"],.de-zone-target,.de-card-target,[data-key="duel-notice-ok"]')`;
+  for (const start = Date.now(); !(await page.ev(resultShown));) {
+    if (Date.now() - start > 60000) throw new Error(`surrender: no result within 60 s\n${String(await page.ev('document.body.innerText').catch(() => '')).slice(0,1500)}`);
+    if (await page.ev(`Boolean(${ask})`)) await press(page,ask);
+    else if (await page.ev(`Boolean(${yes})`)) await press(page,yes);
+    // anything else the server asks first is answered as the bot answers (No to a chain)
+    else if (await page.ev(`Boolean(${other})`)) await duelBot(page,{ summon:false,attack:false });
+    await sleep(200);
+  }
 }
 /** After an NPC duel: the result's Next back to the lobby, the NPC's lines (its balloon), the offered reward pack
  * (main's picker), then what the duel gave, as live: "You got <X>!" Ok dialogs (htmlui/npc-itemget.ts), each OK'd, the

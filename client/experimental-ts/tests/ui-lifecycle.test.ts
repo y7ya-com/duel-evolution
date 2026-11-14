@@ -92,6 +92,24 @@ describe('UI ownership and semantic interaction', () => {
     old.click?.();
     expect(f.commands).toHaveLength(0); await Promise.resolve(); expect(f.root.textContent).toContain('expired'); f.mounted.dispose();
   });
+  it('a question asked again under a new id is a new window: its own Yes answers it, the first asking\'s never does', async () => {
+    // (the acceptance duel's stale probe once took the newer asking's Yes for the old one's: the page had drawn the
+    // question again between its snapshot and its pick, so its "stale" press was a real answer to the prompt shown)
+    const f = fixture();
+    const duel: NonNullable<ClientView['duel']> = { players: [{ name: 'A', lp: 8000 }, { name: 'B', lp: 8000 }], cards: [], turn: 1, turnPlayer: 0, phase: 'Main', log: [], prompt: { id: '7', kind: 'yes-no', text: 'Activate?', options: [{ id: 'answer:1', label: 'Yes' }, { id: 'answer:0', label: 'No' }] } };
+    f.update({ scene: 'duel', duel }); await Promise.resolve();
+    const first = handler(f, 'prompt-option:7:answer:1')!, firstControl = control(f, 'prompt-option:7:answer:1')!;
+    f.update({ duel: { ...duel, prompt: { ...duel.prompt!, id: '8' } } }); await Promise.resolve();
+    const again = control(f, 'prompt-option:8:answer:1')!;
+    // another window and other controls: no element of the first asking can stand for the second's
+    expect(again.id).not.toBe(firstControl.id);
+    expect(handler(f, 'prompt-option:7:answer:1')).toBeUndefined();
+    first.click?.(); await Promise.resolve();
+    expect(f.commands).toHaveLength(0); expect(f.root.textContent).toContain('expired');
+    handler(f, 'prompt-option:8:answer:1')!.click?.();
+    expect(f.commands).toEqual([{ type: 'duelRespond', promptId: '8', response: { optionId: 'answer:1' } }]);
+    f.mounted.dispose();
+  });
   it('shows unavailable features as unavailable and never renders their controls', async () => {
     const f = fixture(); f.update({ scene: 'shop', unavailable: { shop: 'Shop protocol is not implemented.' } }); await Promise.resolve();
     expect(f.root.textContent).toContain('Shop protocol is not implemented.');
