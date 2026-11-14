@@ -149,7 +149,7 @@ describe('blinking portraits', () => {
 });
 
 describe('attack timing', () => {
-  it('follows CBattleManager state 4: aim 8 frames, fly to frame 16, then the hit', () => {
-    expect(ATTACK.aim).toBeCloseTo(133.33, 1); expect(ATTACK.hit).toBeCloseTo(266.67, 1);
+  it('follows CBattleManager state 4 at the duel scene\'s 30 Hz: turn 8 frames, fly 8 frames, then the hit', () => {
+    expect(ATTACK.turn).toBeCloseTo(266.67, 1); expect(ATTACK.flight).toBeCloseTo(266.67, 1);
   });
 });
