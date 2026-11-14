@@ -115,7 +115,7 @@ button.de-card { padding:2px; min-height:0; color:#fff; background:linear-gradie
 .de-match-mark.game-0 { left:${257 / 472 * 100}%; } .de-match-mark.game-1 { left:${321 / 472 * 100}%; } .de-match-mark.game-2 { left:${385 / 472 * 100}%; }
 .de-match-mark>.de-match-sheet { position:absolute; width:400%; height:200%; }
 /* behind the duel's result board live dims the field, its plates and its bar */
-.de-duel-board>.de-result-dim { position:absolute; inset:0; z-index:40; background:rgba(0,0,0,.45); pointer-events:none; }
+.de-duel-board>.de-result-dim { position:absolute; inset:0; z-index:40; background:rgba(0,0,0,.5); pointer-events:none; }
 .de-client button.de-deck-zone { position:absolute; transform:translate(-50%,-50%); pointer-events:auto; min-height:0; padding:0; background:none; border:0; box-shadow:none; cursor:pointer; }
 button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zone-pulse 1s ease-in-out infinite alternate; z-index:3; }
 @keyframes de-zone-pulse { from { box-shadow:0 0 6px #ffe14a; } to { box-shadow:0 0 18px #fff38a; } }

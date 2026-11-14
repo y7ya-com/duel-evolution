@@ -174,10 +174,12 @@ export class DuelPresentation {
     // the loser's face at the duel's end (live: the result screen's sweating, gritted-teeth portrait)
     const loser = duel.ended === 'Victory' ? 1 : duel.ended === 'Defeat' ? 0 : -1;
     for (const side of [0, 1] as const) this.portrait(side, duel.players[side].parts, side === loser ? 'lose' : 'normal');
+    if (!duel.ended) for (const side of [0, 1] as const) void this.portraitFrames(side, duel.players[side].parts, this.npcSets[side], 'lose');
     this.drawStats();
   }
   private lastCue: number | null = null;
   dispose(): void {
+    this.composed.clear();
     for (const side of [0, 1] as const) { const face = this.faces[side]; if (face.timer !== null) this.clearTimer(face.timer); face.timer = null; this.dropFrames(side); }
     for (const l of this.leases.splice(0)) l.release();
     this.abort.abort(); this.statsLayer.remove(); this.statsLayer.replaceChildren(); this.statsFont?.release(); this.statsFont = null; this.fx.dispose(); this.info.remove(); for (const p of this.portraits) p.remove();
@@ -222,6 +224,20 @@ export class DuelPresentation {
     // with the scene's CSS (the portraits' place and size), which the duel board carries otherwise
     return [this.style, ...this.portraits];
   }
+  /** Each side's composed portrait frames by look and expression, kept for the duel (the end's faces are made while it
+   * goes on: composed at the end, from parts not yet loaded, they had held the end under the scene-loading veil). */
+  private readonly composed = new Map<string, Promise<Partial<Record<EyeFrame, HTMLCanvasElement>>>>();
+  private portraitFrames(side: 0 | 1, parts: Uint8Array | undefined, set: string | null, expression: Expression): Promise<Partial<Record<EyeFrame, HTMLCanvasElement>>> | null {
+    if (set ? !this.load : !parts || !this.composer) return null;
+    const key = `${side}:${set ? `npc:${set}` : Array.from(parts!).join('.')}:${expression}`;
+    let frames = this.composed.get(key);
+    if (!frames) {
+      if (this.composed.size >= 8) this.composed.delete(this.composed.keys().next().value!);
+      frames = set ? npcPortraitFrames(this.load!, set, expression, this.abort.signal) : this.composer!.composeFrames(parts!, side === 0 ? 1 : 0, this.abort.signal, expression);
+      this.composed.set(key, frames); frames.catch(() => { if (this.composed.get(key) === frames) this.composed.delete(key); });
+    }
+    return frames;
+  }
   private portrait(side: 0 | 1, parts: Uint8Array | undefined, expression: Expression = 'normal'): void {
     const box = this.portraits[side], set = this.npcSets[side];
     const key = set ? `npc:${set}:${expression}` : parts ? `${Array.from(parts).join('.')}:${expression}` : '';
@@ -233,7 +249,7 @@ export class DuelPresentation {
     // the whole screen (its art reaches past the portrait's box), unmirrored
     Object.assign(box.style, set ? { left: '0', top: '0', width: '100%', height: '100%', transform: '' }
       : { left: `${portraitLeft(side, parts![0] === 1) / 1024 * 100}%`, top: '', width: '', height: '', transform: side === 0 ? 'scaleX(-1)' : '' });
-    const frames = set ? npcPortraitFrames(this.load!, set, expression, this.abort.signal) : this.composer!.composeFrames(parts!, side === 0 ? 1 : 0, this.abort.signal, expression);
+    const frames = this.portraitFrames(side, parts, set, expression)!;
     void frames.then(async composed => {
       if (this.portraitKeys[side] !== key || !composed[1]) return;
       // each frame a picture of its own, decoded before it can show, so a blink never waits on one

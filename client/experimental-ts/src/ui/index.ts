@@ -65,6 +65,7 @@ import { NetNote } from './htmlui/net-note';
 import { duelCmdWindow, duelCmdRect, menuCommand, SURRENDER_COMMAND, type DuelCmdRow, type DuelCmdUi } from './htmlui/duel-cmd';
 import { DuelSpeedButton } from './htmlui/duel-speed';
 import { duelResultWindows } from './htmlui/duel-result';
+import { duelEndMovie, duelEndPictures, loadDuelEndMovies } from './duel-end';
 import { jankenScene, jankenMoments, JANKEN_CSS, JANKEN_DEAL_MS, JANKEN_CHOSEN_HOLD_MS, type JankenTimes, type JankenView } from './janken-scene';
 export type * from './contracts';
 
@@ -648,27 +649,29 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   let referenceShown: string | null = null, cardClosedForDuel = false, challenger = false;
   // The duel's end as live plays it: "YOU WIN" / "YOU LOSE" / "DRAW" over the dimmed field (data/y/duel_end), then
   // between a match's games its score board (data/y/duel/match), then the result board or Card Swap
-  const END_BANNER_MS = 2200, END_BOARD_MS = 3200;
+  // (live's film end-L: the word 4.0 s, then the dimmed field alone a quarter of a second, then the board)
+  const END_BANNER_MS = 4000, END_GAP_MS = 260, END_BOARD_MS = 3200, END_DIM_MS = 32 * 1000 / 30;
   let endSeq: { key: string; at: number } | null = null, matchMarks: string[] = [], matchMarked = '';
   // a notice the duel ended with (live: "<name> has ran out of time.") stands over the field first, the LP as they were;
   // the end's banner and board follow its OK
   const noticeUp = (duel: DuelView): boolean => !!duel.notice && duel.notice.id > local.noticeSeen;
   let lpBefore: [number, number] | null = null;
   const shownLp = (duel: DuelView, i: 0 | 1): number => duel.ended && lpBefore && noticeUp(duel) ? lpBefore[i] : duel.players[i].lp;
-  const endPhase = (): 'notice' | 'banner' | 'board' | null => {
+  const endPhase = (): 'notice' | 'banner' | 'gap' | 'board' | null => {
     const duel = state.scene === 'duel' ? state.duel : null;
     if (duel && !duel.ended) lpBefore = [duel.players[0].lp, duel.players[1].lp];
     if (duel?.ended && !state.replay && noticeUp(duel)) { endSeq = null; return 'notice'; }
     if (!duel?.ended || state.replay || duel.spectating) { endSeq = null; return null; }
-    const key = `${duel.ended}:${duel.turn}:${duel.players.map(p => p.lp).join('/')}`;
+    // (not the LP: they fall to 0 just after the end comes, which started the end over)
+    const key = `${duel.ended}:${duel.turn}:${state.match?.round ?? ''}`;
     if (endSeq?.key !== key) {
       endSeq = { key, at: Date.now() };
       // this game's mark on the match board (O won, X lost, triangle drawn), once
       if (state.match && matchMarked !== key) { matchMarked = key; matchMarks = [...matchMarks, duel.ended === 'Victory' ? 'O' : duel.ended === 'Defeat' ? 'X' : 'D'].slice(-3); }
-      for (const ms of [END_BANNER_MS, END_BANNER_MS + END_BOARD_MS]) setTimeout(() => { if (!disposed) requestRender(); }, ms + 20);
+      for (const ms of [END_BANNER_MS, END_BANNER_MS + END_GAP_MS, END_BANNER_MS + END_GAP_MS + END_BOARD_MS]) setTimeout(() => { if (!disposed) requestRender(); }, ms + 20);
     }
     const t = Date.now() - endSeq.at, between = !!state.match && (!!state.sideboarding || !state.match.complete);
-    return t < END_BANNER_MS ? 'banner' : between && t < END_BANNER_MS + END_BOARD_MS ? 'board' : null;
+    return t < END_BANNER_MS ? 'banner' : t < END_BANNER_MS + END_GAP_MS ? 'gap' : between && t < END_BANNER_MS + END_GAP_MS + END_BOARD_MS ? 'board' : null;
   };
   const netNote = new NetNote();
   const duelSpecs = (): WindowSpec[] => {
@@ -1444,12 +1447,23 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       // main's result screen (duel-result.ts: CWindowResult) shows it; the result is still announced (assistive technology)
       const status = el('div', 'de-duel-end de-sr', endedText); status.setAttribute('role', 'status'); status.setAttribute('aria-label', endedText); stage.append(status);
       // live dims the whole field, its plates and bar behind the result board
-      if (!state.replay) { const dim = el('div', 'de-result-dim'); dim.setAttribute('aria-hidden', 'true'); board.append(dim); }
+      // (to half its brightness over 32 frames as the word comes: live's film end-L)
+      if (!state.replay) {
+        const dim = el('div', 'de-result-dim'); dim.setAttribute('aria-hidden', 'true'); board.append(dim);
+        const since = endSeq ? Date.now() - endSeq.at : Infinity;
+        if (since < END_DIM_MS && !state.settings.reducedMotion && typeof dim.animate === 'function') dim.animate([{ opacity: 0 }, { opacity: 1 }], { duration: END_DIM_MS, delay: -since, easing: 'linear' });
+      }
     }
     const phase = endPhase();
-    if (phase === 'banner' && !duel.spectating) {
+    // the end's movies and pictures (and the red LP digits a side at 0 is shown in), loaded while the duel goes on: the
+    // end had waited for them under the scene-loading veil
+    if (!duel.ended && controller.loadArchiveImage) { loadDuelEndMovies(controller.loadArchiveImage.bind(controller)); for (const path of [...(['win', 'lose', 'drow'] as const).flatMap(duelEndPictures), 'data/y/duel/life/duel_font_01_c02.png']) warmArt(path); }
+    const endKind = duel.ended === 'Victory' ? 'win' : duel.ended === 'Defeat' ? 'lose' : 'drow';
+    const endMovie = phase === 'banner' && !duel.spectating && endSeq ? duelEndMovie(endKind, loadArchiveArt, Date.now() - endSeq.at, !!state.settings.reducedMotion) : null;
+    if (endMovie) board.append(endMovie);
+    else if (phase === 'banner' && !duel.spectating) {
       // data/y/duel_end: the word (m01) over its glow (m02), 352 x 128 drawn twice the size, centred on 512, 288
-      const kind = duel.ended === 'Victory' ? 'win' : duel.ended === 'Defeat' ? 'lose' : 'drow';
+      const kind = endKind;
       const banner = el('div', 'de-duel-end'); banner.setAttribute('aria-hidden', 'true');
       for (const layer of kind === 'win' || kind === 'lose' ? ['m02', 'm01'] : ['m01']) { const image = el('img', `de-duel-end-${layer}`); image.alt = ''; if (controller.loadArchiveImage) loadArchiveArt(`data/y/duel_end/duel_ef_${kind}_${layer}_e.png`, image); banner.append(image); }
       board.append(banner);
