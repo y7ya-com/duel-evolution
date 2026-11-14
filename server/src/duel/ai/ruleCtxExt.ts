@@ -51,6 +51,8 @@ export const EXT_NUM = [
   /** My face-up Spell/Trap cards that hold a monster on my field (Call of the Haunted, Premature Burial, Snatch Steal):
    *  destroying them takes the monster too. */
   "myLinkedCards",
+  /** Active permanent steal equips; a face-down Snatch Steal is not holding a monster. */
+  "myStealEquips",
 ] as const;
 export const EXT_BOOL = [
   /** My turn, before my Battle Phase is over (Main Phase 1 or the Battle Phase); my Main Phase 2; a battle under way. */

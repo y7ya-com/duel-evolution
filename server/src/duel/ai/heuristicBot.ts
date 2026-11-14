@@ -235,6 +235,8 @@ export class HeuristicBot {
   #turn = -1;
   #turnPlayer = 0;
   #idleActions = 0;
+  /** Material count of the latest unselect prompt (variable-ATK contact fusions). */
+  #summonMaterialCount = 0;
   /** `${loc}:${seq}:${desc}` of effects activated this turn: stops re-activation loops. */
   #activatedThisTurn = new Set<string>();
   /** `code:desc` of chains activated in the current chain window: stops re-chain loops. */
@@ -438,6 +440,7 @@ export class HeuristicBot {
   copyTurnState(from: HeuristicBot): void {
     this.#turn = from.#turn;
     this.#idleActions = from.#idleActions;
+    this.#summonMaterialCount = from.#summonMaterialCount;
     this.#activatedThisTurn = new Set(from.#activatedThisTurn);
     this.#chainedThisWindow = new Set(from.#chainedThisWindow);
     this.#allIn = from.#allIn;
@@ -755,11 +758,34 @@ export class HeuristicBot {
     return respIdle("SELECT_ACTIVATE", best);
   }
 
+  /** A contact fusion spends actual field bodies; being summonable is not evidence that it pays.
+   * Fortress should absorb opposing Machines or improve our combat, not turn 2100 + 1200 into 2000. */
+  #specialSummonAllowed(ev: P<"selectIdleCmd">, index: number, ctx: RuleCtx): boolean {
+    const c = ev.spSummonable[index]!;
+    if (this.#ruleFor(c.code)?.specialSummon?.(ctx) === false) return false;
+    if (this.#nameOf(c.code) !== "chimeratech fortress dragon") return true;
+    const machines = (p: PlayerBoard | null) => this.#monstersOf(p).filter(m => ((this.#cards.brain.get(m.code)?.race ?? 0) & 0x20) !== 0);
+    if (machines(this.#opp()).some(m => !m.faceDown)) return true;
+    if (this.#search && this.#sel) return this.#whatIf({ prompt: ev, resp: respIdle("SELECT_SPECIAL_SUMMON", index) }).gain > 0;
+    // The no-search rollout pilot uses the same combat test with the minimum two own materials.
+    const input = this.#planInput(), own = machines(this.#me());
+    for (const cyber of own.filter(m => this.#nameOf(m.code) === "cyber dragon" || (!m.faceDown && this.#nameOf(m.code) === "proto-cyber dragon"))) {
+      for (const other of own.filter(m => m.seq !== cyber.seq)) {
+        const kept = input.my.filter(m => m.seq !== cyber.seq && m.seq !== other.seq);
+        const fused: PlanMon = { seq: cyber.seq, atk: 2000, def: 0, faceDown: false, attackPos: true, known: true };
+        const after = { ...input, my: [...kept, fused], attackers: [...input.attackers.filter(a => a.seq !== cyber.seq && a.seq !== other.seq),
+          { index: cyber.seq, seq: cyber.seq, atk: 2000, canDirect: false }] };
+        if (tradeValue(after) > tradeValue(input) + 200) return true;
+      }
+    }
+    return false;
+  }
+
   /** A Special Summon a card rule asks for now (its specialSummon is true and its idlePriority > 0: Lava Golem onto the
    *  opponent's field under my own lock), made before the search weighs the turn. */
   #ruledSpecialSummon(ev: P<"selectIdleCmd">): Json | null {
     const ctx = this.#ctx();
-    const i = ev.spSummonable.findIndex((c) => { const r = this.#ruleFor(c.code); return !!r?.specialSummon && (r.idlePriority ?? 0) > 0 && r.specialSummon(ctx); });
+    const i = ev.spSummonable.findIndex((c, index) => { const r = this.#ruleFor(c.code); return this.#specialSummonAllowed(ev, index, ctx) && !!r?.specialSummon && (r.idlePriority ?? 0) > 0 && r.specialSummon(ctx); });
     return i >= 0 ? respIdle("SELECT_SPECIAL_SUMMON", i) : null;
   }
 
@@ -1016,6 +1042,7 @@ export class HeuristicBot {
       oppDiscardPayoff: [...opp.grave, ...opp.removed, ...[...opp.mzone, ...opp.szone].filter((c): c is BoardCard => !!c && !isFaceDown(c.position)).map((c) => c.code)]
         .filter((c) => c && DISCARD_PAYOFF.test(this.#nameOf(c))).length,
       myLinkedCards: me.szone.filter((c) => c && c.code && !isFaceDown(c.position) && (LINKED_REVIVAL.test(this.#nameOf(c.code)) || STEALS.test(this.#nameOf(c.code)))).length,
+      myStealEquips: me.szone.filter(c => c && !isFaceDown(c.position) && this.#nameOf(c.code) === "snatch steal").length,
       myArchfiends: me.mzone.filter((c) => c && c.code && !isFaceDown(c.position) && /archfiend/.test(this.#nameOf(c.code))).length,
       mySetAttackAnswers: me.szone.filter((c) => c && c.code && isFaceDown(c.position) && ATTACK_ANSWER.test(this.#nameOf(c.code))).length,
       attackerLevel: oppAttack ? oppAttack.level ?? (oppAttack.code ? this.#stat(oppAttack.code).level : 0) : 0,
@@ -1095,7 +1122,7 @@ export class HeuristicBot {
       selfStandbys: standbys,
       selfThreatened: threatened, sameCardActive: same(this.#me()) || same(this.#opp()) };
     // the steal's battle is planned only if a rule reads it
-    Object.defineProperty(ext, "stealGain", { get: () => this.#stealGain(), enumerable: true });
+    Object.defineProperty(ext, "stealGain", { get: () => this.#stealGain(LP_COST[this.#nameOf(code)] ?? 0), enumerable: true });
     if (action) {
       // the what-if runs only if a rule reads it
       const result = () => this.#whatIf(action);
@@ -1259,7 +1286,7 @@ export class HeuristicBot {
     };
     activatable.filter((x) => x.p > 0).forEach(pushActivation);
     ev.spSummonable.map((a, i) => ({ a, i, s: this.#stat(a.code).atk + (this.#ruleFor(a.code)?.summonScore?.(ctx) ?? 0) }))
-      .filter(({ a }) => this.#ruleFor(a.code)?.specialSummon?.(ctx) ?? true)
+      .filter(({ i }) => this.#specialSummonAllowed(ev, i, ctx))
       .sort((a, b) => b.s - a.s).forEach(({ i }) => out.push({ resp: respIdle("SELECT_SPECIAL_SUMMON", i), commit: act }));
     // Fusion materials remain usable on the field: do not give up all board presence while waiting to draw Polymerization.
     // the Normal Summons / Sets Master Duel's rules allow, each in its position
@@ -1438,7 +1465,7 @@ export class HeuristicBot {
 
     // 1. Special summon when possible (almost always free advantage): the strongest.
     if (this.#idleActions < MAX_IDLE_ACTIONS) {
-      const offered = ev.spSummonable.map((c, i) => ({ c, i })).filter(({ c }) => this.#ruleFor(c.code)?.specialSummon?.(ctx) ?? true);
+      const offered = ev.spSummonable.map((c, i) => ({ c, i })).filter(({ i }) => this.#specialSummonAllowed(ev, i, ctx));
       if (offered.length > 0) {
         const idx = offered[this.#argBestSummon(offered.map(({ c }) => c.code), ctx)]!.i;
         this.#idleActions++;
@@ -1612,12 +1639,13 @@ export class HeuristicBot {
   }
 
   /** What stealing the opponent's strongest face-up monster for this turn gains my Battle Phase (#ctxExt stealGain). */
-  #stealGain(): number {
+  #stealGain(lpCost = 0): number {
     if (!this.#battleAhead()) return 0;
     const input = this.#realInput(new Set());
     const take = input.opp.filter((m) => !m.faceDown).sort((a, b) => b.atk - a.atk)[0];
     if (!take) return 0;
-    return Math.round(stealValue(input, take) - tradeValue(input));
+    const paid = { ...input, base: { ...input.base, myLp: input.base.myLp - lpCost } };
+    return Math.round(stealValue(paid, take) - tradeValue(input));
   }
 
   /** Raising this monster to attack for the battle plan pays: its attacks win more than the reply takes through it
@@ -2370,26 +2398,30 @@ export class HeuristicBot {
   }
 
   #selectUnselect(ev: P<"selectUnselectCard">): Json {
-    if (ev.selectable.length === 0) return respUnselect(null);
+    const choose = (index: number | null) => {
+      this.#summonMaterialCount = ev.unselectable.length + (index === null ? 0 : 1);
+      return respUnselect(index);
+    };
+    if (ev.selectable.length === 0) return choose(null);
     // Eight Machines give Chimeratech 6400 ATK and eight monster attacks. Keep the
     // rest of the deck instead of dumping every remaining monster for Future Fusion.
-    if (this.#nameOf(this.#pickSubject()) === "future fusion" && ev.finishable && ev.unselectable.length >= 8) return respUnselect(null);
+    if (this.#nameOf(this.#pickSubject()) === "future fusion" && ev.finishable && ev.unselectable.length >= 8) return choose(null);
     // the asking card's pick rule: its best card still offered, until it is satisfied
     const rule = this.#ruleFor(this.#pickSubject())?.pick;
     if (rule && !this.#style.fool) {
       const ctx = this.#ctx();
       const best = ev.selectable.map((c, i) => ({ i, s: rule.score(ctx, this.#ruleCard(c)) })).sort((a, b) => b.s - a.s)[0]!;
       const need = ev.unselectable.length < ev.min;
-      if (!need && (ev.finishable || ev.min <= 0) && (rule.min !== undefined ? best.s < rule.min : ev.unselectable.length >= Math.max(ev.min, 1))) return respUnselect(null);
-      return respUnselect(best.i);
+      if (!need && (ev.finishable || ev.min <= 0) && (rule.min !== undefined ? best.s < rule.min : ev.unselectable.length >= Math.max(ev.min, 1))) return choose(null);
+      return choose(best.i);
     }
     if (ev.min <= 0 || ev.finishable) {
       // still worth another card (an optional removal or search not filled yet)?
       const want = this.#style.fool ? 0 : this.#optionalPicks([...ev.selectable, ...ev.unselectable], ev.max, this.#hint);
-      if (ev.unselectable.length >= want) return respUnselect(null);
+      if (ev.unselectable.length >= want) return choose(null);
     }
     const pick = this.#pickTargets(ev.selectable, 1, 1)[0];
-    return respUnselect(pick ?? 0);
+    return choose(pick ?? 0);
   }
 
   #selectTribute(ev: P<"selectTribute">): Json {
@@ -2615,7 +2647,21 @@ export class HeuristicBot {
 
   /** Face-up attack for a real attacker that can hold; a wall (DEF > ATK) or an outclassed body defends. */
   #position(code: number, positions: number): number {
-    const { atk, def } = this.#stat(code);
+    const printed = this.#stat(code);
+    let { atk, def } = printed;
+    if (this.#nameOf(code) === "chimeratech fortress dragon") atk = 1000 * Math.max(2, this.#summonMaterialCount);
+    if (this.#nameOf(code) === "cyberdark dragon") {
+      const me = this.#me();
+      const drained = this.#board?.players.some(p => p.szone.some(c => c && !isFaceDown(c.position) && this.#nameOf(c.code) === "skill drain"));
+      if (me && !drained) {
+        const grave = me.grave.filter(c => ((this.#cards.brain.get(c)?.type ?? 0) & TYPE_MONSTER) !== 0);
+        const space = me.szone.slice(0, 5).filter((c, i) => c && !this.#spent(this.seat, i)).length < 5;
+        const dragon = space ? grave.filter(c => ((this.#cards.brain.get(c)?.race ?? 0) & 0x2000) !== 0)
+          .reduce((best, c) => Math.max(best, this.#stat(c).atk), 0) : 0;
+        // The equipped Dragon leaves the graveyard, so no longer supplies its extra 100 ATK.
+        atk += grave.length * 100 + (dragon > 0 ? dragon - 100 : 0);
+      }
+    }
     const oppMax = this.#oppMaxAtk();
     // In attack only when it holds there: nothing bigger across, and not a wall by nature; or, my Battle Phase ahead,
     // when it dies in defence anyway and in attack it beats something now (production put Cyber Dragon in defence

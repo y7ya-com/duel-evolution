@@ -93,6 +93,11 @@ describe("NPC resource preservation", () => {
     expect(STAPLE_RULES["heavy storm"]!.idleActivate!({ ...ctx, myBackrow: 4, oppBackrow: 2 })).toBe(false);
     expect(STAPLE_RULES["heavy storm"]!.idleActivate!({ ...ctx, myBackrow: 0, oppBackrow: 2 })).toBe(true);
   });
+  it("preserves an active permanent steal while allowing Trunade with an inactive set copy", () => {
+    const ready = { ...ctx, myMaxAtk: 3000, oppBackrow: 3, myBackrow: 1, ext: { preBattle: true, effectGain: -3000, myStealEquips: 1 } };
+    expect(STAPLE_RULES["giant trunade"]!.idleActivate!(ready)).toBe(false);
+    expect(STAPLE_RULES["giant trunade"]!.idleActivate!({ ...ready, ext: { ...ready.ext, myStealEquips: 0 } })).toBe(true);
+  });
   it("values the whole monster board before Dark Hole or Torrential Tribute", () => {
     const body = (atk: number) => ({ atk, def: 1000, attackPos: true, faceDown: false });
     const ahead = { ...ctx, myMon: [body(1900), body(1900), body(1900)], oppMon: [body(2000)], myMaxAtk: 1900, oppMaxAtk: 2000 };

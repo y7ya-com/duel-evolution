@@ -230,4 +230,62 @@ describe.skipIf(!existsSync(join(ENGINE_DATA_DIR, "scripts.pack")))("Hell Kaiser
     expect(npcActivated(p, "Power Bond")).toBe(false);
     expect(p.end?.winner).toBe(1);
   });
+
+  it("does not replace its own Cyber Dragon and Phoenix with a weaker Fortress (1124/1237)", () => {
+    const p = play(dc, { npcId: 78, first: "npc", turns: 1,
+      npc: { mzone: ["Cyber Dragon", ["Cyber Phoenix", "set"]], extra: ["Chimeratech Fortress Dragon"] }, player: {} });
+    expect(msgs(p, "SPSUMMONING", "Chimeratech Fortress Dragon")).toHaveLength(0);
+  });
+
+  it("still uses Fortress to absorb an opposing Machine", () => {
+    const p = play(dc, { npcId: 78, first: "player", turns: 2,
+      npc: { mzone: ["Cyber Phoenix"], extra: ["Chimeratech Fortress Dragon"] },
+      player: { mzone: ["Cyber Dragon"] } });
+    expect(msgs(p, "SPSUMMONING", "Chimeratech Fortress Dragon")).toHaveLength(1);
+    expect(leftField(p, "Cyber Dragon")).toBe(true);
+  });
+
+  it("can upgrade weak own Machines into a Fortress that wins the battle", () => {
+    const p = play(dc, { npcId: 78, first: "player", turns: 2,
+      npc: { mzone: ["Proto-Cyber Dragon", "Cyber Phoenix"], extra: ["Chimeratech Fortress Dragon"] },
+      player: { mzone: ["Gemini Elf"] } });
+    expect(msgs(p, "SPSUMMONING", "Chimeratech Fortress Dragon")).toHaveLength(1);
+    expect(leftField(p, "Gemini Elf")).toBe(true);
+  });
+
+  it("counts Brain Control's LP cost before the borrowed attacker returns (1206)", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Brain Control", "Solemn Judgment"], deck: Array(20).fill("Foolish Burial"), lp: 3100 },
+      player: { mzone: ["Sillva, Warlord of Dark World"], lp: 2400 } });
+    expect(npcActivated(p, "Brain Control")).toBe(false);
+  });
+
+  it("still pays for Brain Control when the stolen attack wins immediately", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Brain Control"], deck: Array(20).fill("Foolish Burial"), lp: 3100 },
+      player: { mzone: ["Sillva, Warlord of Dark World"], lp: 2300 } });
+    expect(npcActivated(p, "Brain Control")).toBe(true);
+    expect(p.end?.winner).toBe(1);
+  });
+
+  it("clears backrow before Snatch Steal and keeps the permanent steal (1237)", () => {
+    const p = play(dc, { npcId: 78, first: "player", turns: 2,
+      npc: { hand: ["Giant Trunade", "Brain Control", "Snatch Steal"], lp: 4700 },
+      player: { mzone: ["Blue-Eyes White Dragon"], szone: ["Mirror Wall", "Spellbinding Circle"] } });
+    const spells = p.log.filter(l => l.startsWith("NPC activated"));
+    expect(spells.findIndex(l => l.includes("Giant Trunade"))).toBeLessThan(spells.findIndex(l => l.includes("Snatch Steal")));
+    expect(npcActivated(p, "Brain Control")).toBe(false);
+  });
+
+  it("recycles graveyard Cyberdarks for Impact and attacks with the equipped fusion (1206)", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Cyberdark Impact!"], mzone: ["Cyberdark Horn", "Cyberdark Edge"],
+        grave: ["Cyberdark Horn", "Cyberdark Edge", "Cyberdark Keel", "Hunter Dragon"], extra: ["Cyberdark Dragon"] },
+      player: { mzone: ["Brron, Mad King of Dark World"] } });
+    expect(npcActivated(p, "Cyberdark Impact!")).toBe(true);
+    const recycledField = p.msgs.filter(m => m.type === "MOVE" && Number((m.from as any)?.controller) === 1
+      && Number((m.from as any)?.location) === 4 && Number((m.to as any)?.location) === 1);
+    expect(recycledField).toHaveLength(0);
+    expect(leftField(p, "Brron, Mad King of Dark World")).toBe(true);
+  });
 });
