@@ -135,14 +135,15 @@ export const npcBalloonScreen: HtmlUiScreen = {
     box.append(who, says, mark); root.append(box); root.style.overflow = 'visible';
     const st = { box, who, says, next: 0 };
     // live's balloon comes once the portrait has slid in (8 frames after the card): hidden until the picture is home
-    // (pictures.ts PICTURE_ENTERED), 266 ms at least, 1.5 s at most; at once under reduced motion
+    // (pictures.ts PICTURE_ENTERED), 266 ms at least, 1.5 s at most; at once under reduced motion. (Unseen, not hidden:
+    // it is where it will be, so a press there still reaches it)
     const reduced = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true || !!root.closest?.('[data-motion="reduced"]');
     if (!reduced && typeof setTimeout === 'function') {
-      box.style.visibility = 'hidden';
+      box.style.opacity = '0';
       const pic = !!document.querySelector('[data-window-class="CEnginePictures"] [data-picture="npc"]');
       let min = false, home = !pic;
       const show = () => { if (min && home) done(); };
-      const done = () => { box.style.visibility = ''; globalThis.removeEventListener?.(PICTURE_ENTERED, onHome); clearTimeout(cap); };
+      const done = () => { box.style.opacity = ''; globalThis.removeEventListener?.(PICTURE_ENTERED, onHome); clearTimeout(cap); };
       const onHome = (e: Event) => { if ((e as CustomEvent).detail === 'npc') { home = true; show(); } };
       globalThis.addEventListener?.(PICTURE_ENTERED, onHome);
       setTimeout(() => { min = true; show(); }, 266);
