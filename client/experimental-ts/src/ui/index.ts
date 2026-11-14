@@ -719,20 +719,62 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   };
   /** The hand under a pointer that has not moved (the hand laid out anew, a card gone): picked again, as live's. */
   const handRehover = () => { if (lastPointer && state.scene === 'duel') handPointer({ clientX: lastPointer.x, clientY: lastPointer.y, target: globalThis.document?.elementFromPoint?.(lastPointer.x, lastPointer.y) ?? lastPointer.target }); };
-  // Live's attack (de-scratch/hand at2..at5): once Attack is picked, the attacker carries the sword
-  // (duel_ef_attackIcon_a) turned toward the pointer until a target is chosen or the choice is backed out of; the target
-  // under the pointer is framed. The sword is the one the attack's own cue then flies (duel-fx.ts).
-  let attackAim: { from: string; actions: unknown } | null = null;
-  const sword = globalThis.document?.createElement('img'); if (sword) { sword.className = 'de-attack-aim'; sword.alt = ''; sword.draggable = false; sword.setAttribute('aria-hidden', 'true'); sword.onload = () => { sword.style.width = `${sword.naturalWidth / 1024 * 100}%`; sword.style.visibility = ''; }; }
+  // Live's attack (CBattleManager::draw, client/src/duel/SceneBattleManager.cpp; filmed v2hand-me atk-L): through the
+  // player's Battle Phase each monster that can still attack carries the attack sword (attack_new sheet 0:
+  // duel_ef_attackIcon_a) over its picture pointing up, at alpha 0xa0. Once Attack is picked its sword is drawn whole and
+  // turns toward the pointer, the turn growing in over 8 frames (counter += 0x10 to 0x80: rotation * k / 128) and then
+  // following the pointer at once, until a target is chosen or the choice is backed out of; with the target chosen it
+  // points there until the attack's own cue flies it (duel-fx.ts). The target under the pointer is framed.
+  let attackAim: { from: string; actions: unknown; at: number; target?: string; until?: number } | null = null;
+  let aimFrame = 0;
+  const swordImg = (cls: string) => {
+    const img = globalThis.document?.createElement('img'); if (!img) return undefined;
+    img.className = cls; img.alt = ''; img.draggable = false; img.setAttribute('aria-hidden', 'true');
+    return img;
+  };
+  /** The sword's picture on a kept <img>: each render lets go of every picture it did not draw again (their src and
+   *  onload), so a sword that stays is given its picture again in the render that keeps it. */
+  const swordArtOn = (img: HTMLImageElement) => {
+    if (img.getAttribute('src') && img.onload) return;
+    if (!img.complete || !img.naturalWidth || !img.getAttribute('src')) img.style.visibility = 'hidden';
+    img.onload = () => { img.style.width = `${img.naturalWidth / 1024 * 100}%`; img.style.visibility = ''; };
+    loadArchiveArt('data/y/duel/effect/duel_ef_attackIcon_a.png', img);
+  };
+  const sword = swordImg('de-attack-aim');
+  /** The idle swords of the Battle Phase (by card id), and the monsters that can still attack. */
+  const idleSwords = new Map<string, HTMLImageElement>();
+  let canAttack: string[] = [];
+  const AIM_FRAME = 1000 / 30;
   const aimSword = (e?: { clientX: number; clientY: number }) => {
-    if (!sword || !attackAim || !sword.isConnected) return;
-    const from = fieldNodes.get(attackAim.from), box = stage.getBoundingClientRect(); if (!from || !box.width) return;
+    if (!sword) return;
+    const from = attackAim ? fieldNodes.get(attackAim.from) : undefined, board = from?.closest?.('.de-duel-board'), box = stage.getBoundingClientRect();
+    if (!attackAim || !from || !board || !box.width || !controller.loadArchiveImage) { sword.remove(); return; }
+    if (sword.parentElement !== board) board.append(sword);
+    swordArtOn(sword);
     const r = from.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
     sword.style.left = `${(x - box.left) / box.width * 100}%`; sword.style.top = `${(y - box.top) / box.width * 1024 / 768 * 100}%`;
-    const p = e ?? (lastPointer ? { clientX: lastPointer.x, clientY: lastPointer.y } : null);
-    // pointing up at rest is 0; at the attacker itself it points down, as live's
-    const turn = p ? Math.atan2(p.clientX - x, -(p.clientY - y)) : Math.PI;
+    // toward the chosen target, else the pointer; pointing up is 0 (at the attacker itself it points down, as live's)
+    const target = attackAim.target ? fieldNodes.get(attackAim.target)?.getBoundingClientRect() : undefined;
+    const p = target ? { clientX: target.left + target.width / 2, clientY: target.top + target.height / 2 } : e ?? (lastPointer ? { clientX: lastPointer.x, clientY: lastPointer.y } : null);
+    const grown = state.settings.reducedMotion || target ? 1 : Math.min(1, Math.floor((performance.now() - attackAim.at) / AIM_FRAME) / 8);
+    const turn = (p ? Math.atan2(p.clientX - x, -(p.clientY - y)) : Math.PI) * grown;
     sword.style.transform = `translate(-50%,-50%) rotate(${turn}rad)`;
+    // the turn grows in over its first 8 frames
+    if (grown < 1 && !aimFrame && typeof requestAnimationFrame === 'function') aimFrame = requestAnimationFrame(() => { aimFrame = 0; aimSword(); });
+  };
+  /** The Battle Phase's idle swords: one on each monster that can still attack (not the one being aimed). */
+  const idleSwordsFrame = (board: HTMLElement | null) => {
+    const on = new Set(attackAim ? canAttack.filter(id => id !== attackAim!.from) : canAttack);
+    for (const [id, img] of idleSwords) if (!on.has(id) || !fieldNodes.has(id)) { img.remove(); idleSwords.delete(id); }
+    if (!board || !controller.loadArchiveImage) return;
+    for (const id of on) {
+      const card = fieldNodes.get(id); if (!card) continue;
+      let img = idleSwords.get(id);
+      if (!img) { img = swordImg('de-attack-idle'); if (!img) return; idleSwords.set(id, img); }
+      swordArtOn(img);
+      img.style.left = card.style.left; img.style.top = card.style.top;
+      if (img.parentElement !== board) board.append(img);
+    }
   };
   const cmdPointer = (e: PointerEvent) => {
     if (local.duelCmd !== null && duelCmdView && e.pointerType !== 'touch' && !cmdKeepsOpen(e)) closeCmd();
@@ -1126,6 +1168,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     }
   };
   const present = (duel: DuelView) => {
+    // the aimed sword gives way to the attack's own (duel-fx.ts) as its cue starts
+    if (attackAim?.target && (duel.effects ?? []).some(e => e.type === 'attack')) { attackAim = null; aimSword(); idleSwordsFrame(null); }
     const handCounts: [number, number] = [0, 0]; for (const card of duel.cards) if (card.zone === 'hand') handCounts[card.controller]++;
     for (const card of duel.cards) { const node = fieldNodes.get(card.id); if (node) placeFieldCard(node, card, handCounts[card.controller]); }
     for (const i of [0, 1] as const) { const lp = shownLp(duel, i); if (lpNodes[i]) lpNodes[i]!.textContent = lp.toLocaleString(); if (lpBars[i]) lpBars[i]!.style.width = lpWidth(lp); lpPlates[i]?.setLp(lp); }
@@ -1484,7 +1528,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       b.onclick = (event: MouseEvent) => {
         const target = duel.prompt?.options.find(o => o.cardId === c.id && !o.disabled);
         if (target && duel.prompt) respondToPrompt(duel.prompt.id, { optionId: target.id });
-        else if (selection) { if (!state.busy) sendAction(duel, selection.id); }
+        else if (selection) { if (!state.busy) { if (attackAim && c.controller !== 0) attackAim = { ...attackAim, target: c.id, until: Date.now() + 4000 }; sendAction(duel, selection.id); } }
         else if (listOn) {
           // a mouse click on the card whose menu is open picks the menu's lit row, as live's; a key, a tap (no hover on a
           // touch screen) or a click on a closed card opens or closes the menu
@@ -1552,7 +1596,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const cmdRows = cmdAt ? commands.get(cmdAt.card?.id ?? DECK_ZONE) ?? [] : [];
       const onDeck = !!cmdAt && (cmdAt.card ? cmdAt.card.id === ownDeckTop || !!duel.spectating && cmdAt.card.zone === 'deck' : true);
       // the deck's Surrender is one row (the server's own Surrender command, when its mask has one, is the same row)
-      const rows: DuelCmdRow[] = cmdRows.filter(a => !(onDeck && canSurrender && menuCommand(a.id) === SURRENDER_COMMAND)).map(a => ({ cmd: menuCommand(a.id), text: a.label.replace(/:.*$/, ''), key: `duel-cmd:${a.id}`, label: a.label, disabled: !!a.disabled || !!state.busy, pick: () => { restHand(a.cardId ?? cmdCard?.id); closeCmd(); if (menuCommand(a.id) === ATTACK_COMMAND && a.cardId) attackAim = { from: a.cardId, actions: duel.actions }; if (promptChoices.has(a.id)) choose(a.id); else sendAction(duel, a.id); } }));
+      const rows: DuelCmdRow[] = cmdRows.filter(a => !(onDeck && canSurrender && menuCommand(a.id) === SURRENDER_COMMAND)).map(a => ({ cmd: menuCommand(a.id), text: a.label.replace(/:.*$/, ''), key: `duel-cmd:${a.id}`, label: a.label, disabled: !!a.disabled || !!state.busy, pick: () => { restHand(a.cardId ?? cmdCard?.id); closeCmd(); if (menuCommand(a.id) === ATTACK_COMMAND && a.cardId) { attackAim = { from: a.cardId, actions: duel.actions, at: performance.now() }; idleSwordsFrame(null); aimSword(); } if (promptChoices.has(a.id)) choose(a.id); else sendAction(duel, a.id); } }));
       if (onDeck && canSurrender) rows.push({ cmd: SURRENDER_COMMAND, key: 'duel-surrender', label: 'Surrender', disabled: !!state.busy || state.relay?.canAct === false, pick: surrenderNow });
       if (onDeck && duel.spectating) rows.push({ cmd: SURRENDER_COMMAND, key: 'duel-leave', label: 'Leave Duel', disabled: !!state.busy, pick: () => { closeCmd(); send({ type: 'leaveDuel' }); } });
       let view: CmdView | null = null;
@@ -1564,9 +1608,20 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     };
     // the attack's sword stays while the duel asks where the attack goes (its actions the targets' selections), and goes
     // with the choice (or a cancel: the actions are the field's commands again)
-    const aiming = (duel.actions ?? []).some(a => a.label.startsWith('Select:') && !!a.cardId);
-    if (attackAim && (attackAim.actions !== duel.actions && !aiming || !fieldNodes.has(attackAim.from) || duel.ended)) attackAim = null;
-    if (attackAim && sword && controller.loadArchiveImage) { if (!sword.complete || !sword.naturalWidth) sword.style.visibility = 'hidden'; loadArchiveArt('data/y/duel/effect/duel_ef_attackIcon_a.png', sword); board.append(sword); queueMicrotask(() => aimSword()); }
+    // (an attack's target is the opponent's monster's Attack or Select command); with the target chosen it stays on it
+    // until the attack's cue starts (or a while)
+    const theirs = new Set(duel.cards.filter(c => c.controller === 1).map(c => c.id));
+    const aiming = (duel.actions ?? []).some(a => !!a.cardId && theirs.has(a.cardId) && /^(Attack|Select):/.test(a.label));
+    // (while the duel answers the pick it asks nothing: the sword stays)
+    const asked = (duel.actions ?? []).length > 0;
+    if (attackAim && (attackAim.target ? Date.now() > (attackAim.until ?? 0) || (duel.effects ?? []).some(e => e.type === 'attack') : attackAim.actions !== duel.actions && asked && !aiming) || attackAim && (!fieldNodes.has(attackAim.from) || duel.ended)) attackAim = null;
+    if (attackAim?.target) setTimeout(() => { if (attackAim?.until && Date.now() > attackAim.until) { attackAim = null; aimSword(); idleSwordsFrame(null); } }, Math.max(0, attackAim.until! - Date.now()) + 20);
+    // the monsters that can still attack: the player's own with an Attack command in the Battle Phase (kept while the duel
+    // has no question out, as live's arrows stay from the phase's start to its end)
+    if (duel.phase !== 'battle' || duel.turnPlayer !== 0 || duel.spectating || duel.ended) canAttack = [];
+    else if (asked && !aiming) canAttack = (duel.actions ?? []).filter(a => menuCommand(a.id) === ATTACK_COMMAND && !!a.cardId && duel.cards.some(c => c.id === a.cardId && c.controller === 0 && c.zone === 'monster')).map(a => a.cardId!);
+    canAttack = canAttack.filter(id => fieldNodes.has(id));
+    idleSwordsFrame(board);
     duelCmdView = local.duelCmd === null ? null : cmdViewFor(local.duelCmd);
     if (!duelCmdView) local.duelCmd = null;
     // the hand under the pointer: its resting places (the player's own hand; a spectator's has none to pick up)
@@ -1577,7 +1632,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     for (const id of handLift.keys()) if (!handRects.some(r => r.id === id)) handLift.delete(id);
     if (handPin && !handRects.some(r => r.id === handPin!.id)) handPin = null;
     cmdFrame();
-    queueMicrotask(handRehover);
+    queueMicrotask(handRehover); aimSword();
     if ((duel.actions ?? []).some(a => a.id === 'cancel')) board.oncontextmenu = event => { if ((event.target as HTMLElement).closest('.de-field-card')) return; event.preventDefault(); sendAction(duel, 'cancel'); };
     // a field choice the server lets the player back out of (or finish: a discard, tributes): the right button, as live
     else if (fieldPrompt?.cancelable) board.oncontextmenu = event => { event.preventDefault(); respondToPrompt(fieldPrompt.id, { cancel: true }); };

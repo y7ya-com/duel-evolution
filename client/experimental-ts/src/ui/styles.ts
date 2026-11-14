@@ -121,10 +121,15 @@ button.de-card { padding:2px; min-height:0; color:#fff; background:linear-gradie
 /* a card the duel asks for (an attack's target, a card to choose on the field): live leaves the card as it is and lights its
    cell's frame in a slow pulse; the one under the pointer is framed as a card whose menu is open (de-scratch/hand at3 / tgt) */
 button.de-field-card.de-card-target { z-index:3; outline:2px solid rgba(255,255,255,0); outline-offset:14px; animation:de-target-pulse 1.2s ease-in-out infinite alternate; }
-.de-client button.de-field-card.de-card-target[data-side]:hover { box-shadow:0 0 0 1px #ffff16, 0 0 0 2px #fff, 0 0 0 3px #000; filter:brightness(1.25); }
+/* the target under the pointer: framed as a card whose menu is open, but pink with a red line inside (v2hand-me atk-aim-L:
+   #000, #fff, #ffb5e4, #ff0002 from the outside in), its picture a quarter brighter */
+.de-client button.de-field-card.de-card-target[data-side]:hover { box-shadow:0 0 0 1px #ffb5e4, 0 0 0 2px #fff, 0 0 0 3px #000; filter:brightness(1.25); }
+.de-client button.de-field-card.de-card-target[data-side]:hover::after { content:''; position:absolute; inset:0; box-shadow:inset 0 0 0 1px #ff0002; pointer-events:none; z-index:3; }
 @keyframes de-target-pulse { from { outline-color:rgba(255,255,255,0); } to { outline-color:rgba(255,255,255,.55); } }
 /* the attacker's sword while the attack's target is chosen (index.ts aimSword) */
 .de-duel-board>.de-attack-aim { position:absolute; z-index:22; pointer-events:none; max-width:none; transform-origin:50% 50%; }
+/* the Battle Phase's swords on the monsters that can still attack: pointing up, at alpha 0xa0 (index.ts idleSwordsFrame) */
+.de-duel-board>.de-attack-idle { position:absolute; z-index:21; pointer-events:none; max-width:none; transform:translate(-50%,-50%); opacity:.627; }
 @keyframes de-zone-pulse { from { box-shadow:0 0 6px #ffe14a; } to { box-shadow:0 0 18px #fff38a; } }
 .de-duel-board { position:absolute; left:0; top:0; width:100%; aspect-ratio:4/3; overflow:hidden; }
 .de-duel-board>.de-duel-field { position:absolute; inset:0; background:center/100% 100% no-repeat; }
