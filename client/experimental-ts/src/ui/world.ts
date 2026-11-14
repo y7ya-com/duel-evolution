@@ -20,7 +20,7 @@ export type RenderScene = Pick<WorldScene, 'mapId' | 'definition' | 'frame' | 'd
 /** A decoded picture the renderer owns: released when no displayed frame uses it (on a map change, all of them). */
 export interface WorldTexture { texture: Texture; release(): void }
 /** What PixiJS's Application gives the renderer: its stage, a ticker and teardown (a fake one in the unit tests). */
-export interface WorldHost { readonly stage: Container; readonly canvas?: HTMLCanvasElement; add(tick: (dtMs: number) => void): void; /** Stops / restarts the ticker (no drawing off the lobby). */ run?(on: boolean): void;
+export interface WorldHost { readonly stage: Container; readonly canvas?: HTMLCanvasElement; /** tick says whether something moved this frame. */ add(tick: (dtMs: number) => boolean | void): void; /** Stops / restarts the ticker (no drawing off the lobby). */ run?(on: boolean): void;
   /** The canvas's pixels per game pixel (1, or 2: live's render scale on a big window). */ resolution?(scale: number): void; destroy(): void }
 export interface WorldRendererOptions {
   loadScene(mapId: number, signal: AbortSignal): Promise<RenderScene>;
@@ -60,6 +60,8 @@ function requestedViewport(v: Viewport): Viewport {
   return { x: Math.floor((v.x - 128) / 64) * 64, y: Math.floor((v.y - 128) / 64) * 64, width: WORLD_VIEW_WIDTH + 320, height: WORLD_VIEW_HEIGHT + 320 };
 }
 function node(tag: 'div' | 'p' | 'button', className: string): HTMLElement { const n = document.createElement(tag); n.className = className; return n; }
+/** Standing still: one draw per 30 Hz step (a little under 33.3 ms, so a 60 Hz screen draws every second frame). */
+const IDLE_FRAME_MS = 30;
 const abortError = () => new DOMException('World texture loading canceled', 'AbortError');
 
 /** The browser's decode: the scene lease's blob URL into an ImageBitmap texture (closed on release). */
@@ -80,9 +82,14 @@ async function defaultHost(parent: HTMLElement): Promise<WorldHost | null> {
   // 120 / 144 Hz screen it drew every second or third frame unevenly. The walkers are drawn between their 30 Hz steps,
   // so each screen frame shows them a little further on.
   app.ticker.maxFPS = 0;
+  // the stage is drawn every screen frame only while something moves (a walker, the camera); standing still it is drawn
+  // at the original's 30 Hz (its blinks, walk strips and room props change no faster), so an idle lobby on a 120 / 144 Hz
+  // screen does not redraw four or five times for nothing
+  app.ticker.remove(app.render, app);
+  let idle = Infinity;
   const canvas = app.canvas; canvas.className = 'de-world-canvas'; canvas.setAttribute('aria-hidden', 'true'); canvas.dataset.key = 'world-canvas';
   parent.prepend(canvas);
-  return { stage: app.stage, canvas, add: tick => app.ticker.add(t => tick(t.deltaMS)), run: on => { if (on) app.ticker.start(); else { app.ticker.stop(); app.render(); } },
+  return { stage: app.stage, canvas, add: tick => app.ticker.add(t => { idle += t.deltaMS; if (tick(t.deltaMS) || idle >= IDLE_FRAME_MS) { idle = 0; app.render(); } }), run: on => { if (on) app.ticker.start(); else { app.ticker.stop(); app.render(); } },
     resolution: r => { if (app.renderer.resolution !== r) app.renderer.resize(WORLD_VIEW_WIDTH, WORLD_VIEW_HEIGHT, r); }, destroy: () => app.destroy({ removeView: true }, { children: true }) };
 }
 
@@ -160,6 +167,7 @@ export class WorldRenderer {
   private drawnKey = '';
   private drawnClock = 0;
   private sortDirty = true;
+  private placedKey = '';
   private readonly now: () => number;
   /** Frame times of the last 240 ticks (ms), for the page's own measure of its frame rate. */
   private readonly frameTimes = new Float64Array(240);
@@ -460,9 +468,10 @@ export class WorldRenderer {
     actor.destroy(); this.actors.delete(id); this.motions.delete(id); this.lastAvatars.delete(id);
   }
   /** One frame: the others step toward their server positions, walk cycles advance, the camera follows, the scene
-   * sorts if something moved; the DOM hit targets follow every sixth frame. */
-  tick(dtMs: number): void {
-    if (this.closed) return;
+   * sorts if something moved; the DOM hit targets follow every sixth frame. True when the world or an avatar moved since
+   * the last frame (the host then draws this frame). */
+  tick(dtMs: number): boolean {
+    if (this.closed) return false;
     this.frameTimes[this.frameCursor] = dtMs; this.frameCursor = (this.frameCursor + 1) % this.frameTimes.length; this.frameCount++;
     const t = this.now(), reduced = this.options.reducedMotion?.() ?? false;
     let wandered = false;
@@ -484,6 +493,14 @@ export class WorldRenderer {
     this.roomProps?.step(reduced);
     if (this.sortDirty) { this.sorted.sortChildren(); this.sortDirty = false; }
     if (++this.hitClock >= 6) { this.hitClock = 0; this.layoutHits(false); }
+    return this.moved();
+  }
+  /** Where the world and each avatar stand now against the last frame's. */
+  private moved(): boolean {
+    let key = `${this.world.x},${this.world.y}`;
+    for (const actor of this.actors.values()) key += `;${actor.root.x},${actor.root.y}`;
+    if (key === this.placedKey) return false;
+    this.placedKey = key; return true;
   }
   /** The avatars where they stand now (a wandering NPC at its wanderer's place). */
   private placed(avatars: readonly LobbyAvatar[]): readonly LobbyAvatar[] { return avatars.some(a => a.wander) ? avatars.map(a => a.wander ? { ...a, x: a.wander.x, y: a.wander.y } : a) : avatars; }
