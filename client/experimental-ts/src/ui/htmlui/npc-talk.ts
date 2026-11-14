@@ -9,6 +9,7 @@ import type { NpcState } from '../../features/npc';
 import type { ClientCommand } from '../contracts';
 import { portraitLeft } from '../duel-scene';
 import { WindowBuilder, type Ids, type WindowSpec } from './snapshot';
+import { PICTURE_ENTERED } from './pictures';
 import { dialogLines } from './dialog-text';
 import { npcWaistUpSet } from '../npc-waistup';
 
@@ -32,13 +33,15 @@ export function npcTalkWindows(npc: Readonly<NpcState> | null | undefined, d: Np
   // the picture, under the chat and the menu bar (live draws them over it): a famous NPC's own (its csv's tiles,
   // npc-waistup.ts: Alexis Rhodes a03, at 874 - its csv's x), another NPC's waist-up from its parts
   const set = npcWaistUpSet(who.id);
+  // live's portrait slides in from the right as the talk comes and out as it ends (not into the duel or the gifts)
+  const slide = { enter: true, exit: !['ask', 'won', 'lost', 'item'].includes(s.stage) };
   if (set) {
     out.push(new WindowBuilder(d.ids, 'npc-talk:pictures', 'CEnginePictures', { x: 0, y: 0, w: 1024, h: 768 }, { z: 51000,
-      pics: [{ key: 'npc', source: { canvas: `npc:${set}` }, x: 0, y: 0, w: 1024, h: 768, z: 0, shown: true }] }).spec());
+      pics: [{ key: 'npc', source: { canvas: `npc:${set}` }, x: 0, y: 0, w: 1024, h: 768, z: 0, shown: true, slide }] }).spec());
   } else if (d.parts && d.parts.length === 16) {
     // live's CWaistUpAvatar on the right at full size (duel-scene.ts portraitLeft: 548 for a female look, 529 a male)
     out.push(new WindowBuilder(d.ids, 'npc-talk:pictures', 'CEnginePictures', { x: 0, y: 0, w: 1024, h: 768 }, { z: 51000,
-      pics: [{ key: 'npc', source: { canvas: `portrait:${Array.from(d.parts).join('.')}` }, x: portraitLeft(1, d.parts[0] === 1), y: 0, w: 768, h: 768, z: 0, shown: true }] }).spec());
+      pics: [{ key: 'npc', source: { canvas: `portrait:${Array.from(d.parts).join('.')}` }, x: portraitLeft(1, d.parts[0] === 1), y: 0, w: 768, h: 768, z: 0, shown: true, slide }] }).spec());
   }
   out.push(infoCard(s, d));
   const waiting = s.stage === 'after-duel' && !s.settlementReceived;
@@ -131,6 +134,20 @@ export const npcBalloonScreen: HtmlUiScreen = {
     who.className = 'who'; says.className = 'says'; mark.className = 'mark';
     box.append(who, says, mark); root.append(box); root.style.overflow = 'visible';
     const st = { box, who, says, next: 0 };
+    // live's balloon comes once the portrait has slid in (8 frames after the card): hidden until the picture is home
+    // (pictures.ts PICTURE_ENTERED), 266 ms at least, 1.5 s at most; at once under reduced motion
+    const reduced = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true || !!root.closest?.('[data-motion="reduced"]');
+    if (!reduced && typeof setTimeout === 'function') {
+      box.style.visibility = 'hidden';
+      const pic = !!document.querySelector('[data-window-class="CEnginePictures"] [data-picture="npc"]');
+      let min = false, home = !pic;
+      const show = () => { if (min && home) done(); };
+      const done = () => { box.style.visibility = ''; globalThis.removeEventListener?.(PICTURE_ENTERED, onHome); clearTimeout(cap); };
+      const onHome = (e: Event) => { if ((e as CustomEvent).detail === 'npc') { home = true; show(); } };
+      globalThis.addEventListener?.(PICTURE_ENTERED, onHome);
+      setTimeout(() => { min = true; show(); }, 266);
+      const cap = setTimeout(done, 1500);
+    }
     box.onclick = () => { if (!box.disabled && st.next) void api.click(st.next); };
     return st;
   },
