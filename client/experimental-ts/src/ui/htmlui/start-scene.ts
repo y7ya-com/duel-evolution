@@ -11,13 +11,15 @@ import { WaistUpComposer, blinkSchedule, canvasUrl, type EyeFrame } from '../due
 import type { ArchiveLoader } from '../duel-fx';
 import { PixiPainter, type PaintSource } from '../pixi-painter';
 import { portraitLeft } from '../duel-scene';
+import { slideKeys, SLIDE_FRAMES } from './pictures';
 
 const LOGO = 'data/menu/menu_mark_a01.txt';
 /** Where the movie's origin stands (game px): its 600 x 600 stage centred on the screen, as main's game shows it. */
 export const LOGO_AT = { x: 212, y: 84 } as const;
 /** `at`: where the portrait's 768 x 768 composition stands, in the right side's pose (`_r`, unmirrored: a player's bust
  * beside their card); without it, live's Select Player / Change Avatar portrait (the duel's left duelist). */
-export interface StartSceneView { logo: boolean; portrait: Uint8Array | null; reducedMotion: boolean; at?: { x: number; y: number } }
+/** `slide`: the bust comes in from the right once composed (a player's card; a duel or trade request's partner pops). */
+export interface StartSceneView { logo: boolean; portrait: Uint8Array | null; reducedMotion: boolean; at?: { x: number; y: number }; slide?: boolean }
 
 export class StartScene {
   readonly element: HTMLDivElement;
@@ -66,7 +68,12 @@ export class StartScene {
       }))).then(async urls => {
         // each frame decoded before it can show, so a blink never waits on one
         await Promise.all(urls.map(url => { const img = new Image(); img.src = url; return img.decode().catch(() => {}); }));
-        if (this.portraitKey === key && !this.disposed && urls.length) this.setPortrait(urls); else for (const url of urls) URL.revokeObjectURL(url);
+        if (this.portraitKey === key && !this.disposed && urls.length) {
+          this.setPortrait(urls);
+          // a player's card's bust comes in from the right, as the talk portrait (live's film e1-card: the card first, its
+          // bust sliding in once composed); it goes at once with its card. A duel request's bust pops in (e3-inv)
+          if (at && this.view.slide && !this.view.reducedMotion) for (const img of this.portraitImages) img.animate?.(slideKeys(false), { duration: SLIDE_FRAMES * 1000 / 30, easing: 'linear', fill: 'backwards' });
+        } else for (const url of urls) URL.revokeObjectURL(url);
       }, () => {});
     }
     this.showPortrait();

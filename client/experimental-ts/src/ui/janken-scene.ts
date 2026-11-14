@@ -74,6 +74,12 @@ const CHOICE_FADE = 15, CHOICE_MOVE_MS = CHOICE_FADE * F, CHOICE_MOVE = 16, PLAT
 /** The chosen plate stays this long in the middle before the duel's field comes. */
 export const JANKEN_CHOSEN_HOLD_MS = 700;
 
+/** Every picture the scene draws (the duel's own timer plate aside): index.ts loads them while "Start Duel?" or a duel
+ * request is up, so the scene does not come under the loading veil on a first visit. */
+export const JANKEN_ART: readonly string[] = [
+  ...['jan_bg_01', 'jan_bg_02', 'jan_bg_03', 'jan_card_01', 'jan_card_02', 'jan_card_03', 'jan_dai_01_e', 'card_select_01_c01'].map(n => `data/y/janken/${n}.png`),
+  ...[0, 1, 2, 3].map(f => `data/y/janken/deck_treadicon_1_01_${f}_j.png`), 'data/card/0000.png',
+];
 /** The deal begins this long after the scene comes (index.ts sets JankenTimes.deal). */
 export const JANKEN_DEAL_MS = 1050;
 /** The moments the scene's motions end (absent: not yet known): index.ts holds the scene and wakes its renders on them. */

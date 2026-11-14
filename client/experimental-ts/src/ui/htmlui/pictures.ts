@@ -26,7 +26,7 @@ export interface Picture {
  * stands 4k(k+1) px to the right (224, 168, 120, 80, 48, 24, 8, 0) at opacity 1 - 0.15k; in, k from 7 to 0, out the
  * reverse. */
 export const SLIDE_FRAMES = 7;
-const slideKeys = (out: boolean): Keyframe[] => {
+export const slideKeys = (out: boolean): Keyframe[] => {
   const ks = Array.from({ length: SLIDE_FRAMES + 1 }, (_, i) => SLIDE_FRAMES - i).map(k => ({ translate: `${4 * k * (k + 1)}px 0`, opacity: Math.max(0, 1 - 0.15 * k) }));
   return out ? ks.reverse() : ks;
 };

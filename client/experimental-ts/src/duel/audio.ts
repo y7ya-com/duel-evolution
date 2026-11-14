@@ -26,11 +26,11 @@ export function duelSoundGain(volume: number): number {
   if (!Number.isInteger(volume) || volume < 0 || volume > 127) throw new Error('Invalid duel sound volume');
   return volume / 127;
 }
-/** When a frame-timed sound plays after its cue starts, in the rewrite's duel-fx timeline (ui/duel-fx.ts). The die
- * rolls for 1000 ms there and its hops land every third of that; the original's die lands twice, at 0x100 and 0x180
- * of a 0x180 roll (2/3 and 3/3), so the two dice sounds fall on the fx's last two landings. Coins in the fx toss together,
- * so their relative counter 0 is the toss itself. The chain plaque and the activation effect start with their cue. */
-export const DUEL_SOUND_DELAYS = { dice: [667, 1000] } as const;
+/** When a frame-timed sound plays after its cue starts, in the rewrite's duel-fx timeline (ui/duel-fx.ts, live's films
+ * L-dice1 / L-coin3). The original's die lands twice (at 0x100 and 0x180 of its roll): in the fx it comes down in the
+ * field's middle at 870 ms and its roll there ends at 1150. Each coin sounds at its own relative counter 0: its toss,
+ * 500 ms after the last coin's. The chain plaque and the activation effect start with their cue. */
+export const DUEL_SOUND_DELAYS = { dice: [870, 1150], coinStagger: 500 } as const;
 export interface DuelSoundCue {
   readonly sequence: number; readonly ordinal: number; readonly player: Player;
   readonly kind: keyof typeof DUEL_SOUND_EVIDENCE;
@@ -102,7 +102,10 @@ export class DuelAudioDirector {
     if (event.type === 'engine:31') return (p[0] & 0xff) <= 10 ? [{ kind: this.attack?.destroyed ? 'battleDestroy' : 'destroy' }] : [];
     if (event.type === 'engine:46') return [{ kind: 'tribute' }];
     if (event.type === 'engine:12') return p[2] > 1 ? [{ kind: 'activate' }, { kind: 'chain' }] : [{ kind: 'activate' }];
-    if (event.type === 'engine:5c') return [{ kind: 'coin' }];
+    if (event.type === 'engine:5c') {
+      const n = Math.max(1, Math.min(5, (p[0] >>> 6) & 0xff || 1));
+      return this.reducedMotion ? [{ kind: 'coin' }] : Array.from({ length: n }, (_, i) => i ? { kind: 'coin' as const, delay: i * DUEL_SOUND_DELAYS.coinStagger } : { kind: 'coin' as const });
+    }
     if (event.type === 'engine:5d') return p[1] ? this.reducedMotion ? [{ kind: 'dice' }] : DUEL_SOUND_DELAYS.dice.map(delay => ({ kind: 'dice' as const, delay })) : [];
     if (event.type === 'engine:19' || event.type === 'engine:1a') {
       this.attack = { player: event.player, targetPlayer: (event.type === 'engine:19' ? p[1] & 1 : event.player ^ 1) as Player,
