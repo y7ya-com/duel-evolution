@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Container, Sprite, Texture, TextureSource } from 'pixi.js';
 import { WorldRenderer } from '../src/ui/world';
+import { avatarDepth } from '../src/world/depth';
 import type { RenderScene, WorldHost, WorldTexture, WorldRendererOptions } from '../src/ui/world';
 import type { PoseStrip } from '../src/ui/world-avatars';
 import type { SceneFrame, SceneSprite } from '../src/world/scene';
@@ -167,11 +168,11 @@ describe('the PixiJS world renderer', () => {
     f.view.show(0, { x: 512, y: 384 }); await flush(); source.reply(0); await flush();
     const doc = (globalThis as unknown as { document: TestDocument }).document, button = doc.createElement('button'); button.className = 'de-avatar';
     f.view.setAvatars([actor(1, 512, 384, { self: true })]); f.view.bindHits(new Map([[1, button as unknown as HTMLElement]])); await flush();
-    expect(button.style.left).toBe('50%'); expect(button.style.top).toBe('50%');
+    expect(button.style.cssText).toBe(`left:50%;top:50%;z-index:${avatarDepth(384)}`);
     let writes = 0; const style = button.style; button.style = new Proxy(style, { set(t, k, v) { writes++; (t as Record<string, string>)[k as string] = v; return true; } });
     f.host.run(1000 / 60, 12); expect(writes).toBeLessThanOrEqual(1);   // has-original toggles once at most; no position writes
-    f.view.setAvatars([actor(1, 600, 384, { self: true })]); f.host.run(1000 / 60, 5); expect(style.left).toBe('50%');
-    f.host.run(); expect(style.left).toBe(`${600 / 1024 * 100}%`); expect(button.className).toContain('has-original');
+    f.view.setAvatars([actor(1, 600, 384, { self: true })]); f.host.run(1000 / 60, 5); expect(style.cssText).toMatch(/^left:50%;/);
+    f.host.run(); expect(style.cssText).toMatch(new RegExp(`^left:${600 / 1024 * 100}%;`)); expect(button.className).toContain('has-original');
     expect(f.view.chatAnchors()).toEqual([{ id: 1, x: 600, y: 384 - 144 }]);
   });
   it('draws a famous NPC with its own art (its cn_ set), blinks it on the idle counter, and places its level stars', async () => {

@@ -119,7 +119,8 @@ export class AvatarActor {
   started = 0;
   drawn = false;
   /** The hit target's last written left / top (the DOM overlay is written only when these change). */
-  hitLeft = ''; hitTop = '';
+  /** The hit target's inline style as last written (left, top, z-index). */
+  hitStyle = '';
   /** The pose last asked for (a remote turning or starting / stopping asks again). */
   poseWalking = false; poseDirection = -1;
   private partsRef: Uint8Array | null = null; private partsText = '';

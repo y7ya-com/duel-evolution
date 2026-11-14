@@ -350,7 +350,7 @@ export class WorldRenderer {
     for (const [id, actor] of this.actors) this.pose(actor, this.lastAvatars.get(id)!, this.drawn.has(id), t);
   }
   /** Index's hit targets (button.de-avatar by avatar id), written by the renderer as the avatars move. */
-  bindHits(nodes: ReadonlyMap<number, HTMLElement>): void { this.hitNodes = nodes; for (const actor of this.actors.values()) { actor.hitLeft = actor.hitTop = ''; } this.layoutHits(true); }
+  bindHits(nodes: ReadonlyMap<number, HTMLElement>): void { this.hitNodes = nodes; for (const actor of this.actors.values()) actor.hitStyle = ''; this.layoutHits(true); }
   private place(actor: AvatarActor, motion: ActorMotion): void {
     if (actor.root.x !== motion.x || actor.root.y !== motion.y) { actor.root.position.set(motion.x, motion.y); const z = avatarDepth(motion.y); if (actor.root.zIndex !== z) { actor.root.zIndex = z; this.sortDirty = true; } }
   }
@@ -528,9 +528,9 @@ export class WorldRenderer {
     for (const [id, el] of this.hitNodes) {
       const actor = this.actors.get(id), motion = this.motions.get(id); if (!actor || !motion) continue;
       const left = `${motion.x / WORLD_VIEW_WIDTH * 100}%`, top = `${motion.y / WORLD_VIEW_HEIGHT * 100}%`;
-      if (force || left !== actor.hitLeft) { el.style.left = left; actor.hitLeft = left; }
-      if (force || top !== actor.hitTop) { el.style.top = top; actor.hitTop = top; }
-      const z = String(avatarDepth(motion.y)); if (el.style.zIndex !== z) el.style.zIndex = z;
+      // one style write per move (left, top and depth together), not one per property
+      const css = `left:${left};top:${top};z-index:${avatarDepth(motion.y)}`;
+      if (force || css !== actor.hitStyle) { el.style.cssText = css; actor.hitStyle = css; }
       const has = / has-original\b/.test(el.className); if (has !== actor.drawn) el.className = actor.drawn ? `${el.className} has-original` : el.className.replace(/ has-original\b/g, '');
     }
   }
