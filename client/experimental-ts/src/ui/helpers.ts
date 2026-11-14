@@ -105,6 +105,13 @@ export function fieldCardPosition(card: DuelCardView, handCount: number): CardPo
   if (side && (card.zone === 'monster' || card.zone === 'spell' && card.index !== 5)) x = 1024 - x!;
   return { x: x!, y: y!, width, height, rotate: card.position === 'defense' && card.zone === 'monster' };
 }
+/** One engine frame (1/30 s) of a hand card rising to (or dropping back from) its lifted place: the distance still to go
+ *  goes to three quarters, rounded down to a pixel (32 / 24 / 18 / 13 / 9 / 6 / 4 / 3 / 2 / 1 / 0: live's 10 frames, filmed
+ *  both ways on a 6-card hand). */
+export function handLiftTick(lift: number, goal: number): number {
+  const left = Math.abs(goal - lift);
+  return goal + Math.sign(lift - goal) * Math.floor(left * 0.75);
+}
 export function safeImageUrl(url: string | undefined): string | null {
   if (!url || /[\u0000-\u0020]/.test(url)) return null;
   // Asset URLs may be server-relative, https or locally served http; never executable/data HTML schemes.

@@ -1,7 +1,7 @@
 import type { DuelCardView, DuelOption, DuelView, CardView, ClientCommand, ClientController, ClientView, DeckZone, DuelPromptView, DuelResponse, Scene } from './contracts';
 import { duelOptions } from './contracts';
 import { sideboardDifference } from './deck';
-import { FIELD_LAYOUT, fieldCardPosition, gamePoint, safeImageUrl, validatePromptResponse } from './helpers';
+import { FIELD_LAYOUT, fieldCardPosition, gamePoint, handLiftTick, safeImageUrl, validatePromptResponse } from './helpers';
 import { DuelPresentation } from './duel-scene';
 import { cardBadges, BADGE_CSS } from './duel-counters';
 import { lpPlate, LP_PLATE_CSS, type LpPlate } from './duel-plate';
@@ -62,7 +62,7 @@ import { BUST_AT } from './htmlui/windows';
 import { loginLocal, loginWindow } from './htmlui/login';
 import { duelDialog, duelDialogCovers, duelOkDialog, loadDuelSpeed } from './htmlui/duel-dialogs';
 import { NetNote } from './htmlui/net-note';
-import { duelCmdWindow, duelCmdRect, menuCommand, SURRENDER_COMMAND, type DuelCmdRow, type DuelCmdUi } from './htmlui/duel-cmd';
+import { duelCmdWindow, duelCmdRect, menuCommand, ATTACK_COMMAND, SURRENDER_COMMAND, type DuelCmdRow, type DuelCmdUi } from './htmlui/duel-cmd';
 import { DuelSpeedButton } from './htmlui/duel-speed';
 import { duelResultWindows } from './htmlui/duel-result';
 import { jankenScene, jankenWinner, JANKEN_CSS, type JankenView } from './janken-scene';
@@ -603,12 +603,28 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     return { phase: 'wait', mine: jankenMine, theirs, busy, thinking: /first/.test(phase) };
   };
   // A card's open command menu (live's CUSummonDialogSp, htmlui/duel-cmd.ts): what renderDuel gathered for it; the row
-  // under the pointer is the menu's own. As live (CUSummonDialogSp::onMain) it closes when the pointer leaves the card
-  // and the menu, goes below the field (y 600), or a click lands elsewhere; Escape closes it too.
-  let duelCmdView: { at: { x: number; top: number; hand: boolean }; rows: DuelCmdRow[]; name: string; owner: string } | null = null;
+  // under the pointer is the menu's own. As live (CUSummonDialogSp::onMain) it opens as the pointer comes onto a card with
+  // commands (a hand card, a monster, a pile: de-scratch/hand hc / fh2 / at1), framed, and closes when the pointer leaves
+  // the card and the menu, goes below the field (y 600), or a click lands elsewhere; Escape closes it too. A click on the
+  // card itself picks the menu's lit row (live: Skyscraper's click activated it, a monster's click attacked). Opening and
+  // closing redraw the windows and the frame only, never the field.
+  type CmdView = { at: { x: number; top: number; hand: boolean }; rows: DuelCmdRow[]; name: string; owner: string };
+  let duelCmdView: CmdView | null = null;
+  /** The command menu each card (or the empty deck zone) would open, from the last drawn field; null for one without. */
+  let cmdViewFor: (id: string) => CmdView | null = () => null;
   const duelCmdUi: DuelCmdUi = { hover: 0 };
-  const openCmd = (id: string | null) => { local.duelCmd = id; duelCmdUi.hover = 0; requestRender(); };
-  const closeCmd = () => { if (local.duelCmd === null) return; local.duelCmd = null; duelCmdView = null; requestRender(); };
+  const cmdFrame = () => {
+    for (const [id, node] of fieldNodes) node.classList?.toggle('de-cmd-open', id === local.duelCmd);
+    stage.querySelector?.('[data-key="field-deck:0"]')?.classList?.toggle('de-cmd-open', local.duelCmd === 'deck:0');
+    liftHand();
+  };
+  const openCmd = (id: string | null) => {
+    const view = id === null ? null : cmdViewFor(id);
+    if (!view) { closeCmd(); return; }
+    if (local.duelCmd === id && duelCmdView) return;
+    local.duelCmd = id; duelCmdView = view; duelCmdUi.hover = 0; cmdFrame(); showHtml();
+  };
+  const closeCmd = () => { if (local.duelCmd === null) return; local.duelCmd = null; duelCmdView = null; cmdFrame(); showHtml(); };
   const cmdKeepsOpen = (e: PointerEvent | MouseEvent): boolean => {
     const view = duelCmdView, box = stage.getBoundingClientRect(); if (!view || !box.width) return false;
     const k = box.width / 1024, x = (e.clientX - box.left) / k, y = (e.clientY - box.top) / k;
@@ -619,14 +635,132 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const left = Math.min(menu.x, c.x), right = Math.max(menu.x + menu.w, c.x + c.w), top = menu.y, bottom = Math.max(menu.y + menu.h, c.y + c.h);
     return x >= left && x < right && y >= top && y < bottom;
   };
-  const cmdPointer = (e: PointerEvent) => { if (local.duelCmd !== null && duelCmdView && e.pointerType !== 'touch' && !cmdKeepsOpen(e)) closeCmd(); };
+  // Live's hand (de-scratch/hand hov3, v2hand-me on / off): the card under the pointer rises 32 px in the engine's 30 fps
+  // steps (a quarter of the way each frame, whole pixels: handLiftTick, settled in 10 frames, 333 ms) and comes back down
+  // the same way when the pointer leaves it; its neighbours stay put and it is drawn over them. A card is picked up by the pointer within its resting place above the
+  // chat (y < 600), and kept while the pointer is on its raised place or its command menu; on the opponent's turn too.
+  const HAND_LIFT = 32;
+  let handHover: string | null = null, handRects: { id: string; x0: number; x1: number; y0: number; y1: number }[] = [];
+  const handLift = new Map<string, number>();
+  let liftFrame = 0, liftAt = 0, lastPointer: { x: number; y: number; target: EventTarget | null } | null = null;
+  /** After a pick the hand rests until the duel answers it (its actions change); the card played stays raised (pinned)
+   *  until it leaves the hand, and flies from its raised place (launchLift: its lift as it left), as live's. */
+  let handRest: { actions: unknown; until: number } | null = null;
+  /** The hand card just played: it stays raised (whatever the pointer does) until it leaves the hand, or a while. */
+  let handPin: { id: string; until: number } | null = null;
+  const launchLift = new Map<string, number>();
+  const pinnedCard = () => handPin && Date.now() < handPin.until ? handPin.id : null;
+  const liftTarget = () => pinnedCard() ?? handHover ?? (local.duelCmd !== null && handRects.some(r => r.id === local.duelCmd) ? local.duelCmd : null);
+  const liftNode = (id: string, node = fieldNodes.get(id)) => {
+    if (!node) return;
+    const v = Math.round(handLift.get(id) ?? 0), top = id === liftTarget();
+    node.style.marginTop = v ? `${-v / 1024 * 100}%` : '';
+    if (v || top) node.style.zIndex = top ? '21' : '20'; else if (node.style.zIndex === '20' || node.style.zIndex === '21') node.style.zIndex = '';
+  };
+  const LIFT_FRAME = 1000 / 30;
+  const liftStep = (now: number) => {
+    liftFrame = 0;
+    // the engine's frames gone by since the last step (the first one at once)
+    const ticks = state.settings.reducedMotion ? 99 : liftAt ? Math.min(99, Math.floor((now - liftAt) / LIFT_FRAME)) : 1;
+    if (ticks) liftAt = liftAt && ticks < 99 ? liftAt + ticks * LIFT_FRAME : now;
+    let moving = false; const target = liftTarget();
+    for (const id of new Set([...handLift.keys(), ...(target ? [target] : [])])) {
+      const goal = id === target ? HAND_LIFT : 0;
+      let next = handLift.get(id) ?? 0;
+      for (let i = 0; i < ticks && next !== goal; i++) next = handLiftTick(next, goal);
+      if (next !== goal) moving = true;
+      if (next === 0) handLift.delete(id); else handLift.set(id, next);
+      liftNode(id);
+    }
+    if (moving && !disposed) liftFrame = requestAnimationFrame(liftStep); else liftAt = 0;
+  };
+  function liftHand(): void { if (!liftFrame && !disposed && typeof requestAnimationFrame === 'function') { liftAt = 0; liftFrame = requestAnimationFrame(liftStep); } }
+  const gamePointer = (e: { clientX: number; clientY: number }) => {
+    const box = stage.getBoundingClientRect(); if (!box.width) return null;
+    const k = box.width / 1024; return { x: (e.clientX - box.left) / k, y: (e.clientY - box.top) / k };
+  };
+  /** Which hand card the pointer is on (the hovered one while the pointer is on its raised place or its menu). */
+  const handUnder = (e: { clientX: number; clientY: number; target: EventTarget | null }): string | null => {
+    const p = gamePointer(e); if (!p) return null;
+    const t = e.target as Element | null, inMenu = !!t?.closest?.('.win[data-window-class="CUSummonDialogSp"]');
+    // another window over the hand (a question, the chat) takes the pointer
+    if (!inMenu && t?.closest?.('#htmlui-host .win')) return null;
+    const held = handHover ? handRects.find(r => r.id === handHover) : undefined;
+    if (held && inMenu) return held.id;
+    if (p.y >= 600) return null;
+    // the hand's resting places first, the right card over the left (live: a neighbour takes the pointer as soon as it is
+    // under it, even beside the raised card or under its menu: de-scratch/hand nb440), then the raised card's own place
+    // above them, and the gap between it and its menu
+    for (let i = handRects.length - 1; i >= 0; i--) { const r = handRects[i]!; if (p.x >= r.x0 && p.x < r.x1 && p.y >= r.y0 && p.y < r.y1) return r.id; }
+    if (held && p.x >= held.x0 && p.x < held.x1 && p.y >= held.y0 - HAND_LIFT - 4 && p.y < held.y0) return held.id;
+    return null;
+  };
+  const setHandHover = (id: string | null) => {
+    if (id === handHover) return;
+    const was = handHover; handHover = id; liftHand();
+    // the card's command list opens with it, as live's; the one it leaves closes
+    if (id && cmdViewFor(id)) openCmd(id);
+    else if (local.duelCmd !== null && (local.duelCmd === was || handRects.some(r => r.id === local.duelCmd))) closeCmd();
+  };
+  const restHand = (card?: string) => {
+    const pinned = card && handRects.some(r => r.id === card) ? card : null;
+    handRest = { actions: state.duel?.actions, until: Date.now() + 1500 }; handHover = null;
+    handPin = pinned ? { id: pinned, until: Date.now() + 4000 } : null; liftHand();
+    if (pinned) setTimeout(() => { if (!disposed) liftHand(); }, 4050);
+  };
+  const handPointer = (e: { clientX: number; clientY: number; target: EventTarget | null; pointerType?: string }) => {
+    if (state.scene !== 'duel' || !state.duel || e.pointerType === 'touch') return;
+    lastPointer = { x: e.clientX, y: e.clientY, target: e.target };
+    if (handRest && (Date.now() > handRest.until || handRest.actions !== state.duel.actions)) handRest = null;
+    const id = handRest ? null : handUnder(e);
+    setHandHover(id);
+    // the raised card's commands that came after it rose (the duel answered, the turn came): its menu opens then
+    if (id && local.duelCmd === null && cmdViewFor(id)) openCmd(id);
+  };
+  /** The hand under a pointer that has not moved (the hand laid out anew, a card gone): picked again, as live's. */
+  const handRehover = () => { if (lastPointer && state.scene === 'duel') handPointer({ clientX: lastPointer.x, clientY: lastPointer.y, target: globalThis.document?.elementFromPoint?.(lastPointer.x, lastPointer.y) ?? lastPointer.target }); };
+  // Live's attack (de-scratch/hand at2..at5): once Attack is picked, the attacker carries the sword
+  // (duel_ef_attackIcon_a) turned toward the pointer until a target is chosen or the choice is backed out of; the target
+  // under the pointer is framed. The sword is the one the attack's own cue then flies (duel-fx.ts).
+  let attackAim: { from: string; actions: unknown } | null = null;
+  const sword = globalThis.document?.createElement('img'); if (sword) { sword.className = 'de-attack-aim'; sword.alt = ''; sword.draggable = false; sword.setAttribute('aria-hidden', 'true'); sword.onload = () => { sword.style.width = `${sword.naturalWidth / 1024 * 100}%`; sword.style.visibility = ''; }; }
+  const aimSword = (e?: { clientX: number; clientY: number }) => {
+    if (!sword || !attackAim || !sword.isConnected) return;
+    const from = fieldNodes.get(attackAim.from), box = stage.getBoundingClientRect(); if (!from || !box.width) return;
+    const r = from.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+    sword.style.left = `${(x - box.left) / box.width * 100}%`; sword.style.top = `${(y - box.top) / box.width * 1024 / 768 * 100}%`;
+    const p = e ?? (lastPointer ? { clientX: lastPointer.x, clientY: lastPointer.y } : null);
+    // pointing up at rest is 0; at the attacker itself it points down, as live's
+    const turn = p ? Math.atan2(p.clientX - x, -(p.clientY - y)) : Math.PI;
+    sword.style.transform = `translate(-50%,-50%) rotate(${turn}rad)`;
+  };
+  const cmdPointer = (e: PointerEvent) => {
+    if (local.duelCmd !== null && duelCmdView && e.pointerType !== 'touch' && !cmdKeepsOpen(e)) closeCmd();
+    handPointer(e); aimSword(e);
+  };
   const cmdPress = (e: PointerEvent) => {
     if (local.duelCmd === null || !duelCmdView) return;
     const t = e.target as Element | null;
     if (t?.closest?.('.win[data-window-class="CUSummonDialogSp"]') || t?.closest?.(`[data-key="field-card:${duelCmdView.owner}"]`) || duelCmdView.owner === 'deck:0' && t?.closest?.('[data-key="field-deck:0"]')) return;
     closeCmd();
   };
+  // Live's duel acts on the press of the left button, not its release (the engine's mouseClicked: v2hand-me p-L, a menu
+  // row's Set took the card at the press, 800 ms before the release): a card, a command row, a zone, a phase key. The
+  // press clicks the control at once, and the browser's own click that follows the release is swallowed. A key, a tap
+  // (a touch screen's) or an assistive click still goes through the click.
+  const PRESS_PICKS = '.de-duel-board .de-field-card, .de-duel-board .de-zone-target, .de-duel-board .de-deck-zone, .de-duel-board .de-phase-go, .win[data-window-class="CUSummonDialogSp"] [role=menuitem]';
+  let pressing = false, pressedAt = 0;
+  const pressPick = (e: PointerEvent) => {
+    pressedAt = 0;
+    if (state.scene !== 'duel' || e.button !== 0 || e.pointerType === 'touch') return;
+    const t = (e.target as Element | null)?.closest?.(PRESS_PICKS) as HTMLElement | null;
+    if (!t || (t as HTMLButtonElement).disabled || t.getAttribute('aria-disabled') === 'true') return;
+    pressedAt = Date.now(); pressing = true;
+    try { t.click(); } finally { pressing = false; }
+  };
+  const pressClick = (e: MouseEvent) => { if (pressedAt && e.detail > 0) { const recent = Date.now() - pressedAt < 1500; pressedAt = 0; if (recent) { e.preventDefault(); e.stopPropagation(); } } };
   globalThis.addEventListener?.('pointermove', cmdPointer, true); globalThis.addEventListener?.('pointerdown', cmdPress, true);
+  globalThis.addEventListener?.('pointerdown', pressPick, true); globalThis.addEventListener?.('click', pressClick, true);
   let referenceShown: string | null = null, cardClosedForDuel = false, challenger = false;
   // The duel's end as live plays it: "YOU WIN" / "YOU LOSE" / "DRAW" over the dimmed field (data/y/duel_end), then
   // between a match's games its score board (data/y/duel/match), then the result board or Card Swap
@@ -922,7 +1056,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const sx = side ? k : -k, sy = k, x = Math.round(sx * Math.cos(turn) + sy * Math.sin(turn)), y = Math.round(-sx * Math.sin(turn) + sy * Math.cos(turn));
       out.push(`${x}px ${y}px 0 ${k === depth ? '#4a402a' : k % 2 ? '#e5d1b3' : '#c5ad89'}`);
     }
-    return out.join(', ') || 'none';
+    return out.join(', ') || '0 0 0 1px rgba(16,18,28,.55)';
   };
   const placeFieldCard = (node: HTMLElement, card: DuelCardView, handCount: number) => {
     const p = fieldCardPosition(card, handCount), motion = card.motion;
@@ -930,8 +1064,12 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     // opponent's) for every four cards under it, as live draws the stack (33 cards: the top card 8 px up and over)
     const count = node.querySelector?.<HTMLElement>('.de-card-count'), stacked = !!count && (card.zone === 'deck' || card.zone === 'extra');
     const depth = stacked ? pileDepth(Number(count!.textContent) || 0) : 0;
-    node.style.left = `${((motion?.x ?? p.x) + (card.controller ? -depth : depth)) / 1024 * 100}%`; node.style.top = `${((motion?.y ?? p.y) - depth) / 768 * 100}%`;
-    node.style.width = `${p.width / 1024 * 100}%`; node.style.height = `${p.height / 768 * 100}%`;
+    // a hand card played from its raised place flies from there (live: the card leaves the raised place, never drops back first)
+    if (card.id === pinnedCard() && card.zone !== 'hand') { launchLift.set(card.id, handLift.get(card.id) ?? HAND_LIFT); handLift.delete(card.id); handPin = null; }
+    const launched = launchLift.get(card.id); if (launched !== undefined && !motion) launchLift.delete(card.id);
+    const lifted = motion && launched ? launched * (1 - (motion.eased ?? 1)) : 0;
+    node.style.left = `${((motion?.x ?? p.x) + (card.controller ? -depth : depth)) / 1024 * 100}%`; node.style.top = `${((motion?.y ?? p.y) - depth - lifted) / 768 * 100}%`;
+    node.style.width = `${(motion?.width ?? p.width) / 1024 * 100}%`; node.style.height = `${(motion?.height ?? p.height) / 768 * 100}%`;
     node.style.transform = motion ? `translate(-50%,-50%) rotate(${motion.rotation}deg) scaleX(${motion.scaleX})` : '';
     node.style.zIndex = motion?.zIndex === undefined ? '' : String(motion.zIndex);
     node.style.opacity = motion?.opacity === undefined ? '' : String(Math.max(0, Math.min(1, motion.opacity)));
@@ -939,10 +1077,12 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const badges = node.querySelector?.<HTMLElement>('.de-card-badges');
     if (badges) badges.style.transform = `rotate(${-(motion?.rotation ?? (p.rotate ? 90 : 0))}deg)`;
     // and a pile's count reads upright too (the opponent's piles stand upside down)
-    if (stacked) count!.style.transform = `translate(-50%,-50%) rotate(${-(motion?.rotation ?? 0)}deg)`;
+    if (count) count.style.transform = `translate(-50%,-50%) rotate(${-(motion?.rotation ?? 0)}deg)`;
     // a deck / extra pile is live's thick stack: a card edge a pixel for every four cards, beige and its shade in turn,
     // spreading down and away from the field's middle (the player's to the left, the opponent's to the right)
-    if (stacked) node.style.boxShadow = pileEdges(Number(count!.textContent) || 0, card.controller, motion?.rotation ?? 0);
+    if (stacked) node.style.setProperty?.('--de-pile', pileEdges(Number(count!.textContent) || 0, card.controller, motion?.rotation ?? 0));
+    // a hand card the pointer raised stays raised (and over its neighbours) through the field's redraws
+    if (card.zone === 'hand' && card.controller === 0) liftNode(card.id, node);
   };
   const canSkipRender = (previous: ClientView, next: ClientView) => {
     if (previous.scene !== next.scene || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.relay !== next.relay || previous.sideboarding !== next.sideboarding || previous.match !== next.match || previous.preparation !== next.preparation || previous.unavailable?.[previous.scene] !== next.unavailable?.[next.scene]) return false;
@@ -1340,14 +1480,30 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       // live: a click (or a right click) on a card opens its command list; a card with none shows its details
       const listOn = (commands.get(c.id)?.length ?? 0) > 0 || (canSurrender || !!duel.spectating) && c.id === ownDeckTop || !!duel.spectating && c.zone === 'deck';
       // no name bands on the field (live draws the card pictures alone): the name is the card's label, tooltip and details
-      const p = fieldCardPosition(c, handCount), tile = drawCard(c, false, c.faceUp), b = button('', () => { const target = duel.prompt?.options.find(o => o.cardId === c.id && !o.disabled); if (target && duel.prompt) respondToPrompt(duel.prompt.id, { optionId: target.id }); else if (selection) { if (!state.busy) sendAction(duel, selection.id); } else if (listOn) { openCmd(local.duelCmd === c.id ? null : c.id); } else if (c.faceUp || ownSet) { inspect(c, 'duel'); if (c.faceUp) send({ type: 'inspectCard', cardId: c.id }); } });
+      const p = fieldCardPosition(c, handCount), tile = drawCard(c, false, c.faceUp), b = button('', () => {});
+      b.onclick = (event: MouseEvent) => {
+        const target = duel.prompt?.options.find(o => o.cardId === c.id && !o.disabled);
+        if (target && duel.prompt) respondToPrompt(duel.prompt.id, { optionId: target.id });
+        else if (selection) { if (!state.busy) sendAction(duel, selection.id); }
+        else if (listOn) {
+          // a mouse click on the card whose menu is open picks the menu's lit row, as live's; a key, a tap (no hover on a
+          // touch screen) or a click on a closed card opens or closes the menu
+          const view = local.duelCmd === c.id ? duelCmdView : null, row = view?.rows[Math.max(0, Math.min(view.rows.length - 1, duelCmdUi.hover))];
+          const mouse = pressing || event.detail > 0 && (event as PointerEvent).pointerType !== 'touch';
+          if (view && mouse) { if (row && !row.disabled) row.pick(); }
+          else if (view) closeCmd(); else openCmd(c.id);
+        } else if (c.faceUp || ownSet) { inspect(c, 'duel'); if (c.faceUp) send({ type: 'inspectCard', cardId: c.id }); }
+      };
       b.oncontextmenu = event => { event.preventDefault(); if (listOn && !selection) openCmd(c.id); };
+      // a field card or a pile with commands opens its menu as the pointer comes onto it (the hand's own hover does a
+      // hand card's: handPointer)
+      if (listOn && !selection && c.zone !== 'hand') b.onpointerenter = event => { if (event.pointerType !== 'touch' && !handRest) openCmd(c.id); };
       if (c.faceUp || ownSet) b.title = c.name;
       if (listOn) b.setAttribute('aria-haspopup', 'menu');
       b.dataset.key = `field-card:${c.id}`; b.dataset.side = c.controller ? 'opponent' : 'your'; b.dataset.zone = c.zone; b.dataset.index = String(c.index); if (c.zone === 'monster') b.dataset.position = c.position ?? 'attack';
       const choice = fieldPrompt?.options.find(o => o.cardId === c.id && !o.disabled), target = selection ?? choice;
-      // the hand card whose command menu is open stands raised over the hand's edge, as live
-      b.className = `de-card de-field-card${c.faceUp ? '' : ' de-card-back'}${p.rotate ? ' defense' : ''}${target ? ' de-card-target' : ''}${c.zone === 'hand' && c.controller === 0 && local.duelCmd === c.id ? ' raised' : ''}`; b.append(...Array.from(tile.childNodes)); if (target) b.title = target.label;
+      // the card whose command menu is open is framed (a hand card's also raised: handLift), as live
+      b.className = `de-card de-field-card${c.faceUp ? '' : ' de-card-back'}${p.rotate ? ' defense' : ''}${target ? ' de-card-target' : ''}${local.duelCmd === c.id ? ' de-cmd-open' : ''}`; b.append(...Array.from(tile.childNodes)); if (target) b.title = target.label;
       placeFieldCard(b, c, handCount); fieldNodes.set(c.id, b);
       const counters = c.faceUp ? (c.counters ?? []).filter(counter => counter.count > 0) : [], turnCounter = c.faceUp ? c.turnCounter ?? 0 : 0;
       const counterText = counters.map(counter => `${counter.kind === 0 ? 'Spell counters' : `Counter ${counter.kind}`}: ${counter.count}`).join(', ');
@@ -1374,27 +1530,54 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const ownDeckAt = fieldCardPosition({ id: DECK_ZONE, name: '', controller: 0, zone: 'deck', index: 0, faceUp: false }, 0);
     const deckZoneOn = !ownDeckTop && (canSurrender || !!duel.spectating || commands.has(DECK_ZONE));
     if (deckZoneOn) {
-      const zone = button('', () => openCmd(local.duelCmd === DECK_ZONE ? null : DECK_ZONE)); zone.className = 'de-deck-zone'; zone.dataset.key = 'field-deck:0'; zone.dataset.side = 'your'; zone.dataset.zone = 'deck';
+      const zone = button('', () => {}); zone.className = 'de-deck-zone';
+      zone.onclick = (event: MouseEvent) => {
+        const view = local.duelCmd === DECK_ZONE ? duelCmdView : null, row = view?.rows[Math.max(0, Math.min(view.rows.length - 1, duelCmdUi.hover))];
+        if (view && (pressing || event.detail > 0 && (event as PointerEvent).pointerType !== 'touch')) { if (row && !row.disabled) row.pick(); }
+        else if (view) closeCmd(); else openCmd(DECK_ZONE);
+      };
+      zone.onpointerenter = event => { if (event.pointerType !== 'touch') openCmd(DECK_ZONE); }; zone.dataset.key = 'field-deck:0'; zone.dataset.side = 'your'; zone.dataset.zone = 'deck';
       zone.setAttribute('aria-label', 'Your deck (empty)'); zone.setAttribute('aria-haspopup', 'menu'); zone.oncontextmenu = event => { event.preventDefault(); openCmd(DECK_ZONE); };
       zone.style.left = `${ownDeckAt.x / 1024 * 100}%`; zone.style.top = `${ownDeckAt.y / 768 * 100}%`; zone.style.width = `${ownDeckAt.width / 1024 * 100}%`; zone.style.height = `${ownDeckAt.height / 768 * 100}%`;
       cards.append(zone);
     }
-    // The open command list: main's duel.js CUSummonDialogSp (htmlui/duel-cmd.ts) over the card, built in duelSpecs from
+    // Each card's command list: main's duel.js CUSummonDialogSp (htmlui/duel-cmd.ts) over the card, built in duelSpecs from
     // what is gathered here: the card's commands in menu order, Surrender on the player's own deck (as live). A spectator
     // leaves the duel through a deck's list (its Surrender command), as nothing there is theirs to play
-    const cmdCard = local.duelCmd && local.duelCmd !== DECK_ZONE ? duel.cards.find(x => x.id === local.duelCmd && visibleCardIds.has(x.id)) : undefined;
-    const cmdAt = cmdCard ? { card: cmdCard, at: fieldCardPosition(cmdCard, handCounts[cmdCard.controller]) } : local.duelCmd === DECK_ZONE && deckZoneOn ? { card: null, at: ownDeckAt } : null;
-    const cmdRows = cmdAt ? commands.get(cmdAt.card?.id ?? DECK_ZONE) ?? [] : [];
-    const onDeck = !!cmdAt && (cmdAt.card ? cmdAt.card.id === ownDeckTop || !!duel.spectating && cmdAt.card.zone === 'deck' : true);
-    // the deck's Surrender is one row (the server's own Surrender command, when its mask has one, is the same row)
-    const rows: DuelCmdRow[] = cmdRows.filter(a => !(onDeck && canSurrender && menuCommand(a.id) === SURRENDER_COMMAND)).map(a => ({ cmd: menuCommand(a.id), text: a.label.replace(/:.*$/, ''), key: `duel-cmd:${a.id}`, label: a.label, disabled: !!a.disabled || !!state.busy, pick: () => { closeCmd(); if (promptChoices.has(a.id)) choose(a.id); else sendAction(duel, a.id); } }));
-    if (onDeck && canSurrender) rows.push({ cmd: SURRENDER_COMMAND, key: 'duel-surrender', label: 'Surrender', disabled: !!state.busy || state.relay?.canAct === false, pick: surrenderNow });
-    if (onDeck && duel.spectating) rows.push({ cmd: SURRENDER_COMMAND, key: 'duel-leave', label: 'Leave Duel', disabled: !!state.busy, pick: () => { closeCmd(); send({ type: 'leaveDuel' }); } });
-    if (!cmdAt || !rows.length) { local.duelCmd = null; duelCmdView = null; }
-    else {
-      const readable = !!cmdAt.card && (cmdAt.card.faceUp || isOwnSetCard(cmdAt.card));
-      duelCmdView = { at: { x: cmdAt.at.x, top: cmdAt.at.y - cmdAt.at.height / 2, hand: cmdAt.card?.zone === 'hand' }, rows, name: `${readable ? cmdAt.card!.name : cmdAt.card ? 'Card' : 'Deck'}: commands`, owner: cmdAt.card?.id ?? DECK_ZONE };
-    }
+    const views = new Map<string, CmdView | null>();
+    cmdViewFor = (id: string): CmdView | null => {
+      if (views.has(id)) return views.get(id)!;
+      const cmdCard = id !== DECK_ZONE ? duel.cards.find(x => x.id === id && visibleCardIds.has(x.id)) : undefined;
+      const cmdAt = cmdCard ? { card: cmdCard, at: fieldCardPosition(cmdCard, handCounts[cmdCard.controller]) } : id === DECK_ZONE && deckZoneOn ? { card: null, at: ownDeckAt } : null;
+      const cmdRows = cmdAt ? commands.get(cmdAt.card?.id ?? DECK_ZONE) ?? [] : [];
+      const onDeck = !!cmdAt && (cmdAt.card ? cmdAt.card.id === ownDeckTop || !!duel.spectating && cmdAt.card.zone === 'deck' : true);
+      // the deck's Surrender is one row (the server's own Surrender command, when its mask has one, is the same row)
+      const rows: DuelCmdRow[] = cmdRows.filter(a => !(onDeck && canSurrender && menuCommand(a.id) === SURRENDER_COMMAND)).map(a => ({ cmd: menuCommand(a.id), text: a.label.replace(/:.*$/, ''), key: `duel-cmd:${a.id}`, label: a.label, disabled: !!a.disabled || !!state.busy, pick: () => { restHand(a.cardId ?? cmdCard?.id); closeCmd(); if (menuCommand(a.id) === ATTACK_COMMAND && a.cardId) attackAim = { from: a.cardId, actions: duel.actions }; if (promptChoices.has(a.id)) choose(a.id); else sendAction(duel, a.id); } }));
+      if (onDeck && canSurrender) rows.push({ cmd: SURRENDER_COMMAND, key: 'duel-surrender', label: 'Surrender', disabled: !!state.busy || state.relay?.canAct === false, pick: surrenderNow });
+      if (onDeck && duel.spectating) rows.push({ cmd: SURRENDER_COMMAND, key: 'duel-leave', label: 'Leave Duel', disabled: !!state.busy, pick: () => { closeCmd(); send({ type: 'leaveDuel' }); } });
+      let view: CmdView | null = null;
+      if (cmdAt && rows.length) {
+        const readable = !!cmdAt.card && (cmdAt.card.faceUp || isOwnSetCard(cmdAt.card));
+        view = { at: { x: cmdAt.at.x, top: cmdAt.at.y - cmdAt.at.height / 2, hand: cmdAt.card?.zone === 'hand' }, rows, name: `${readable ? cmdAt.card!.name : cmdAt.card ? 'Card' : 'Deck'}: commands`, owner: cmdAt.card?.id ?? DECK_ZONE };
+      }
+      views.set(id, view); return view;
+    };
+    // the attack's sword stays while the duel asks where the attack goes (its actions the targets' selections), and goes
+    // with the choice (or a cancel: the actions are the field's commands again)
+    const aiming = (duel.actions ?? []).some(a => a.label.startsWith('Select:') && !!a.cardId);
+    if (attackAim && (attackAim.actions !== duel.actions && !aiming || !fieldNodes.has(attackAim.from) || duel.ended)) attackAim = null;
+    if (attackAim && sword && controller.loadArchiveImage) { if (!sword.complete || !sword.naturalWidth) sword.style.visibility = 'hidden'; loadArchiveArt('data/y/duel/effect/duel_ef_attackIcon_a.png', sword); board.append(sword); queueMicrotask(() => aimSword()); }
+    duelCmdView = local.duelCmd === null ? null : cmdViewFor(local.duelCmd);
+    if (!duelCmdView) local.duelCmd = null;
+    // the hand under the pointer: its resting places (the player's own hand; a spectator's has none to pick up)
+    handRects = duel.spectating ? [] : duel.cards.filter(c => c.zone === 'hand' && c.controller === 0).sort((a, b) => a.index - b.index).map(c => {
+      const p = fieldCardPosition(c, handCounts[0]); return { id: c.id, x0: p.x - p.width / 2, x1: p.x + p.width / 2, y0: p.y - p.height / 2, y1: p.y + p.height / 2 };
+    });
+    if (handHover && !handRects.some(r => r.id === handHover)) handHover = null;
+    for (const id of handLift.keys()) if (!handRects.some(r => r.id === id)) handLift.delete(id);
+    if (handPin && !handRects.some(r => r.id === handPin!.id)) handPin = null;
+    cmdFrame();
+    queueMicrotask(handRehover);
     if ((duel.actions ?? []).some(a => a.id === 'cancel')) board.oncontextmenu = event => { if ((event.target as HTMLElement).closest('.de-field-card')) return; event.preventDefault(); sendAction(duel, 'cancel'); };
     // a field choice the server lets the player back out of (or finish: a discard, tributes): the right button, as live
     else if (fieldPrompt?.cancelable) board.oncontextmenu = event => { event.preventDefault(); respondToPrompt(fieldPrompt.id, { cancel: true }); };
@@ -1664,5 +1847,5 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // is redrawn under the pointer.
   const presentHeldLobby = (next: ClientView) => { if (pointerHeld && next.scene === 'lobby' && state.scene === 'lobby' && next.lobby && state.lobby && next.lobby.mapId === state.lobby.mapId) presentLobby(next.lobby); };
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else { if (!disposed) presentHeldLobby(next); requestRender(); } }); render();
-  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; netNote.dispose(); globalThis.removeEventListener?.('pointermove', cmdPointer, true); globalThis.removeEventListener?.('pointerdown', cmdPress, true); duelSpeedButton.dispose(); starterPicker.close(); discord.dispose(); cardShop.dispose(); pageMods.dispose(); offReserve(); deckDom?.dispose(); deckDom = null; tradeDom?.dispose(); tradeDom = null; swapDom?.dispose(); swapDom = null; cardGetDom?.dispose(); cardGetDom = null; deckScene.dispose(); if (thinkingTimer !== null) { clearInterval(thinkingTimer); thinkingTimer = null; } htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; titleScene?.dispose(); titleScene = null; portraitScene?.dispose(); portraitScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.removeEventListener?.(VEIL_EVENT, onVeil); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); worldWalk?.dispose(); worldWalk = null; phone?.dispose(); duelScene.dispose(); observer?.disconnect(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; closeAudioPage(); packSheet?.close(); packSheet = null; gameCursor?.dispose(); gameCursor = null; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; netNote.dispose(); globalThis.removeEventListener?.('pointermove', cmdPointer, true); globalThis.removeEventListener?.('pointerdown', cmdPress, true); globalThis.removeEventListener?.('pointerdown', pressPick, true); globalThis.removeEventListener?.('click', pressClick, true); duelSpeedButton.dispose(); starterPicker.close(); discord.dispose(); cardShop.dispose(); pageMods.dispose(); offReserve(); deckDom?.dispose(); deckDom = null; tradeDom?.dispose(); tradeDom = null; swapDom?.dispose(); swapDom = null; cardGetDom?.dispose(); cardGetDom = null; deckScene.dispose(); if (thinkingTimer !== null) { clearInterval(thinkingTimer); thinkingTimer = null; } htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; titleScene?.dispose(); titleScene = null; portraitScene?.dispose(); portraitScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.removeEventListener?.(VEIL_EVENT, onVeil); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); worldWalk?.dispose(); worldWalk = null; phone?.dispose(); duelScene.dispose(); observer?.disconnect(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; closeAudioPage(); packSheet?.close(); packSheet = null; gameCursor?.dispose(); gameCursor = null; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }

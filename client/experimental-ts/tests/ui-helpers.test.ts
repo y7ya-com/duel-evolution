@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deckPlacementReason, fieldCardPosition, filterCollection, gamePoint, safeImageUrl, sortCollection, validatePromptResponse } from '../src/ui/helpers';
+import { deckPlacementReason, fieldCardPosition, filterCollection, gamePoint, handLiftTick, safeImageUrl, sortCollection, validatePromptResponse } from '../src/ui/helpers';
 import type { DuelCardView, DuelPromptView } from '../src/ui/contracts';
 
 describe('browser UI geometry and authoritative choices', () => {
@@ -64,6 +64,13 @@ describe('browser UI geometry and authoritative choices', () => {
     expect(hand(1, 2).map(p => p.x - p.width / 2)).toEqual([417, 533]);
     expect(hand(1, 5).map(p => p.x - p.width / 2)).toEqual([269, 372, 475, 578, 681]);
     expect(hand(1, 5)[0]!.y + hand(1, 5)[0]!.height / 2).toBe(72);
+  });
+  it("raises a hand card in live's 30 fps steps: 32 / 24 / 18 / 13 / 9 / 6 / 4 / 3 / 2 / 1 px to go, and drops it back the same way", () => {
+    const run = (from: number, goal: number) => { const out = [from]; while (out.at(-1) !== goal && out.length < 20) out.push(handLiftTick(out.at(-1)!, goal)); return out; };
+    expect(run(0, 32)).toEqual([0, 8, 14, 19, 23, 26, 28, 29, 30, 31, 32]);
+    expect(run(32, 0)).toEqual([32, 24, 18, 13, 9, 6, 4, 3, 2, 1, 0]);
+    // turned back halfway, it goes the rest of its way in the same steps
+    expect(run(20, 0)).toEqual([20, 15, 11, 8, 6, 4, 3, 2, 1, 0]);
   });
   it('rejects executable asset URL schemes', () => {
     expect(safeImageUrl('javascript:alert(1)')).toBeNull();

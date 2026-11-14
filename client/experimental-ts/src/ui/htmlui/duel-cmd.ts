@@ -21,7 +21,7 @@ export function menuCommand(actionId: string): number {
   const m = /^action:\d+:\d+:\d+:(\d+)$/.exec(actionId), bit = m ? Number(m[1]) : -1;
   return SUMMON_COMMANDS[bit] ?? -1;
 }
-export const SURRENDER_COMMAND = 10;
+export const SURRENDER_COMMAND = 10, ATTACK_COMMAND = 8;
 export const commandText = (cmd: number): string | undefined => CMD_TEXT[cmd];
 
 export interface DuelCmdRow {

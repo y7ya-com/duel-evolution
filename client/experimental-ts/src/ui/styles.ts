@@ -75,7 +75,8 @@ button.de-card { padding:2px; min-height:0; color:#fff; background:linear-gradie
 /* live: the deck and the Fusion deck are a thick stack (the edges of the cards under the top one), the count in the middle
    of the top card back in small white figures */
 .de-field-card:is([data-zone=deck],[data-zone=extra]) { box-shadow:1px 1px 0 #d9b77a, 2px 2px 0 #7a5a2c, 3px 3px 0 #d9b77a, 4px 4px 0 #7a5a2c, 5px 5px 0 #c8a466, 6px 6px 1px #3d2c14; }
-.de-field-card:is([data-zone=deck],[data-zone=extra])>.de-card-count { left:50%; top:50%; right:auto; transform:translate(-50%,-50%); padding:0; background:none; color:#fff; font:9px/1 Arial,sans-serif; letter-spacing:.25em; text-shadow:0 0 2px #000; border-radius:0; }
+/* (and the Graveyard's and the banished pile's: live's GY reads a white "1" in the middle of its top card, upright) */
+.de-field-card:is([data-zone=deck],[data-zone=extra],[data-zone=graveyard],[data-zone=banished])>.de-card-count { left:50%; top:50%; right:auto; transform:translate(-50%,-50%); padding:0; background:none; color:#fff; font:9px/1 Arial,sans-serif; letter-spacing:.25em; text-shadow:0 0 2px #000; border-radius:0; }
 .de-zone-title { padding:3px 7px; background:#075db9; color:white; display:flex; justify-content:space-between; }
 .de-deck-zone { background:#effcffaa; margin-bottom:6px; min-height:70px; }
 .de-relay-roster { position:absolute; top:70px; left:12px; right:12px; display:flex; justify-content:space-between; pointer-events:none; z-index:4; }
@@ -117,7 +118,13 @@ button.de-card { padding:2px; min-height:0; color:#fff; background:linear-gradie
 /* behind the duel's result board live dims the field, its plates and its bar */
 .de-duel-board>.de-result-dim { position:absolute; inset:0; z-index:40; background:rgba(0,0,0,.45); pointer-events:none; }
 .de-client button.de-deck-zone { position:absolute; transform:translate(-50%,-50%); pointer-events:auto; min-height:0; padding:0; background:none; border:0; box-shadow:none; cursor:pointer; }
-button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zone-pulse 1s ease-in-out infinite alternate; z-index:3; }
+/* a card the duel asks for (an attack's target, a card to choose on the field): live leaves the card as it is and lights its
+   cell's frame in a slow pulse; the one under the pointer is framed as a card whose menu is open (de-scratch/hand at3 / tgt) */
+button.de-field-card.de-card-target { z-index:3; outline:2px solid rgba(255,255,255,0); outline-offset:14px; animation:de-target-pulse 1.2s ease-in-out infinite alternate; }
+.de-client button.de-field-card.de-card-target[data-side]:hover { box-shadow:0 0 0 1px #ffff16, 0 0 0 2px #fff, 0 0 0 3px #000; filter:brightness(1.25); }
+@keyframes de-target-pulse { from { outline-color:rgba(255,255,255,0); } to { outline-color:rgba(255,255,255,.55); } }
+/* the attacker's sword while the attack's target is chosen (index.ts aimSword) */
+.de-duel-board>.de-attack-aim { position:absolute; z-index:22; pointer-events:none; max-width:none; transform-origin:50% 50%; }
 @keyframes de-zone-pulse { from { box-shadow:0 0 6px #ffe14a; } to { box-shadow:0 0 18px #fff38a; } }
 .de-duel-board { position:absolute; left:0; top:0; width:100%; aspect-ratio:4/3; overflow:hidden; }
 .de-duel-board>.de-duel-field { position:absolute; inset:0; background:center/100% 100% no-repeat; }
@@ -148,7 +155,7 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 /* live draws the field's and the hands' cards as their pictures alone (no frame, no padding, no rounding): the picture
    fills the card, stretched as the engine's texture is, a thin dark edge round it; the player's hand cards a 3 px shadow,
    the opponent's backs none (de-scratch/hand: live 94 x 138 faces, 100 x 146 backs, 48 x 70 on the field) */
-.de-client button.de-field-card { padding:0; border:0; border-radius:0; background:none; box-shadow:0 0 0 1px rgba(16,18,28,.55); }
+.de-client button.de-field-card { padding:0; border:0; border-radius:0; background:none; box-shadow:var(--de-pile, 0 0 0 1px rgba(16,18,28,.55)); }
 .de-client button.de-field-card img { object-fit:fill; }
 .de-client button.de-field-card[data-zone=hand][data-side=your] { box-shadow:0 0 0 1px rgba(32,25,38,.9), 0 0 0 2px rgba(61,61,80,.7), 0 0 0 3px rgba(102,105,131,.45); }
 .de-client button.de-field-card[data-zone=hand][data-side=opponent] { box-shadow:none; }
@@ -181,8 +188,11 @@ html:has(.yo2r-board) .de-duel-info { display:none; }
 /* the phase keys are the art alone (no button look); the pointer's look is the art's hover column (1), as live */
 .de-client .de-phase-bar>button.de-phase { box-shadow:none; filter:none; border-radius:0; min-height:0; }
 .de-phase-bar>button.de-phase:not(.current):hover img { left:-100% !important; }
-/* the hand card whose command menu is open, raised 33 px (a margin in % is of the board's width: 1024 game px) */
-.de-field-card.raised { margin-top:-3.2227%; z-index:20; }
+/* the card whose command menu is open (live's CUSummonDialogSp card): framed black / white / yellow outside, a cyan line
+   inside its edge, its picture a quarter brighter (de-scratch/hand at1 / hs: 486 #000, 487 #fff, 488 #ff1, 489 #3ff) */
+.de-client button.de-field-card.de-cmd-open[data-side] { box-shadow:0 0 0 1px #ffff16, 0 0 0 2px #fff, 0 0 0 3px #000, var(--de-pile, 0 0 0 0 transparent); filter:brightness(1.25); }
+.de-field-card.de-cmd-open::after { content:''; position:absolute; inset:0; box-shadow:inset 0 0 0 1px #34ffff; pointer-events:none; z-index:3; }
+.de-client button.de-deck-zone.de-cmd-open { box-shadow:0 0 0 1px #ffff16, 0 0 0 2px #fff, 0 0 0 3px #000; }
 .de-phase-bar>button.de-phase:disabled { cursor:default; }
 .de-connection { display:inline-block; width:8px; height:8px; border-radius:50%; background:#fbd56b; margin-right:5px; }
 .de-connection.online { background:#95f19a; }

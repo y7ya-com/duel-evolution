@@ -119,10 +119,10 @@ describe('deterministic bounded duel presentation timeline', () => {
     t.enqueue(before, after);
     const authority = projectDuel(after, catalog, ['You', 'Rival']);
     const halfway = applyTimeline(authority, t.advance(4), catalog);
-    expect(halfway.cards[0].motion?.x).toBeLessThan(902); expect(halfway.cards[0].motion?.x).toBeGreaterThan(512);
+    expect(halfway.cards[0].motion?.x).toBeLessThan(902); expect(halfway.cards[0].motion?.x).toBeGreaterThan(525);
     expect(halfway.cards[0].motion?.scaleX).toBeCloseTo(0.001); expect(halfway.prompt).toBe(null);
     expect(after.cards[2].zone).toBe('hand');
-    expect(applyTimeline(authority, t.advance(4), catalog).cards[0].motion?.x).toBe(512);
+    expect(applyTimeline(authority, t.advance(4), catalog).cards[0].motion?.x).toBe(525); // live's hand is centred on x 525
   });
   it('projects source events into explicit attack, chain and LP visual cues', () => {
     const catalog = new CardCatalog(), before = initial();

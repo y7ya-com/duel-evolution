@@ -245,7 +245,10 @@ export function applyTimeline(view: DuelView, sample: TimelineSample, catalog: C
     const meta = known ? existing?.passcode === shown.passcode ? existing : catalog.card(shown.passcode!) : { id: String(item.uid), name: 'Hidden card' };
     return { ...meta, id: String(item.uid), controller: target.player, zone: zones[target.zone], index: target.index,
       faceUp, position: target.defense ? 'defense' as const : 'attack' as const,
+      // the card's size goes with it, as the original's CCard (a hand card's 94 x 138 shrinks to the zone's 48 x 70 as it
+      // flies there, a drawn card grows into the hand's)
       motion: { x: a.x + (b.x - a.x) * item.eased, y: a.y + (b.y - a.y) * item.eased,
+        width: a.width + (b.width - a.width) * item.eased, height: a.height + (b.height - a.height) * item.eased, eased: item.eased,
         rotation: oldAngle + delta * item.progress, scaleX: Math.max(0.001, flip), opacity: item.opacity,
         zIndex: item.progress < 1 && (a.x !== b.x || a.y !== b.y || delta !== 0 || from.faceUp !== to.faceUp || item.opacity !== 1) ? 2 : 0 } };
   });
