@@ -215,10 +215,13 @@ describe('destruction, activation, chain, coin and die sounds', () => {
     expect(run(new DuelAudioDirector(), [event('12', [5, 0, 1])], [event('12', [6, 0, 2])]).map(c => c.path))
       .toEqual(['se/magic_active.wav', 'se/magic_active.wav', 'se/chain.wav']);
   });
-  it('coins sound at the toss, the die at its last two landings of the fx roll (immediately with reduced motion)', () => {
+  it('each coin sounds at its toss, the die as it lands and as its roll ends (immediately with reduced motion)', () => {
     expect(run(new DuelAudioDirector(), [event('5c', [1 << 6, 0, 1])])).toEqual([{ kind: 'coin', path: 'se/coin.wav' }]);
     expect(run(new DuelAudioDirector(), [event('5d', [0, 4, 0])])).toEqual([
-      { kind: 'dice', path: 'se/dice.wav', delay: 667 }, { kind: 'dice', path: 'se/dice.wav', delay: 1000 }]);
+      { kind: 'dice', path: 'se/dice.wav', delay: 870 }, { kind: 'dice', path: 'se/dice.wav', delay: 1150 }]);
+    // three coins: one toss each, 500 ms apart
+    expect(run(new DuelAudioDirector(), [event('5c', [3 << 6, 0, 5])])).toEqual([{ kind: 'coin', path: 'se/coin.wav' },
+      { kind: 'coin', path: 'se/coin.wav', delay: 500 }, { kind: 'coin', path: 'se/coin.wav', delay: 1000 }]);
     expect(run(new DuelAudioDirector(0, { reducedMotion: true }), [event('5d', [0, 4, 0])])).toEqual([{ kind: 'dice', path: 'se/dice.wav' }]);
   });
   it('every sound file is a line of the original se.txt at its id', () => {
