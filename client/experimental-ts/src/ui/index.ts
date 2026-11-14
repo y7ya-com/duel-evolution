@@ -66,7 +66,7 @@ import { duelCmdWindow, duelCmdRect, menuCommand, ATTACK_COMMAND, SURRENDER_COMM
 import { DuelSpeedButton } from './htmlui/duel-speed';
 import { duelResultWindows } from './htmlui/duel-result';
 import { duelEndMovie, duelEndPictures, loadDuelEndMovies } from './duel-end';
-import { jankenScene, jankenMoments, JANKEN_CSS, JANKEN_DEAL_MS, JANKEN_CHOSEN_HOLD_MS, type JankenTimes, type JankenView } from './janken-scene';
+import { jankenScene, jankenMoments, JANKEN_ART, JANKEN_CSS, JANKEN_DEAL_MS, JANKEN_CHOSEN_HOLD_MS, type JankenTimes, type JankenView } from './janken-scene';
 export type * from './contracts';
 
 type Child = Node | string | null | undefined;
@@ -1335,6 +1335,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   function renderLobby(): void {
     if (!state.lobby) return loadingScene('lobby', 'Lobby');
     const lobby = state.lobby;
+    // the janken scene's pictures while a duel may be coming (an NPC's "Start Duel?", a duel request either way)
+    if (state.npc?.stage === 'ask' || lobby.outgoing || lobby.invitation) for (const path of JANKEN_ART) warmArt(path);
     // the world's press target (a click walks there, a held button walks on: phone.ts holdToWalk), under the PixiJS world
     const map = el('div', 'de-lobby-map'); map.setAttribute('role', 'application'); map.setAttribute('aria-label', 'Lobby map'); map.tabIndex = 0; map.dataset.key = 'lobby-map';
     map.style.background = LOBBY_BACKDROP; stage.append(map);
