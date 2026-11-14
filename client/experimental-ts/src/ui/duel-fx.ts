@@ -29,11 +29,14 @@ const THINKING_AT = { 0: { x: -15, y: 52 }, 1: { x: 1024 - 160 + 15, y: 52 } } a
  * data/common/window/icon/menuicon_03_a04.txt (menuicon_03_04 under a pulsing 03_00 halo, 26 frames at 30 fps, a
  * 64×64 stage), centred at 264, 752 on the 1024×768 screen as on live. */
 const RING = 'data/common/window/icon/menuicon_03_a04.txt';
-/** One frame of the original's 60 Hz game loop. */
-const FRAME = 1000 / 60;
-/** CBattleManager state 4 (client/src/duel/SceneBattleManager.cpp): aim 8 frames, flight to frame 16, then the hit; the
- * attack movie (duel_ef_attack_a) runs on at its own rate, at most this long. */
-export const ATTACK = { aim: 8 * FRAME, hit: 16 * FRAME, movie: 700 };
+/** One frame of the original's duel scene, which steps at 30 Hz (live's engine logs 30.3 fps; filmed: the attack's
+ * sword flies to its target in ~234 ms, its 8 frames). */
+const FRAME = 1000 / 30;
+/** CBattleManager state 4 (client/src/duel/SceneBattleManager.cpp, counter +0x10 a frame): the arrow turns to the target
+ * while the counter climbs to 0x80 (the opponent's: 8 frames from pointing down; the player's own has already turned
+ * while it was aimed, so its flight starts at once), flies there over the next 8 frames, then the hit; the attack movie
+ * (duel_ef_attack_a) runs on at its own rate, at most this long. */
+export const ATTACK = { turn: 8 * FRAME, flight: 8 * FRAME, movie: 700 };
 const BANNERS = new Set<DuelCue['kind']>(['phase', 'turn', 'field']);
 
 interface Anim { cue: DuelCue; start: number; duration: number; draw(ctx: PixiPainter, t: number): void;
@@ -235,17 +238,18 @@ export class DuelFx {
         // turned the way the arrow flew, and the hit mark shows (full for 8 frames, fading over 8).
         const up = (ax: number, ay: number, bx: number, by: number) => Math.atan2(bx - ax, -(by - ay));
         const flight = up(from.x, from.y, to.x, to.y), opponent = cue.player === 1;
-        return this.push(cue, ATTACK.hit + ATTACK.movie, (ctx, t) => {
-          if (t < ATTACK.aim) {
-            const k = t / ATTACK.aim, rot = opponent ? Math.PI - Math.atan2(to.x - from.x, to.y - from.y) * k : flight * k;
+        const aim = opponent ? ATTACK.turn : 0, hitAt = aim + ATTACK.flight;
+        return this.push(cue, hitAt + ATTACK.movie, (ctx, t) => {
+          if (t < aim) {
+            const k = Math.floor(t / FRAME) / 8, rot = Math.PI - Math.atan2(to.x - from.x, to.y - from.y) * k;
             this.sprite(ctx, arrow, from.x, from.y, rot, 1);
-          } else if (t < ATTACK.hit) {
-            const e = 1 - Math.cos((t - ATTACK.aim) / (ATTACK.hit - ATTACK.aim) * Math.PI / 2);
+          } else if (t < hitAt) {
+            const e = 1 - Math.cos((t - aim) / ATTACK.flight * Math.PI / 2);
             const x = from.x + (to.x - from.x) * e, y = from.y + (to.y - from.y) * e;
             this.sprite(ctx, arrow, x, y, Math.hypot(to.x - x, to.y - y) > 1 ? up(x, y, to.x, to.y) : flight, 1);
           } else {
-            this.playMovie(ctx, movie, t - ATTACK.hit, to.x, to.y, scale, flight);
-            const f = (t - ATTACK.hit) / FRAME;
+            this.playMovie(ctx, movie, t - hitAt, to.x, to.y, scale, flight);
+            const f = (t - hitAt) / FRAME;
             if (f < 16) this.sprite(ctx, hit, to.x, to.y, flight, clamp(2 - f / 8));
           }
         });
