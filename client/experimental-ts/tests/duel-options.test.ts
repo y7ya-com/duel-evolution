@@ -36,12 +36,28 @@ describe('DUEL OPTIONS in the duel (duel/auto-answer.ts)', () => {
   it('Auto Card Placing: a placement on the player\'s own empty zones takes the first one; OFF leaves it to the player', () => {
     const place = playing({ kind: 'field-selection', actions: [{ player: 0, zone: 2, index: 0, command: 11, label: '' }, { player: 0, zone: 3, index: 0, command: 11, label: '' }] });
     expect(autoAnswer(place, opts(1))).toEqual({ type: 'action', player: 0, zone: 2, index: 0, command: 11 });
+    // live fills a row from its middle: 2, 1, 3, 0, 4
+    const row = (zones: number[]) => playing({ kind: 'actions', actions: zones.map(zone => ({ player: 0 as const, zone, index: 0, command: 11, label: '' })) });
+    expect(autoAnswer(row([0, 1, 2, 3, 4]), opts(1))).toMatchObject({ zone: 2 });
+    expect(autoAnswer(row([5, 6, 8, 9]), opts(1))).toMatchObject({ zone: 6 });
+    expect(autoAnswer(row([0, 3, 4]), opts(1))).toMatchObject({ zone: 3 });
+    expect(autoAnswer(row([0, 4]), opts(1))).toMatchObject({ zone: 0 });
     expect(autoAnswer(place, opts(1, false))).toBeNull();
     // a choice among cards (an occupied zone) or the opponent's zones is no placement
     const occupied = structuredClone(place); occupied.sides[0].monster[2] = 9;
     expect(autoAnswer(occupied, opts(1))).toBeNull();
     const theirs = playing({ kind: 'field-selection', actions: [{ player: 1, zone: 2, index: 0, command: 11, label: '' }] });
     expect(autoAnswer(theirs, opts(1))).toBeNull();
+    // the selection's other commands (a pile's Inspect, the deck's Surrender) do not make it another choice
+    const withPiles = playing({ kind: 'field-selection', actions: [{ player: 0, zone: 7, index: 0, command: 11, label: '' }, { player: 0, zone: 12, index: 0, command: 1, label: '' }, { player: 0, zone: 13, index: 0, command: 10, label: '' }] });
+    expect(autoAnswer(withPiles, opts(1))).toEqual({ type: 'action', player: 0, zone: 7, index: 0, command: 11 });
+    // the place question after a Summon: an action list of zone Selects (command 11), with the piles' commands
+    const summoned = playing({ kind: 'actions', actions: [{ player: 0, zone: 0, index: 0, command: 11, label: '' }, { player: 0, zone: 1, index: 0, command: 11, label: '' }, { player: 0, zone: 13, index: 0, command: 10, label: '' }] });
+    expect(autoAnswer(summoned, opts(1))).toEqual({ type: 'action', player: 0, zone: 1, index: 0, command: 11 });
+    // the idle commands (a card's Summon, its Activate) are no placement
+    expect(autoAnswer(playing({ kind: 'actions', actions: [{ player: 0, zone: 2, index: 0, command: 0, label: '' }, { player: 0, zone: 13, index: 0, command: 10, label: '' }] }), opts(1))).toBeNull();
+    // a choice of a card in a pile alone is no placement
+    expect(autoAnswer(playing({ kind: 'field-selection', actions: [{ player: 0, zone: 12, index: 0, command: 11, label: '' }] }), opts(1))).toBeNull();
   });
   it('a spectator or a replay prompt is never answered', () => {
     expect(autoAnswer({ ...ask(7), observer: true }, opts(0))).toBeNull();

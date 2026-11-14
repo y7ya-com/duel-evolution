@@ -46,7 +46,7 @@ export interface ShopItem { id: number; name: string; price: number; category?: 
 export interface CardGetView { cards: CardView[]; fresh: boolean[]; rarities: (string | null)[]; }
 export interface ShopView { purchased?: CardView[]; opening?: CardGetView; replayed?: boolean; items: ShopItem[]; mp: number; earnedMp?: number; loading?: boolean; available?: boolean; error?: string; }
 export type FieldZone = 'deck' | 'hand' | 'monster' | 'spell' | 'graveyard' | 'banished' | 'extra' | 'field';
-export interface DuelCardView extends CardView { counters?: { kind: number; count: number }[]; turnCounter?: number; motion?: { x: number; y: number; rotation: number; scaleX: number; opacity?: number; zIndex?: number }; controller: 0 | 1; zone: FieldZone; index: number; faceUp: boolean; position?: 'attack' | 'defense'; }
+export interface DuelCardView extends CardView { counters?: { kind: number; count: number }[]; turnCounter?: number; motion?: { x: number; y: number; rotation: number; scaleX: number; opacity?: number; zIndex?: number; /** the card's size on its way (a hand card's shrinks to a field card's as it flies) */ width?: number; height?: number; /** how far along its way, 0..1 (eased) */ eased?: number }; controller: 0 | 1; zone: FieldZone; index: number; faceUp: boolean; position?: 'attack' | 'defense'; }
 export interface DuelOption { id: string; label: string; disabled?: boolean; cardId?: string;
   /** The empty board zone this choice refers to (zone selections), so it can be picked on the field. */
   place?: { controller: 0 | 1; zone: FieldZone; index: number }; }

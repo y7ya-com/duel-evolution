@@ -62,27 +62,39 @@ export function validatePromptResponse(prompt: DuelPromptView, response: DuelRes
 }
 export interface CardPosition { x: number; y: number; width: number; height: number; rotate: boolean; }
 /** Field geometry is presentational; controller and zone come only from authoritative state. */
-/** Zone centres on the original 1024x768 duel screen, measured from its zone sheet: the opponent's half is drawn at
- * (256,50), the player's at (256,282). Monster and spell cells are 76x104 from x=320; piles sit in the side columns. */
+/** Zone centres on the original 1024x768 duel screen, measured on live (de-scratch/hand): the player's half of the zone
+ * sheet is drawn at (256,282), the opponent's at (256,54) (4.5 px lower than its plain 50 + 232: live's red lines at
+ * y 65 / 170 / 273, the blue at 320 / 422 / 524). Monster and spell cells are 76 wide from x 322 (the cards' centres 360 +
+ * 76 n); a card sits at its cell's centre, the piles in the side columns. */
 export const FIELD_LAYOUT = {
-  cellX: (index: number) => 358 + 76 * index,
-  rows: { monster: [368, 217], spell: [473, 113] } as const,
+  cellX: (index: number) => 360 + 76 * index,
+  rows: { monster: [370, 222], spell: [474, 118] } as const,
   piles: {
-    deck: [[736, 488], [288, 98]], graveyard: [[736, 406], [288, 180]], banished: [[736, 324], [288, 262]],
-    field: [[288, 406], [736, 180]], extra: [[288, 488], [736, 98]],
+    deck: [[736, 489], [288, 103]], graveyard: [[736, 406], [288, 185]], banished: [[736, 324], [288, 267]],
+    field: [[288, 406], [736, 185]], extra: [[288, 489], [736, 103]],
   } as const,
 };
+/** Live's hands (the 2008 duel screen, measured at 1024 x 768): the player's faces 94 x 138 with their tops at 531 (over the
+ * chat), the opponent's backs 100 x 146 with their bottoms at 72 (cut by the screen's top edge). Each hand is centred on
+ * x 525, its cards 16 px apart (110.67 / 116 centre to centre) until the outer cards' centres would be more than 412
+ * apart, then closer (they overlap, the right one over the left): 4 of the player's 110.67 apart, 5 at 103, 6 at 82.4. */
+export const HAND_LAYOUT = {
+  centre: 525, span: 412,
+  own: { width: 94, height: 138, y: 600, stride: 110.67 },
+  opponent: { width: 100, height: 146, y: -1, stride: 116 },
+} as const;
+/** The field's cards (live: 48 x 70 in a monster or spell cell, 50 x 72 on a pile and in the field zone). */
+export const FIELD_CARD = { width: 48, height: 70 } as const, PILE_CARD = { width: 50, height: 72 } as const;
 export function fieldCardPosition(card: DuelCardView, handCount: number): CardPosition {
   const side = card.controller === 1 ? 1 : 0;
-  let x: number, y: number, width = 58, height = 84;
-  const pile = (zone: keyof typeof FIELD_LAYOUT.piles) => { [x, y] = FIELD_LAYOUT.piles[zone][side]; width = 48; height = 70; };
+  let x: number, y: number, width: number = FIELD_CARD.width, height: number = FIELD_CARD.height;
+  const pile = (zone: keyof typeof FIELD_LAYOUT.piles) => { [x, y] = FIELD_LAYOUT.piles[zone][side]; width = PILE_CARD.width; height = PILE_CARD.height; };
   switch (card.zone) {
     case 'hand': {
-      // live's hand (the 2008 duel screen): the player's faces 80 x 116, 82 apart, their tops at 530 over the chat;
-      // the opponent's backs 96 x 140, 112 apart, cut by the screen's top edge (only their lower half shows)
-      const stride = side ? 112 : 82, span = Math.min(side ? 448 : 492, Math.max(0, handCount - 1) * stride);
-      x = 512 - span / 2 + (handCount > 1 ? card.index * span / (handCount - 1) : 0);
-      y = side ? 2 : 588; width = side ? 96 : 80; height = side ? 140 : 116;
+      const h = side ? HAND_LAYOUT.opponent : HAND_LAYOUT.own;
+      const stride = handCount > 1 ? Math.min(h.stride, HAND_LAYOUT.span / (handCount - 1)) : 0;
+      x = HAND_LAYOUT.centre + (card.index - (Math.max(1, handCount) - 1) / 2) * stride;
+      y = h.y; width = h.width; height = h.height;
       break;
     }
     case 'monster': x = FIELD_LAYOUT.cellX(card.index); y = FIELD_LAYOUT.rows.monster[side]; break;
@@ -92,6 +104,13 @@ export function fieldCardPosition(card: DuelCardView, handCount: number): CardPo
   // The opponent's indexed rows are mirrored, while their hand remains readable left-to-right.
   if (side && (card.zone === 'monster' || card.zone === 'spell' && card.index !== 5)) x = 1024 - x!;
   return { x: x!, y: y!, width, height, rotate: card.position === 'defense' && card.zone === 'monster' };
+}
+/** One engine frame (1/30 s) of a hand card rising to (or dropping back from) its lifted place: the distance still to go
+ *  goes to three quarters, rounded down to a pixel (32 / 24 / 18 / 13 / 9 / 6 / 4 / 3 / 2 / 1 / 0: live's 10 frames, filmed
+ *  both ways on a 6-card hand). */
+export function handLiftTick(lift: number, goal: number): number {
+  const left = Math.abs(goal - lift);
+  return goal + Math.sign(lift - goal) * Math.floor(left * 0.75);
 }
 export function safeImageUrl(url: string | undefined): string | null {
   if (!url || /[\u0000-\u0020]/.test(url)) return null;

@@ -902,7 +902,9 @@ export class ClientApp implements ClientController {
     this.animationFrame = request(time => {
       this.animationFrame = null;
       if (this.disposed) return;
-      const delta = this.lastFrame === null ? 1 : Math.max(0, Math.min(60, (time - this.lastFrame) * 60 / 1000));
+      // the timeline counts the original's frames: its duel scene steps at 30 Hz (live's engine logs 30.3 fps; a card's
+      // 8-frame glide from the hand to its zone takes 267 ms on live, a hand card's lift 10 frames in 333 ms)
+      const delta = this.lastFrame === null ? 1 : Math.max(0, Math.min(30, (time - this.lastFrame) * 30 / 1000));
       this.lastFrame = time; this.timeline.advance(delta); this.renderDuelFrame();
       if (this.timeline.pending) this.scheduleAnimation(); else this.lastFrame = null;
     });

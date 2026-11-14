@@ -191,21 +191,25 @@ export class DuelPresentation {
     this.statsKey = key;
     const glyphs: HTMLElement[] = [], url = `url("${font.url}")`, size = `${font.width / 7 * 100}% ${font.height / 16 * 100}%`;
     for (const card of shown) {
-      const p = fieldCardPosition(card, 0), x = card.motion?.x ?? p.x, y = (card.motion?.y ?? p.y) + 42;
-      // "1800 / 1600": the slash with a few pixels of space each side, centred under the card.
+      // live (de-scratch/hand, v2hand-me l8 / l20), in 7-px cells centred on the card: over the opponent's monsters (47 px
+      // over its centre) "1900/ 800", the slash right after the ATK and a cell before the DEF; under the player's own
+      // (41 px under) "500 / 1100", a few pixels of space each side of the slash
+      const p = fieldCardPosition(card, 0), x = card.motion?.x ?? p.x, y = (card.motion?.y ?? p.y) + (card.controller ? -46 : 42);
       const atk = String(card.attack), def = card.defense === undefined || card.defense === null ? '?' : String(card.defense);
-      const width = (atk.length + def.length + 1) * 7 + 8;
-      let at = x - width / 2;
-      const glyph = (ch: string) => {
-        const g = '0123456789/'.indexOf(ch);
-        if (g >= 0) {
-          const i = document.createElement('i');
-          Object.assign(i.style, { left: `${at / 1024 * 100}%`, top: `${(y - 8) / 768 * 100}%`, backgroundImage: url, backgroundSize: size, backgroundPosition: `${font.width > 7 ? g * 7 / (font.width - 7) * 100 : 0}% 0%` });
-          glyphs.push(i);
+      const parts: [string, number][] = card.controller ? [[`${atk}/ ${def}`, 0]] : [[atk, 4], ['/', 4], [def, 0]];
+      let at = Math.round(x - parts.reduce((w, [t, gap]) => w + t.length * 7 + gap, 0) / 2);
+      for (const [t, gap] of parts) {
+        for (const ch of t) {
+          const g = '0123456789/'.indexOf(ch);
+          if (g >= 0) {
+            const i = document.createElement('i');
+            Object.assign(i.style, { left: `${at / 1024 * 100}%`, top: `${(y - 8) / 768 * 100}%`, backgroundImage: url, backgroundSize: size, backgroundPosition: `${font.width > 7 ? g * 7 / (font.width - 7) * 100 : 0}% 0%` });
+            glyphs.push(i);
+          }
+          at += 7;
         }
-        at += 7;
-      };
-      for (const ch of atk) glyph(ch); at += 4; glyph('/'); at += 4; for (const ch of def) glyph(ch);
+        at += gap;
+      }
     }
     this.statsLayer.replaceChildren(...glyphs);
   }
