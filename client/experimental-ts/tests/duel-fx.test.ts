@@ -5,6 +5,7 @@ import { DuelCueQueue } from '../src/duel/cues';
 import { parseSwfText, SwfInstance } from '../src/duel/swf-text';
 import { parseWaistUpData, waistUpLayers } from '../src/ui/duel-portrait';
 import { cardKindLine } from '../src/ui/duel-scene';
+import { damageHops } from '../src/ui/duel-fx';
 import type { DuelState } from '../src/duel/types';
 
 const cmd = (s: DuelState, data: Uint8Array) => reduceDuelMessage(s, { id: 0x6202, data });
@@ -128,5 +129,17 @@ describe('waist-up portraits', () => {
   it('describes monsters the way the original card box does', () => {
     expect(cardKindLine({ id: '1', name: 'Gearfried', type: 'Monster / Effect', race: 'Warrior', attribute: 'Earth', attack: 1800 })).toBe('[Warrior/Effect/EARTH]');
     expect(cardKindLine({ id: '2', name: 'Flint', type: 'Spell / Equip' })).toBe('');
+  });
+  it("rolls an LP number in as live's gauge: each glyph from the right hops its height, then a quarter, in turn", () => {
+    const round = (v: (number | null)[]) => v.map(x => x === null ? null : Math.round(x) || 0);
+    // "-1800" (5 glyphs, 16 apart in t): at t 0 only the ones digit shows, on its line
+    expect(round(damageHops(5, 0))).toEqual([0, null, null, null, null]);
+    // a frame later (t 16) the tens join; the ones have risen 40 * cos(-96 / 256 * pi)
+    expect(round(damageHops(5, 16))).toEqual([15, 0, null, null, null]);
+    // t 0x40: the ones at the top of their hop, the sign just showing
+    expect(round(damageHops(5, 0x40))).toEqual([40, 37, 28, 15, 0]);
+    // the second, smaller hop (a quarter of the height), then still from t 0x100
+    expect(round(damageHops(5, 0xa0))[0]).toBe(10);
+    expect(damageHops(5, 0x100)).toEqual([0, 0, 0, 0, 0]);
   });
 });

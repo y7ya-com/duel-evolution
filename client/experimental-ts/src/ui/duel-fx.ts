@@ -1,5 +1,6 @@
 import type { DuelCue, DuelCuePlace, DuelView } from './contracts';
 import { fieldCardPosition } from './helpers';
+import { lpCountFrames } from '../duel/timeline';
 import { parseSwfText, SwfInstance, type SwfColor, type SwfMovie } from '../duel/swf-text';
 import { PixiPainter } from './pixi-painter';
 
@@ -55,6 +56,16 @@ type Point = { x: number; y: number; w: number; h: number };
 const clamp = (v: number, a = 0, b = 1) => Math.max(a, Math.min(b, v));
 const ease = (t: number) => 1 - (1 - t) * (1 - t);
 
+/** How high each glyph of an LP number of `n` glyphs stands at `t` (yo2.exe 0x7d2770; 16 a frame), from the right
+ *  (the ones first, the sign last); null while it waits unseen. */
+export function damageHops(n: number, t: number, h = 40): (number | null)[] {
+  const step = n > 1 ? Math.trunc(0x40 / (n - 1)) : 0, cos = (a: number) => Math.cos((a & 0x1ff) * Math.PI / 256);
+  return Array.from({ length: n }, (_, i) => {
+    const tau = t >= 0x100 ? 0x100 : t - i * step;
+    return tau < 0 ? null : tau < 0x80 ? cos(2 * tau - 0x80) * h : tau < 0xc0 ? cos(4 * tau - 0x80) * Math.trunc(h / 4) : 0;
+  });
+}
+
 export class DuelFx {
   readonly element: HTMLDivElement;
   /** The bar's ring (RING), its own 64×64 layer: the bar stands above the effects layer. */
@@ -72,6 +83,8 @@ export class DuelFx {
   /** Chain links shown on their cards until they resolve (or the chain/turn ends). */
   private chain = new Map<number, { at: DuelCuePlace; start: number; leaving: number | null }>();
   private seen = 0;
+  /** The last attack cue and when it hits: a battle's damage number shows on its monster from then. */
+  private lastAttack: { cue: DuelCue; hitAt: number } | null = null;
   private duel: DuelView | null = null;
   private reduced = false;
   private frame = 0;
@@ -171,8 +184,6 @@ export class DuelFx {
     const p = fieldCardPosition({ id: '', name: '', controller: at.controller, zone: at.zone, index: at.index, faceUp: true }, handCount);
     return { x: p.x, y: p.y, w: p.width, h: p.height };
   }
-  /** Where a player's LP digits go: under their LP plate (the player's at the top left, the opponent's top right). */
-  private lpPoint(player: 0 | 1): Point { return { x: player ? 840 : 184, y: 92, w: 0, h: 0 }; }
 
   // ---- cues ----
   /** When the banner line (phase names, next turn, field titles) is free again: banners play one after another. */
@@ -218,12 +229,25 @@ export class DuelFx {
         return this.push(cue, 1200, (ctx, t) => this.banner(ctx, `${base}.png`, frames, t, 1200, 318));
       }
       case 'damage': case 'recover': {
+        // The LP gauge's number (yo2.exe 0x7cf150 / 0x7d2770): on the field, centred on a zone: a battle's on the fighting
+        // monster of the side that takes it (the target's or the attacker's; a direct attack's, as any other change's, on
+        // the middle of that side's Spell & Trap row), from the battle's hit. It rolls in (damageWave) and then shows what
+        // the gauge still has to count, so it counts down with the LP (timeline.ts lpLeft) and goes at 0.
         const sheet = `data/y/duel/font/damage0${cue.kind === 'damage' ? 0 : 1}.png`; this.want(sheet);
-        const text = `${cue.kind === 'damage' ? '-' : '+'}${cue.value ?? 0}`, at = this.lpPoint(cue.player);
-        return this.push(cue, 1400, (ctx, t) => {
-          const k = this.reduced ? 1 : clamp(t / 180), out = clamp((t - 1100) / 300), scale = this.reduced ? 1 : 1.6 - 0.6 * ease(k);
-          ctx.globalAlpha = 1 - out; this.digits(ctx, sheet, text, at.x, at.y - (this.reduced ? 0 : 14 * ease(clamp(t / 1400))), scale, 16, 40, '0123456789+-');
+        const value = Math.abs(cue.value ?? 0), side = cue.player, sign = cue.kind === 'damage' ? '-' : '+';
+        const attack = cue.kind === 'damage' && this.lastAttack && this.now() - this.lastAttack.hitAt < 2000 ? this.lastAttack : null;
+        const fight = attack && !attack.cue.direct ? attack.cue.at?.controller === side ? attack.cue.at : attack.cue.target?.controller === side ? attack.cue.target : undefined : undefined;
+        const at = this.where(fight ?? { controller: side, zone: 'spell', index: 2 });
+        let shownFrom: number | null = null;
+        this.push(cue, this.reduced ? 1000 : (32 + lpCountFrames(value)) * FRAME + 4000, (ctx, t) => {
+          const lp = this.duel?.players[side]?.lp ?? 0; shownFrom ??= lp;
+          const left = this.reduced ? value : Math.max(0, value - Math.abs(lp - shownFrom));
+          if (!left) { anim.duration = 0; return; }
+          this.damageWave(ctx, sheet, `${sign}${left}`, at.x, at.y, this.reduced ? 0x200 : Math.floor(t / FRAME) * 16);
         });
+        const anim = this.anims[this.anims.length - 1]!;
+        if (attack && attack.hitAt > anim.start) anim.start = attack.hitAt;
+        return;
       }
       case 'attack': {
         const movie = `${E}duel_ef_attack_a.txt`, arrow = `${E}duel_ef_attackIcon_a.png`, hit = `${E}duel_ef_attackIcon_a_hit.png`; this.want(movie, arrow, hit);
@@ -232,14 +256,14 @@ export class DuelFx {
         const atk = this.duel?.cards.find(c => c.controller === cue.at?.controller && c.zone === 'monster' && c.index === cue.at?.index)?.attack ?? 1000;
         const to = cue.direct ? { x: 512, y: cue.player === 0 ? 0x40 : 0x218, w: 0, h: 0 } : this.where(cue.target);
         const scale = cue.direct ? atk < 1000 ? 1 : atk < 2000 ? 2 : 3 : 1;
-        if (this.reduced) return this.push(cue, 600, (ctx, t) => this.ring(ctx, to, t / 600, '#ffd24a'));
+        if (this.reduced) { this.lastAttack = { cue, hitAt: this.now() }; return this.push(cue, 600, (ctx, t) => this.ring(ctx, to, t / 600, '#ffd24a')); }
         // State 4 of CBattleManager (its counter +0x10 a frame to 0x200, 32 frames): the attacker's arrow turns to the
         // target (frames 0..8), flies there on a 1 - cos ease (8..16), then the hit: the movie starts at the target,
         // turned the way the arrow flew, and the hit mark shows (full for 8 frames, fading over 8).
         const up = (ax: number, ay: number, bx: number, by: number) => Math.atan2(bx - ax, -(by - ay));
         const flight = up(from.x, from.y, to.x, to.y), opponent = cue.player === 1;
         const aim = opponent ? ATTACK.turn : 0, hitAt = aim + ATTACK.flight;
-        return this.push(cue, hitAt + ATTACK.movie, (ctx, t) => {
+        this.push(cue, hitAt + ATTACK.movie, (ctx, t) => {
           if (t < aim) {
             const k = Math.floor(t / FRAME) / 8, rot = Math.PI - Math.atan2(to.x - from.x, to.y - from.y) * k;
             this.sprite(ctx, arrow, from.x, from.y, rot, 1);
@@ -253,6 +277,8 @@ export class DuelFx {
             if (f < 16) this.sprite(ctx, hit, to.x, to.y, flight, clamp(2 - f / 8));
           }
         });
+        this.lastAttack = { cue, hitAt: this.anims[this.anims.length - 1]!.start + hitAt };
+        return;
       }
       case 'destroy': case 'tribute': {
         const yoko = cue.defense ? '_yoko' : '';
@@ -399,6 +425,19 @@ export class DuelFx {
     if (frames.length && t > inT && out === 0) {
       const f = frames[Math.floor((t - inT) / 66) % frames.length]!, shine = this.image(f);
       if (shine) ctx.drawImage(shine, x, y - shine.height / 2);
+    }
+  }
+  /** The LP gauge's number (yo2.exe 0x7d2770): glyphs of 16 x 40 (damage00 / 01: "0123456789+-"), centred on x, y. At
+   *  `t` (16 a frame) each glyph from the right hops in turn, the next one 0x40 / (n - 1) later (the sign the last):
+   *  a hop of its height (t 0..0x80 of its own, the original's 512-step cosine) and one of a quarter of it (0x80..0xc0),
+   *  then still; a glyph waits its turn unseen. From 0x100 the number stands still. */
+  private damageWave(ctx: PixiPainter, path: string, text: string, x: number, y: number, t: number): void {
+    const img = this.image(path); if (!img) return;
+    const W = 16, H = 40, n = text.length, right = x + n * W / 2, top = y - H / 2, hops = damageHops(n, t, H);
+    for (let i = 0; i < n; i++) {
+      const g = '0123456789+-'.indexOf(text[n - 1 - i]!), hop = hops[i]!;
+      if (g < 0 || hop === null) continue;
+      ctx.drawImage(img, g * W, 0, W, H, right - (i + 1) * W, Math.round(top - hop), W, H);
     }
   }
   /** Glyph-strip digits (damage00/01, chain_font), centred on x. */
