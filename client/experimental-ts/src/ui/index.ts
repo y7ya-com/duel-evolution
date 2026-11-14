@@ -571,6 +571,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   let jk: JankenTimes | null = null, jkRound = 0, jkVeiled = false;
   const jkWake = new Set<number>();
   const VEILED_MS = 3_600_000;
+  /** The longest the chosen plate waits for the field's pictures. */
+  const FIELD_WAIT_MS = 8000;
   const wakeAt = (at: number | undefined): void => {
     if (at === undefined || !Number.isFinite(at)) return; const ms = at - Date.now(); if (ms <= 0 || ms >= VEILED_MS || jkWake.has(at)) return;
     jkWake.add(at); setTimeout(() => { jkWake.delete(at); if (!disposed) requestRender(); }, ms + 20);
@@ -588,7 +590,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       }
       const until = !m ? 0 : m.chosen !== undefined ? m.chosen + JANKEN_CHOSEN_HOLD_MS : m.plates !== undefined && !jk!.plates ? m.plates : 0;
       wakeAt(jk?.plates); wakeAt(jk?.choice?.at);
-      if (jk && !state.sideboarding && now < until) { wakeAt(until); return { phase: 'wait', busy: true, thinking: false, times: jk, now: clock }; }
+      // and it stays until the field's pictures are in (live holds its plate until the duel's scene has loaded, 0.7 to
+      // 4 s on its films; the field had come bare, its art seconds later)
+      const fieldIn = !until || !duel || [duel.background, FIELD_SHEET, CARD_BACK].every(path => !path || warmArt(path));
+      if (jk && !state.sideboarding && (now < until || !fieldIn && now < until + FIELD_WAIT_MS)) { wakeAt(now < until ? until : now + 100); return { phase: 'wait', busy: true, thinking: false, times: jk, now: clock }; }
       jk = null; jkRound = 0; return null;
     }
     // the scene starts (its fade from black, then the deal) as the scene-loading veil comes off it, as live's does once
@@ -914,6 +919,13 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   };
   const loadArchiveArt = (path: string, image: HTMLImageElement) => {
     const load = controller.loadArchiveImage?.bind(controller); if (load) attachArt(`shop:${path}`, signal => load(path, signal), image);
+  };
+  /** A picture the next screen needs, loaded now and kept while it is asked for at each render: true once it is in. */
+  const warmArt = (path: string): boolean => {
+    const load = controller.loadArchiveImage?.bind(controller); if (!load) return true;
+    const code = `shop:${path}`; let entry = art.get(code);
+    if (!entry) { entry = { code, load: signal => load(path, signal), abort: new AbortController(), images: new Set(), used: true, pending: false, failed: false, lease: null }; art.set(code, entry); }
+    entry.used = true; startArt(entry); return !!entry.lease || entry.failed;
   };
   const attachArt = (code: string, load: ArtEntry['load'], image: HTMLImageElement) => {
     let entry = art.get(code);
