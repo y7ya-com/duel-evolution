@@ -413,6 +413,8 @@ export async function duelBot(page:Page,options:{ attack?:boolean; summon?:boole
       const no=k('prompt-option:').find(b=>b.textContent.trim()==='No');if(no)return {kind:'key',key:no.dataset.key};
       const cands=k('prompt-candidate:'),picked=cands.filter(b=>/, picked \\d/.test(lab(b)));
       const conf=k('prompt-confirm:')[0]??k('prompt-ok:')[0],cancel=k('prompt-cancel:')[0];
+      // a pile's read-only list (its candidates only show their details): closed
+      const close=k('prompt-confirm:').find(b=>lab(b).trim()==='Close');if(close)return {kind:'key',key:close.dataset.key};
       if(cands.length&&!picked.length)return {kind:'key',key:cands[0].dataset.key};
       const num=document.querySelector('#htmlui-host input[data-key^="prompt-number:"]');
       if(num&&!num.value){const lo=/\\((\\d+) to/.exec(num.getAttribute('aria-label')??'')?.[1]??'1';num.value=lo;num.dispatchEvent(new Event('input',{bubbles:true}));return {kind:'wait'};}
@@ -467,8 +469,10 @@ export async function duelBot(page:Page,options:{ attack?:boolean; summon?:boole
       if(untried.length&&${options.activate !== false || !!options.set}){window.__tried.add(untried[0].dataset.key);return {kind:'key',key:untried[0].dataset.key};}
       return {kind:'cancel'};
     }
-    if(phase.includes('Battle')&&menus.length){
-      const untried=menus.filter(b=>!window.__tried.has(b.dataset.key));
+    // (the monsters' lists: a pile's, under the pointer, would take its lit Inspect at the press)
+    const fighters=menus.filter(b=>b.dataset.zone==='monster');
+    if(phase.includes('Battle')&&fighters.length){
+      const untried=fighters.filter(b=>!window.__tried.has(b.dataset.key));
       // every one tried once and still no phase change: again (a real stall still shows as one)
       if(!untried.length){window.__tried=new Set();return {kind:'wait'};}
       window.__tried.add(untried[0].dataset.key);return {kind:'key',key:untried[0].dataset.key};
