@@ -191,7 +191,11 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
           seenRequests[k] = requests.length;
           if (!secret.length) continue;
           stats.secretChecks += secret.length;
-          const text = await exposed(otherPage);
+          // (the card information box shows a card this page may see; its text can name another card, as Wroughtweiler's
+          // "add 1 'Elemental Hero' card and 1 'Polymerization'": that names no card in a hand)
+          const shown = await otherPage.ev(`(()=>{const i=document.querySelector('.de-duel-info:not([hidden])');return i?{name:i.querySelector('.de-duel-info-name')?.textContent??'',texts:[...i.querySelectorAll('.de-duel-info-text')].flatMap(t=>[t.innerText,t.textContent]).filter(Boolean)}:null})()`) as { name:string; texts:string[] } | null;
+          let text = await exposed(otherPage);
+          if (shown && !secret.includes(shown.name)) for (const t of shown.texts) text = text.split(t).join('');
           for (const n of secret) if (text.includes(n)) stats.leaks.push(`${n} exposed on the opponent's page @ ${owner.bar}`);
           stats.artRequests = Math.max(stats.artRequests,requests.length);
           for (const r of await artRanges(secret)) requests.forEach((q,i) => {

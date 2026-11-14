@@ -576,10 +576,11 @@ export async function ownedCopies(page:Page,name:string):Promise<number> {
 export async function surrenderRow(page:Page):Promise<string> {
   // the deck's top card, or the empty deck zone once no card is left (it opens the same list)
   const deck = `(document.querySelector('.de-field-card[data-side="your"][data-zone="deck"]')??document.querySelector('[data-key="field-deck:0"]'))`;
-  // (a click on the deck opens or closes its list: one that found it closing, or a list the duel's update took away, is
-  // clicked again, as a player clicks the deck again)
+  // (live's list opens as the pointer comes onto the deck, and a press there takes its lit row: the pointer is moved
+  // off and onto the deck, as a player points at it again when a duel's update took the list away)
   for (let i = 0; i < 4 && !(await page.ev(`Boolean(${byKey('duel-surrender')})`)); i++) {
-    await press(page,deck);
+    const at = await page.ev(`(()=>{const d=${deck};if(!d)return null;const r=d.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`) as { x:number; y:number } | null;
+    if (at) { await pointerAway(page); await page.send('Input.dispatchMouseEvent',{ type:'mouseMoved',...at }); }
     await until(page,byKey('duel-surrender'),i < 3 ? 5000 : 20000).catch(e => { if (i >= 3) throw e; });
   }
   return byKey('duel-surrender');
