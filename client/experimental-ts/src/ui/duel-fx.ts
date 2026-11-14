@@ -66,6 +66,20 @@ export function damageHops(n: number, t: number, h = 40): (number | null)[] {
   });
 }
 
+/** chain.txt (data/y/duel/chain): the font, cha_ani 01..15, cha_hyou 1..9, cha_ani 15 again. */
+const CHAIN_ART = ['data/y/duel/chain/chain_font.png', ...Array.from({ length: 15 }, (_, i) => `data/y/duel/chain/cha_ani_e${String(i + 1).padStart(2, '0')}.png`),
+  ...Array.from({ length: 9 }, (_, i) => `data/y/duel/chain/cha_hyou_e${i + 1}.png`), 'data/y/duel/chain/cha_ani_e15.png'];
+/** A chain plaque's counter (yo2.exe 0x763900): +4 a 30 Hz frame to 0x80 while it stands, on to 0xc0 once it goes. */
+export function chainCounter(sinceStart: number, sinceLeaving: number | null): number {
+  const up = Math.min(0x80, 4 * (1 + Math.floor(Math.max(0, sinceStart) / FRAME)));
+  return sinceLeaving === null ? up : Math.min(0xc0, 0x80 + 4 * (1 + Math.floor(Math.max(0, sinceLeaving) / FRAME)));
+}
+/** What a chain plaque draws at a counter (yo2.exe 0x763950): chain.txt's frame, and its number's opacity and size. */
+export function chainPlaqueView(c: number): { frame: number; digitAlpha: number; digitScale: number } {
+  if (c <= 0x80) { const k = c >> 2, e = Math.max(0, k - 16); return { frame: Math.min(25, k), digitAlpha: e / 16, digitScale: (32 - e) / 16 }; }
+  const k = (c - 0x80) >> 2, e = 16 - k; return { frame: Math.max(1, 15 - k), digitAlpha: Math.max(0, e) / 16, digitScale: (32 - e) / 16 };
+}
+
 export class DuelFx {
   readonly element: HTMLDivElement;
   /** The bar's ring (RING), its own 64×64 layer: the bar stands above the effects layer. */
@@ -80,6 +94,8 @@ export class DuelFx {
   private readonly movies = new Map<string, SwfMovie | null>();
   private readonly tints = new Map<string, HTMLCanvasElement>();
   private anims: Anim[] = [];
+  /** A chain's first link, kept until a second link shows its plaque with its own. */
+  private firstLink: DuelCuePlace | undefined;
   /** Chain links shown on their cards until they resolve (or the chain/turn ends). */
   private chain = new Map<number, { at: DuelCuePlace; start: number; leaving: number | null }>();
   private seen = 0;
@@ -123,7 +139,7 @@ export class DuelFx {
     this.schedule();
   }
   /** A new duel: drop running effects and chain plaques. */
-  clear(): void { this.anims = []; this.chain.clear(); this.bannerFree = this.bannersAfter = 0; this.schedule(); }
+  clear(): void { this.anims = []; this.chain.clear(); this.firstLink = undefined; this.bannerFree = this.bannersAfter = 0; this.schedule(); }
   dispose(): void {
     this.disposed = true; this.abort.abort(); if (this.frame) this.cancelFrame(this.frame); this.frame = 0;
     this.ctx.destroy(); this.ringCtx.destroy();
@@ -223,7 +239,7 @@ export class DuelFx {
         return this.push(cue, this.reduced ? 900 : 1100, (ctx, t) => this.banner(ctx, `${base}.png`, sparkle, t, this.reduced ? 900 : 1100, mine ? 412 : 233));
       }
       case 'turn': {
-        this.chain.clear();
+        this.chain.clear(); this.firstLink = undefined;
         const base = `data/y/duel/phase_name/nex_e_${side}`, frames = Array.from({ length: 8 }, (_, i) => `${base}${i + 1}.png`);
         this.want(`${base}.png`, ...frames);
         return this.push(cue, 1200, (ctx, t) => this.banner(ctx, `${base}.png`, frames, t, 1200, 318));
@@ -291,9 +307,14 @@ export class DuelFx {
         const kind = cue.cardKind === 'spell' ? 'mgc' : cue.cardKind === 'trap' ? 'trp' : 'mon';
         const movie = `${E}duel_ef_kouka_${kind}_a.txt`; this.want(movie);
         if (cue.link && cue.at) {
-          this.chain.set(cue.link, { at: cue.at, start: this.now(), leaving: null });
-          this.want(...Array.from({ length: 15 }, (_, i) => `data/y/duel/chain/cha_ani_e${String(i + 1).padStart(2, '0')}.png`),
-            ...Array.from({ length: 9 }, (_, i) => `data/y/duel/chain/cha_hyou_e${i + 1}.png`), 'data/y/duel/chain/chain_font.png');
+          // live's chain plaques (yo2.exe 0x763f70): a chain's first link shows none on its own; its plaque comes with
+          // the second link's, as both appear (a lone activation is no chain: v2hand-me ch1, Mystical Space Typhoon)
+          this.want(...CHAIN_ART);
+          if (cue.link === 1) this.firstLink = cue.at;
+          else {
+            if (cue.link === 2 && this.firstLink) this.chain.set(1, { at: this.firstLink, start: this.now(), leaving: null });
+            this.chain.set(cue.link, { at: cue.at, start: this.now(), leaving: null });
+          }
         }
         const at = this.where(cue.at);
         if (this.reduced) return this.push(cue, 500, (ctx, t) => this.ring(ctx, at, t / 500, kind === 'mon' ? '#ffcf3a' : '#5ad0ff'));
@@ -301,7 +322,8 @@ export class DuelFx {
       }
       case 'chain-run': {
         const link = cue.link === undefined ? undefined : this.chain.get(cue.link);
-        if (link) link.leaving = this.now();
+        if (link && link.leaving === null) link.leaving = this.now();
+        if (cue.link === 1) this.firstLink = undefined;
         this.played[cue.kind] = (this.played[cue.kind] ?? 0) + 1;
         return;
       }
@@ -387,7 +409,7 @@ export class DuelFx {
       animating = animating || !this.reduced || !movie;
     }
     for (const [link, c] of this.chain) {
-      if (c.leaving !== null && now - c.leaving > 450) { this.chain.delete(link); continue; }
+      if (c.leaving !== null && now - c.leaving >= 16 * FRAME) { this.chain.delete(link); continue; }
       animating = this.plaque(ctx, link, c, now) || animating;
     }
     for (const a of this.anims) {
@@ -449,16 +471,23 @@ export class DuelFx {
       ctx.drawImage(img, g * w, 0, w, h, x - total / 2 + i * w * scale, y - h * scale / 2, w * scale, h * scale);
     });
   }
-  /** The chain-link plaque on its card: cha_ani grows it in (15 frames), cha_hyou shimmers, chain_font the number. */
+  /** The chain-link plaque on its card (yo2.exe 0x763900 / 0x763950): its counter climbs 4 a frame to 0x80 and, once
+   *  its link resolves, on to 0xc0. Coming, it shows chain.txt's frame counter / 4 (cha_ani 1..15 spell out "CHAIN
+   *  LINK", cha_hyou 1..9 shimmer once, then cha_ani 15 stays), centred 16 px over the zone's middle; the link's number
+   *  (chain_font, 10 x 22 a digit) fades in over the shimmer, shrinking from twice its size, centred 22 px under it.
+   *  Going, the plaque spells itself back out (cha_ani 14..1) and the number grows back and fades, 16 frames. */
   private plaque(ctx: PixiPainter, link: number, c: { at: DuelCuePlace; start: number; leaving: number | null }, now: number): boolean {
-    const at = this.where(c.at), t = now - c.start;
-    const appear = this.reduced ? 14 : Math.min(14, Math.floor(t / 33));
-    const path = appear < 14 ? `data/y/duel/chain/cha_ani_e${String(appear + 1).padStart(2, '0')}.png` : `data/y/duel/chain/cha_hyou_e${this.reduced ? 1 : Math.floor(t / 80) % 9 + 1}.png`;
-    const img = this.image(path) ?? this.image('data/y/duel/chain/cha_hyou_e1.png');
+    const at = this.where(c.at), view = chainPlaqueView(this.reduced ? 0x80 : chainCounter(now - c.start, c.leaving === null ? null : now - c.leaving));
+    const img = this.image(CHAIN_ART[view.frame]!);
     ctx.save();
-    ctx.globalAlpha = c.leaving === null ? 1 : 1 - clamp((now - c.leaving) / 450);
-    if (img) ctx.drawImage(img, at.x - img.width / 2, at.y - 30 - img.height / 2);
-    if (appear >= 14) this.digits(ctx, 'data/y/duel/chain/chain_font.png', String(link), at.x, at.y + 4, 1.4, 10, 22, '0123456789');
+    if (img) ctx.drawImage(img, at.x - img.width / 2, at.y - 16 - img.height / 2);
+    const font = this.image(CHAIN_ART[0]!);
+    if (font && view.digitAlpha > 0) {
+      ctx.globalAlpha = view.digitAlpha;
+      const w = 10 * view.digitScale, h = 22 * view.digitScale, text = String(link);
+      // the ones digit centred on the zone, the tens to its left (live steps a glyph's width to the left for each)
+      [...text].reverse().forEach((ch, i) => ctx.drawImage(font, Number(ch) * 10, 0, 10, 22, at.x - i * 10 - w / 2, at.y + 22 - h / 2, w, h));
+    }
     ctx.restore();
     return !this.reduced || c.leaving !== null;
   }

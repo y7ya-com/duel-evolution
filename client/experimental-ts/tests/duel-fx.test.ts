@@ -5,7 +5,7 @@ import { DuelCueQueue } from '../src/duel/cues';
 import { parseSwfText, SwfInstance } from '../src/duel/swf-text';
 import { parseWaistUpData, waistUpLayers } from '../src/ui/duel-portrait';
 import { cardKindLine } from '../src/ui/duel-scene';
-import { damageHops } from '../src/ui/duel-fx';
+import { chainCounter, chainPlaqueView, damageHops } from '../src/ui/duel-fx';
 import type { DuelState } from '../src/duel/types';
 
 const cmd = (s: DuelState, data: Uint8Array) => reduceDuelMessage(s, { id: 0x6202, data });
@@ -141,5 +141,18 @@ describe('waist-up portraits', () => {
     // the second, smaller hop (a quarter of the height), then still from t 0x100
     expect(round(damageHops(5, 0xa0))[0]).toBe(10);
     expect(damageHops(5, 0x100)).toEqual([0, 0, 0, 0, 0]);
+  });
+  it("plays a chain plaque as live's: spelled in, a shimmer, the number fading in from twice its size; spelled out", () => {
+    const F = 1000 / 30;
+    expect([0, F, 15 * F, 24 * F, 31 * F, 60 * F].map(t => chainCounter(t, null))).toEqual([4, 8, 64, 100, 128, 128]);
+    expect(chainCounter(99 * F, 0)).toBe(0x84); expect(chainCounter(99 * F, 20 * F)).toBe(0xc0);
+    // coming: cha_ani 1..15, cha_hyou (16..24), then cha_ani 15 again (25); the number from frame 17, opaque at 32
+    expect([4, 60, 64, 96, 100, 128].map(c => chainPlaqueView(c).frame)).toEqual([1, 15, 16, 24, 25, 25]);
+    expect(chainPlaqueView(64)).toMatchObject({ digitAlpha: 0, digitScale: 2 });
+    expect(chainPlaqueView(96)).toMatchObject({ digitAlpha: 0.5, digitScale: 1.5 });
+    expect(chainPlaqueView(128)).toMatchObject({ frame: 25, digitAlpha: 1, digitScale: 1 });
+    // going: cha_ani 14..1, the number growing back and fading
+    expect(chainPlaqueView(0x84)).toMatchObject({ frame: 14, digitAlpha: 15 / 16 });
+    expect(chainPlaqueView(0xc0)).toMatchObject({ frame: 1, digitAlpha: 0, digitScale: 2 });
   });
 });
