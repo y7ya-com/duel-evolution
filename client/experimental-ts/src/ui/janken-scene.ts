@@ -230,7 +230,7 @@ export function jankenScene(view: JankenView, act: JankenActions, art: ((path: s
   if (view.timer) root.append(jankenTimer(img));
   const t = view.times, now = view.now, m = jankenMoments(t);
   // the opponent's portrait comes a second after the scene (the CSS above hides it for what is left of that second)
-  root.style.setProperty('--de-janken-opponent', `${-Math.min(OPPONENT_MS, Math.max(0, now - t.scene))}ms`);
+  root.style.setProperty?.('--de-janken-opponent', `${-Math.min(OPPONENT_MS, Math.max(0, now - t.scene))}ms`);
   // (a card is a box with its picture in it: the picture's load shows the picture, the box's own visibility is the motion's)
   const card = (path: string, rotate = false) => {
     const c = document.createElement('div'); c.className = 'de-janken-card'; place(c, 0, 0, CARD_W, CARD_H); if (rotate) c.style.transform = 'rotate(180deg)';
@@ -298,7 +298,7 @@ export function jankenScene(view: JankenView, act: JankenActions, art: ((path: s
       const inner = document.createElement('span'); inner.className = 'de-janken-face';
       const frame = img('data/y/janken/card_select_01_c01.png', 'de-janken-frame'); Object.assign(frame.style, { inset: 'auto', left: '-8%', top: '-5.5%', width: '116%', height: '111%' });
       inner.append(img(face(hand)), frame); b.append(inner, sr(label));
-      b.onclick = () => { if (!b.disabled) act.hand(hand as 0 | 1 | 2, b.matches(':hover')); };
+      b.onclick = () => { if (!b.disabled) act.hand(hand as 0 | 1 | 2, b.matches?.(':hover') ?? false); };
       root.append(b);
     }
   }

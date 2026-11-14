@@ -135,7 +135,8 @@ describe('actual ClientApp mounted through semantic UI', () => {
     expect(f.game.startNpcDuel).toHaveBeenCalledWith(5, { main: [1], side: [], extra: [] }); f.dispose();
   });
   it('shows and submits every duel-preparation step through the session controller', async () => {
-    const f = harness(); await f.enter(); await f.startNpc();
+    // (the scene's motions under reduced motion: each at its end, so the hands and the plates take a press at once)
+    const f = harness(); await f.enter(); await f.app.dispatch({ type: 'settings', settings: { reducedMotion: true } }); await f.startNpc();
     findButton(f.root, 'Rock').onclick?.({}); await flush(); expect(f.game.chooseHand).toHaveBeenCalledWith(0);
     findButton(f.root, 'Go First').onclick?.({}); await flush(); expect(f.game.chooseFirst).toHaveBeenCalledWith(true);
     // live starts the duel itself once who goes first is known (no Start Duel step: the server's 90 s attach window)
