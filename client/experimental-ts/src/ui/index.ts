@@ -950,7 +950,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const look = avatar ? avatar.look : dc && state.scene === 'lobby' ? dc.parts : request ?? (card ? Array.from(card) : null);
     if (!look || look.length !== 16 || !controller.loadArchiveImage) { portraitScene?.show({ logo: false, portrait: null, reducedMotion: true }); portraitScene?.element.remove(); return; }
     portraitScene ??= new StartScene(controller.loadArchiveImage.bind(controller));
-    portraitScene.show({ logo: false, portrait: Uint8Array.from(look), reducedMotion: state.settings.reducedMotion, ...(avatar ? {} : { at: BUST_AT }) });
+    portraitScene.show({ logo: false, portrait: Uint8Array.from(look), reducedMotion: state.settings.reducedMotion, ...(avatar ? {} : { at: BUST_AT }), slide: !avatar && !(dc && state.scene === 'lobby') && !request && !!card });
     if (portraitScene.element.parentElement !== stage) stage.append(portraitScene.element);
   }
   const htmlHandler = (key: string): ControlHandlers | undefined => { for (const spec of buildHtml()) for (const h of spec.handlers.values()) if (h.key === key) return h; return undefined; };
