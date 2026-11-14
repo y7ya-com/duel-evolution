@@ -112,7 +112,7 @@ export function projectDuel(state: DuelState, catalog: CardCatalog, names: [stri
   if (p?.kind === 'actions' && state.acceptingInput && !blocked) for (const b of p.buttons) actions.push({ id: `phase:${b}`, label: phases[b] ?? `Phase ${b}` });
   // A card selection on the board (tributes, a target) can be backed out of, as with the original's right click; the
   // server refuses (re-sends) one that cannot be cancelled. A zone placement is never cancellable.
-  if (p && isBoardSelection(state, p) && state.acceptingInput && !blocked) actions.push({ id: 'cancel', label: 'Cancel' });
+  if (p && (isBoardSelection(state, p) || isChainWindow(p)) && state.acceptingInput && !blocked) actions.push({ id: 'cancel', label: 'Cancel' });
   let prompt: DuelPromptView | null = null;
   if (p && p.kind !== 'actions' && !blocked) {
     const kind: DuelPromptView['kind'] = p.kind === 'yesno' ? 'yes-no' : p.kind === 'position' ? 'position'
@@ -179,10 +179,15 @@ export function projectDuel(state: DuelState, catalog: CardCatalog, names: [stri
   };
 }
 const isBoardSelection = (state: DuelState, p: NonNullable<DuelState['prompt']>) => p.kind === 'actions' && !p.buttons.length && p.actions.some(a => a.command === 11 && uidFor(state, a) !== null);
+/** A chain's response window (the original's mode "chain": Yes to "Activate the effect of a card?", or a forced chain
+ * choice): an action list of Activates alone, no phase keys. Live backs out of it with the right button on the field
+ * (the duel goes on, as a No), so it is cancellable here too; the server refuses a forced one (re-sends it). */
+const isChainWindow = (p: NonNullable<DuelState['prompt']>) => p.kind === 'actions' && !p.buttons.length &&
+  p.actions.some(a => a.command === 3) && p.actions.every(a => a.command === 3 || a.command === 1 || a.command === 10);
 function actionResponse(id: string, state: DuelState): EngineResponse {
   const p = state.prompt;
   if (!p || !state.acceptingInput) throw new Error('No active server choice');
-  if (id === 'cancel' && isBoardSelection(state, p)) return { type: 'cancel' };
+  if (id === 'cancel' && (isBoardSelection(state, p) || isChainWindow(p))) return { type: 'cancel' };
   const a = p.actions.find(a => actionId(a) === id);
   if (a) return { type: 'action', player: a.player, zone: a.zone, index: a.index, command: a.command };
   const phase = p.buttons.find(b => `phase:${b}` === id);

@@ -457,6 +457,16 @@ export async function duelBot(page:Page,options:{ attack?:boolean; summon?:boole
     // The server can also withhold every phase change in the Battle Phase (a monster that must attack: SELECT_BATTLECMD
     // with neither to_m2 nor to_ep): only the attacks remain, through the cards' command lists.
     const menus=[...document.querySelectorAll('.de-field-card[data-side="your"][aria-haspopup="menu"]')].filter(b=>ok(b)&&b.dataset.zone!=='deck');
+    // A chain's response window (Yes to "Activate the effect of a card?", or a forced chain choice), on either player's
+    // turn: no phase key, the cards that can respond carry their Activate in their command lists, as live's (nothing is
+    // lit until the pointer finds the card). The bot activates the first one (the pointer onto it opens its menu, the
+    // press takes its lit row); one it tried already is backed out of with the right button on the field, as live
+    if(document.querySelector('.de-duel-board[data-right-cancel]')){
+      const own=menus.filter(b=>['monster','spell','hand'].includes(b.dataset.zone));
+      const untried=own.filter(b=>!window.__tried.has(b.dataset.key));
+      if(untried.length&&${options.activate !== false || !!options.set}){window.__tried.add(untried[0].dataset.key);return {kind:'key',key:untried[0].dataset.key};}
+      return {kind:'cancel'};
+    }
     if(phase.includes('Battle')&&menus.length){
       const untried=menus.filter(b=>!window.__tried.has(b.dataset.key));
       // every one tried once and still no phase change: again (a real stall still shows as one)
@@ -468,6 +478,12 @@ export async function duelBot(page:Page,options:{ attack?:boolean; summon?:boole
   if (next.kind === 'finished') return 'finished';
   if (next.kind === 'wait') return 'acted';
   if (next.kind === 'away') { await pointerAway(page); return 'acted'; }
+  // the right button on the field's middle line (live backs out of a chain's response window so)
+  if (next.kind === 'cancel') {
+    const p = await page.ev(`(()=>{const r=document.querySelector('.de-stage').getBoundingClientRect(),k=r.width/1024;return {x:r.left+12*k,y:r.top+384*k};})()`) as { x:number; y:number };
+    for (const type of ['mouseMoved','mousePressed','mouseReleased'] as const) await page.send('Input.dispatchMouseEvent',{ type,...p,button:type === 'mouseMoved' ? 'none' : 'right',buttons:type === 'mousePressed' ? 2 : 0,clickCount:1 });
+    return 'acted';
+  }
   const selector = next.kind === 'key' ? `[...document.querySelectorAll('button,[role=menuitem]')].find(b=>b.dataset.key===${JSON.stringify(next.key)})`
     : next.kind === 'press' ? `document.querySelector(${JSON.stringify(next.sel)})`
     : `[...document.querySelectorAll('${next.scope ?? ''} button')].find(b=>b.textContent===${JSON.stringify(next.text)}&&!b.disabled)`;

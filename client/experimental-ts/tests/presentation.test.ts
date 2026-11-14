@@ -28,6 +28,20 @@ describe('duel presentation adapter preserves server choices', () => {
     expect(view(s).actions?.map(a => a.id)).toContain('action:1:14:0:1');
     expect(interpretAction(s, 'action:1:2:0:11')).toEqual({ type: 'action', player: 1, zone: 2, index: 0, command: 11 });
   });
+  it("lets the right button back out of a chain's response window (Activates alone, no phase keys), as live", () => {
+    let s = initial();
+    // a set spell's Activate (command 3) on the opponent's turn, with the piles' commands riding along
+    s = reduceDuelMessage(s, { id: 0x6611, data: comid_field(new Map([['0,6', 1 << 3], ['0,14', 1 << 1]])) });
+    s = reduce(s, request_input(3));
+    expect(view(s).actions?.map(a => a.id)).toContain('cancel');
+    expect(interpretAction(s, 'cancel')).toEqual({ type: 'cancel' });
+    expect(encodeDuelResponse(s, { type: 'cancel' }).map(m => m.id)).toEqual([0x6351]);
+    // the main phase's commands (a Summon) are no chain window
+    let idle = initial();
+    idle = reduceDuelMessage(idle, { id: 0x6611, data: comid_field(new Map([['0,6', 1 << 3], ['0,2', 1 << 4]])) });
+    idle = reduce(idle, request_input(3));
+    expect(view(idle).actions?.map(a => a.id)).not.toContain('cancel');
+  });
   it('keeps own deck identity hidden while allowing inspection of own face-down field cards', () => {
     let s = reduce(initial(), set_card(0, 13, 0, 123, 1));
     s = reduce(s, set_card(0, 0, 1, 123, 2));

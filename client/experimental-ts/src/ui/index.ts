@@ -1663,6 +1663,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (handPin && !handRects.some(r => r.id === handPin!.id)) handPin = null;
     cmdFrame();
     queueMicrotask(handRehover); aimSword();
+    // (the board says when its right button backs out of the duel's question: assistive technology and the bots)
+    if ((duel.actions ?? []).some(a => a.id === 'cancel') || fieldPrompt?.cancelable) board.dataset.rightCancel = ''; else delete board.dataset.rightCancel;
     if ((duel.actions ?? []).some(a => a.id === 'cancel')) board.oncontextmenu = event => { if ((event.target as HTMLElement).closest('.de-field-card')) return; event.preventDefault(); sendAction(duel, 'cancel'); };
     // a field choice the server lets the player back out of (or finish: a discard, tributes): the right button, as live
     else if (fieldPrompt?.cancelable) board.oncontextmenu = event => { event.preventDefault(); respondToPrompt(fieldPrompt.id, { cancel: true }); };
