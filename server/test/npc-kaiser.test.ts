@@ -22,17 +22,23 @@ describe.skipIf(!existsSync(join(ENGINE_DATA_DIR, "scripts.pack")))("Hell Kaiser
     expect(check(deck.main, deck.extra, trunk, false)).toEqual([]);
   });
 
-  it("progresses to the strongest Cyberdark recipe in the final slot", () => {
+  it("keeps the tuned Cyberdark deck through every friendship stage", () => {
     const points = new Map<number, number>();
     const current = () => deckNpc(78, id => [0, 0, 0, points.get(id) ?? 0]);
-    expect(current()).toBe(78);
-    points.set(78, nrThreshold(78));
-    expect(current()).toBe(79);
-    expect(npcDeck(current())!.main).toContain(70095154); // Cyber Dragon
-    points.set(79, nrThreshold(79));
-    expect(current()).toBe(80);
-    expect(npcDeck(current())!.main).toContain(41230939); // Cyberdark Horn
-    expect(npcDeck(current())!.extra).toContain(40418351); // Cyberdark Dragon
+    const cyberdark = npcDeck(80)!;
+    for (const id of [78, 79, 80]) {
+      expect(current()).toBe(id);
+      const deck = npcDeck(current())!;
+      expect(deck).toEqual(cyberdark);
+      for (const c of [41230939, 77625948, 3019642]) expect(deck.main.filter(x => x === c)).toHaveLength(3);
+      expect(deck.main).toContain(96005454); // Hunter Dragon equips
+      expect(deck.main).toContain(80033124); // Cyberdark Impact!
+      expect(deck.extra).toContain(40418351); // Cyberdark Dragon
+      expect(deck.main).not.toContain(70095154); // Cyber Dragon
+      expect(deck.main).not.toContain(37630732); // Power Bond
+      expect(deck.extra).not.toContain(64599569); // Chimeratech Overdragon
+      points.set(id, nrThreshold(id));
+    }
   });
 
   it("buries Hunter Dragon before summoning Cyberdark Horn (duel 786)", () => {
