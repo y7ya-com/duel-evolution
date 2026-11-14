@@ -13,6 +13,8 @@ const PLATE = 'data/y2/duel_window_01_c01.png', LABELS = 'data/y2/duel_font_02_c
 const DIGITS = 'data/y/duel/life/duel_font_01_c01.png', DIGITS_RED = 'data/y/duel/life/duel_font_01_c02.png';
 const track = (side: 0 | 1) => `data/y2/duel_gauge_02_c0${side}.png`;
 const fill = (side: 0 | 1) => `data/y2/duel_gauge_01_c0${side}.png`;
+/** Every picture the two plates draw: the duel's field waits for them, as live's comes with its plates up. */
+export const LP_PLATE_ART = [PLATE, LABELS, DIGITS, track(0), track(1), fill(0), fill(1)] as const;
 
 /** Player-side spots in plate px; the opponent's are mirrored (x → 288 - x - w). */
 const LP_BAR = { x: 40, y: 24, w: 218 }, TIME_BAR = { x: 40, y: 40, w: 202 };

@@ -4,7 +4,7 @@ import { sideboardDifference } from './deck';
 import { FIELD_LAYOUT, fieldCardPosition, gamePoint, handLiftTick, safeImageUrl, validatePromptResponse } from './helpers';
 import { DuelPresentation } from './duel-scene';
 import { cardBadges, BADGE_CSS } from './duel-counters';
-import { lpPlate, LP_PLATE_CSS, type LpPlate } from './duel-plate';
+import { lpPlate, LP_PLATE_ART, LP_PLATE_CSS, type LpPlate } from './duel-plate';
 import type { WorldRenderer } from './world';
 import { giftItemName } from '../npcs/gift-names';
 import { BrowserDisplaySettings, browserFullscreenAdapter } from './settings-browser';
@@ -592,8 +592,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const until = !m ? 0 : m.chosen !== undefined ? m.chosen + JANKEN_CHOSEN_HOLD_MS : m.plates !== undefined && !jk!.plates ? m.plates : 0;
       wakeAt(jk?.plates); wakeAt(jk?.choice?.at);
       // and it stays until the field's pictures are in (live holds its plate until the duel's scene has loaded, 0.7 to
-      // 4 s on its films; the field had come bare, its art seconds later)
-      const fieldIn = !until || !duel || [duel.background, FIELD_SHEET, CARD_BACK].every(path => !path || warmArt(path));
+      // 4 s on its films; the field had come bare, its art seconds later), the LP plates' too: live's first field frame
+      // has both plates up at 8000 (v2hand-me l66), where v2's field stood without them until START DUEL had played
+      const fieldIn = !until || !duel || [duel.background, FIELD_SHEET, CARD_BACK, ...LP_PLATE_ART].every(path => !path || warmArt(path));
       if (jk && !state.sideboarding && (now < until || !fieldIn && now < until + FIELD_WAIT_MS)) { wakeAt(now < until ? until : now + 100); return { phase: 'wait', busy: true, thinking: false, times: jk, now: clock }; }
       jk = null; jkRound = 0; return null;
     }
