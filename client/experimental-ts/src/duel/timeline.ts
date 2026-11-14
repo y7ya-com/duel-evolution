@@ -4,7 +4,7 @@ import type { DuelCard, DuelState, Player, PresentationEvent, Zone } from './typ
 export const TIMING_EVIDENCE = {
   cardFrames: { frames: 8, evidence: 'source', source: 'client/src/duel/SceneCard.cpp CCard::step: anim += 0x20 until 0x100' },
   flashFrames: { frames: 32, evidence: 'source', source: 'client/src/duel/SceneCard.h popCounterBadge/popLockBadge; step decrements 0x200 by 0x10' },
-  lpFrames: { frames: 12, evidence: 'policy', source: 'Provisional client interpolation; original complete LP timing not established' },
+  lpFrames: { frames: 32, evidence: 'source', source: 'the LP gauge (yo2.exe 0x7cefc0 / 0x7cf070, CDuelScene + 0xa9c): a change shows its number for 32 frames (+8 a frame to 0x100) before the gauge counts it, 100 LP a frame (10 under 100, 1 under 10); lpCountFrames' },
   attackFrames: { frames: 16, evidence: 'policy', source: 'Provisional attack emphasis; original attack animation sequence not established' },
   chainFrames: { frames: 16, evidence: 'policy', source: 'Provisional chain emphasis; original chain animation sequence not established' },
 } as const;
@@ -17,6 +17,8 @@ interface DisplayFrame { cards: CardPlacement[]; lp: [number, number] }
 interface Batch {
   sequence: number; from: DisplayFrame; to: DisplayFrame;
   events: PresentationEvent[]; duration: number; elapsed: number;
+  /** Frames an LP change's number holds before the gauge counts it. */
+  hold: number;
 }
 export interface TimelineCard {
   uid: number; from: CardPlacement | null; to: CardPlacement | null;
@@ -32,6 +34,31 @@ export interface TimelineOptions {
   maxBatches?: number; maxRetainedCards?: number; reducedMotion?: boolean;
   lpFrames?: number; attackFrames?: number; chainFrames?: number;
 }
+
+/** The LP gauge's count (yo2.exe 0x7cf070): each 30 Hz frame it takes 100 LP off what is left to count, 10 when less
+ *  than 100 is left, 1 under 10, so the count runs at a fixed rate (1800 LP: 18 frames, 600 ms; filmed on live,
+ *  v2hand-me opp2: 1800 in ~600 ms, 1500 in ~500 ms). */
+export function lpGaugeStep(left: number): number { return left >= 100 ? 100 : left >= 10 ? 10 : left > 0 ? 1 : 0; }
+/** Frames the gauge takes to count `amount` LP. */
+export function lpCountFrames(amount: number): number {
+  const a = Math.abs(Math.trunc(amount)); return Math.floor(a / 100) + Math.floor(a % 100 / 10) + a % 10;
+}
+/** What is left to count of `amount` after `frames` frames of counting. */
+export function lpLeft(amount: number, frames: number): number {
+  let left = Math.abs(Math.trunc(amount));
+  const hundreds = Math.min(Math.max(0, Math.floor(frames)), Math.floor(left / 100)); left -= hundreds * 100; frames -= hundreds;
+  while (frames-- >= 1 && left > 0) left -= lpGaugeStep(left);
+  return left;
+}
+
+/** A battle's damage: live's gauge shows the number at the hit (CBattleManager state 7) but counts only once the engine's
+ *  own LP command comes, after the hit state's 32 frames and the battle's close: ~42 frames from the hit on its films
+ *  (v2hand-me opp2: 1.47 s and 1.44 s, batk: 1.35 s). The hit is 8 frames into the attack (16 for the opponent's,
+ *  whose sword turns first: duel-fx ATTACK). */
+export const BATTLE_COUNT_FRAMES = 42;
+const attackHit = (e: PresentationEvent) => e.player === 1 ? 16 : 8;
+const ATTACKS = ['engine:19', 'engine:1a', 'engine:17'];
+const TURN_EVENTS = /^engine:(?:0[4c-f]|1[01])$/;
 
 function bounded(value: number | undefined, fallback: number, max: number): number {
   const n = value ?? fallback;
@@ -79,6 +106,7 @@ export class DuelTimeline {
   private readonly lpFrames: number;
   private readonly attackFrames: number;
   private readonly chainFrames: number;
+  private battle: { hit: number; after: number } | null = null;
 
   constructor(initial: DuelState, options: TimelineOptions = {}) {
     this.display = capture(initial); this.enqueuedThrough = initial.sequence; this.acknowledged = initial.sequence;
@@ -104,14 +132,26 @@ export class DuelTimeline {
     // Every freshly produced event is consumed eventually, including an upstream overflow explicitly reported by the reducer.
     this.consumed += upstreamSkipped; this.skipped += upstreamSkipped;
     let duration = cardMotion(from, to) && events.length ? TIMING_EVIDENCE.cardFrames.frames : 0;
-    if (from.lp[0] !== to.lp[0] || from.lp[1] !== to.lp[1]) duration = Math.max(duration, this.lpFrames);
+    // an LP change: its number rolls in and holds (lpFrames; a battle's from its hit, BATTLE_COUNT_FRAMES), then the
+    // gauge counts it at its fixed rate
+    const attack = events.find(e => ATTACKS.includes(e.type)), lpChange = from.lp[0] !== to.lp[0] || from.lp[1] !== to.lp[1];
+    let hold = this.lpFrames;
+    if (lpChange && !this.reducedMotion) {
+      if (attack) hold = Math.max(hold, attackHit(attack) + BATTLE_COUNT_FRAMES);
+      else if (this.battle) hold = Math.max(hold, this.battle.hit + BATTLE_COUNT_FRAMES - this.battle.after);
+      duration = Math.max(duration, hold + Math.max(...[0, 1].map(p => lpCountFrames(to.lp[p] - from.lp[p]))));
+    }
     for (const e of events) {
-      if (['engine:19', 'engine:1a', 'engine:17'].includes(e.type)) duration = Math.max(duration, this.attackFrames);
+      if (ATTACKS.includes(e.type)) duration = Math.max(duration, this.attackFrames);
       if (['engine:12', 'engine:13'].includes(e.type)) duration = Math.max(duration, this.chainFrames);
       if (['engine:30', 'engine:3c'].includes(e.type)) duration = Math.max(duration, TIMING_EVIDENCE.flashFrames.frames);
     }
+    // an attack whose damage comes in a later packet: its hit, and the frames played since the attack began
+    if (lpChange || events.some(e => TURN_EVENTS.test(e.type))) this.battle = null;
+    else if (attack) this.battle = { hit: attackHit(attack), after: duration };
+    else if (this.battle) this.battle.after += duration;
     this.enqueuedThrough = next.sequence;
-    this.queue.push({ sequence: next.sequence, from, to, events, duration, elapsed: 0 });
+    this.queue.push({ sequence: next.sequence, from, to, events, duration, elapsed: 0, hold });
     if (this.reducedMotion || this.queue.length > this.maxBatches || this.retainedCards() > this.maxCards) this.skip();
     else this.advance(0);
     return this.sample();
@@ -154,8 +194,11 @@ export class DuelTimeline {
       return { uid, from: a ? { ...a } : null, to: b ? { ...b } : null, progress: cardProgress, eased,
         opacity: !a ? cardProgress : !b ? 1 - cardProgress : 1 };
     });
-    const lpProgress = head?.duration ? Math.min(1, head.elapsed / this.lpFrames) : 1;
-    const lp = [0, 1].map(p => Math.round(from.lp[p] + (to.lp[p] - from.lp[p]) * lpProgress)) as [number, number];
+    const counted = head?.duration ? Math.floor(head.elapsed) - head.hold : Infinity;
+    const lp = [0, 1].map(p => {
+      const change = to.lp[p] - from.lp[p]; if (!change || counted === Infinity) return to.lp[p];
+      return to.lp[p] - Math.sign(change) * lpLeft(change, Math.max(0, counted));
+    }) as [number, number];
     return { cards, lp, effects: (head?.events ?? []).map(event => ({ event: cloneEvent(event), progress })),
       pending: this.pending, queuedBatches: this.queue.length, retainedCards: this.retainedCards(),
       acknowledgedThrough: this.acknowledged, consumedEvents: this.consumed, skippedEvents: this.skipped };

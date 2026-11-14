@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { engine, set_card } from '../../../server/src/duel/translator/lockstep';
 import { concat } from '../../../server/src/duel/translator/py';
 import { createDuelState, reduceDuelMessage, acknowledgePresentation } from '../src/duel/model';
-import { DuelTimeline, TIMING_EVIDENCE } from '../src/duel/timeline';
+import { DuelTimeline, TIMING_EVIDENCE, lpCountFrames, lpLeft } from '../src/duel/timeline';
 import { applyTimeline, projectDuel } from '../src/presentation';
 import { CardCatalog } from '../src/catalog';
 import type { DuelState } from '../src/duel/types';
@@ -14,7 +14,8 @@ function deck(): DuelState { return cmd(initial(), set_card(0, 13, 0, 123, 1)); 
 describe('deterministic bounded duel presentation timeline', () => {
   it('uses verified eight-frame movement timing and distinguishes provisional timings', () => {
     expect(TIMING_EVIDENCE.cardFrames).toMatchObject({ frames: 8, evidence: 'source' });
-    expect(TIMING_EVIDENCE.lpFrames.evidence).toBe('policy');
+    expect(TIMING_EVIDENCE.lpFrames).toMatchObject({ frames: 32, evidence: 'source' });
+    expect(TIMING_EVIDENCE.attackFrames.evidence).toBe('policy');
   });
   it('acknowledges identity-only packets immediately without fabricating a glide', () => {
     const previous = initial(), next = cmd(previous, set_card(0, 13, 0, 123, 1));
@@ -33,17 +34,29 @@ describe('deterministic bounded duel presentation timeline', () => {
     expect(done.pending).toBe(false); expect(done.acknowledgedThrough).toBe(after.sequence);
     expect(done.cards[0].to?.zone).toBe('hand');
   });
-  it('interpolates displayed LP while authoritative state already has the final value', () => {
+  it("counts displayed LP as live's gauge (its number held 32 frames, then 100 a frame, 10 under 100, 1 under 10)", () => {
     const before = initial(), after = cmd(before, engine(0x25, 0, 2000)), t = new DuelTimeline(before);
     t.enqueue(before, after);
     expect(t.sample().lp).toEqual([8000, 8000]); expect(after.sides[0].lp).toBe(6000);
-    expect(t.advance(6).lp).toEqual([7000, 8000]); expect(t.advance(6).lp).toEqual([6000, 8000]);
+    expect(t.advance(32).lp).toEqual([8000, 8000]);
+    expect(t.advance(1).lp).toEqual([7900, 8000]); expect(t.advance(9).lp).toEqual([7000, 8000]);
+    expect(t.advance(9).pending).toBe(true); expect(t.advance(1)).toMatchObject({ lp: [6000, 8000], pending: false });
+    // a fixed rate, not a fixed time: 1800 LP 18 frames, 1500 LP 15; what is under 100 by tens and then ones
+    expect([1800, 1500, 50, 1855, 7].map(lpCountFrames)).toEqual([18, 15, 5, 28, 7]);
+    expect([0, 18, 19, 23, 24, 28].map(f => lpLeft(1855, f))).toEqual([1855, 55, 45, 5, 4, 0]);
+  });
+  it('holds a battle\'s damage from the attack\'s hit when it comes in the next packet', () => {
+    const before = initial(), attacked = cmd(before, engine(0x19, 1, 2)), hit = cmd(attacked, engine(0x25, 0, 1800));
+    const t = new DuelTimeline(before); t.enqueue(before, attacked); t.enqueue(attacked, hit);
+    // the attack plays its 16 frames; the hit was at 16, so the count starts 42 frames after it
+    expect(t.advance(16 + 42).lp).toEqual([8000, 8000]);
+    expect(t.advance(1).lp).toEqual([7900, 8000]); expect(t.advance(17)).toMatchObject({ lp: [6200, 8000], pending: false });
   });
   it('preserves order and acknowledges effects only after their complete packet batch', () => {
     const before = initial(), middle = cmd(before, engine(0x25, 0, 1000)), after = cmd(middle, engine(0x19, 1, 2, 0));
     const t = new DuelTimeline(before); t.enqueue(before, middle); t.enqueue(middle, after);
     expect(t.sample().effects[0].event.type).toBe('engine:25');
-    expect(t.advance(12).effects[0].event.type).toBe('engine:19');
+    expect(t.advance(32 + 10).effects[0].event.type).toBe('engine:19');
     expect(t.acknowledgedThrough).toBe(middle.sequence);
     const done = t.advance(16);
     expect(done.acknowledgedThrough).toBe(after.sequence); expect(done.consumedEvents).toBe(2);
@@ -73,8 +86,9 @@ describe('deterministic bounded duel presentation timeline', () => {
   it('acknowledges same-packet multiple records only after every effect has played', () => {
     const before = initial(), after = cmd(before, concat(engine(0x25, 0, 100), engine(0x19, 0, 0)));
     const t = new DuelTimeline(before); t.enqueue(before, after);
-    expect(t.advance(8).acknowledgedThrough).toBe(before.sequence);
-    expect(t.advance(8).consumedEvents).toBe(2); expect(t.acknowledgedThrough).toBe(after.sequence);
+    // a battle's damage: the number from the hit (8 frames in), counted 42 frames after it
+    expect(t.advance(50).acknowledgedThrough).toBe(before.sequence);
+    expect(t.advance(1).consumedEvents).toBe(2); expect(t.acknowledgedThrough).toBe(after.sequence);
   });
   it('does not double-count old reducer history rolling out in long duels', () => {
     let state = initial(); const t = new DuelTimeline(state);
@@ -128,7 +142,8 @@ describe('deterministic bounded duel presentation timeline', () => {
     const catalog = new CardCatalog(), before = initial();
     const after = cmd(before, concat(engine(0x19, 1, 2), engine(0x25, 0, 1500), engine(0x12, 1, 2, 3, 1)));
     const t = new DuelTimeline(before); t.enqueue(before, after);
-    const displayed = applyTimeline(projectDuel(after, catalog, ['You', 'Rival']), t.advance(4), catalog);
+    // the opponent's attack hits 16 frames in; its damage is counted 42 frames later, 100 a frame
+    const displayed = applyTimeline(projectDuel(after, catalog, ['You', 'Rival']), t.advance(16 + 42 + 5), catalog);
     expect(displayed.effects?.map(e => e.type)).toEqual(['attack', 'damage', 'chain']);
     expect(displayed.effects?.find(e => e.type === 'damage')).toMatchObject({ player: 0, value: 1500 });
     expect(displayed.players[0].lp).toBe(7500); expect(after.sides[0].lp).toBe(6500);
