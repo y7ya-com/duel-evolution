@@ -41,15 +41,33 @@ describe.skipIf(!existsSync(join(ENGINE_DATA_DIR, "scripts.pack")))("Hell Kaiser
     }
   });
 
-  it("buries Hunter Dragon before summoning Cyberdark Horn (duel 786)", () => {
+  it.each([78, 79, 80])("buries Hunter Dragon before summoning Cyberdark Horn (duel 786) at stage %i", npcId => {
     const p = play(dc, {
-      npcId: 80, first: "player", turns: 2,
+      npcId, first: "player", turns: 2,
       npc: { hand: ["Foolish Burial", "Cyberdark Horn", "Masked Dragon"], deck: ["Hunter Dragon", ...Array(12).fill("Petit Moth")] },
       player: { mzone: ["Jain, Lightsworn Paladin"] },
     });
     expect(npcActivated(p, "Foolish Burial")).toBe(true);
     expect(msgs(p, "SUMMONING", "Cyberdark Horn")).toHaveLength(1);
     expect(leftField(p, "Jain, Lightsworn Paladin")).toBe(true);
+  });
+
+  it.each([78, 79, 80])("Future Fusion sets up Cyberdark rather than Five-Headed Dragon at stage %i", npcId => {
+    const p = play(dc, { npcId, first: "player", turns: 2,
+      npc: { hand: ["Future Fusion", "Cyberdark Horn"],
+        extra: ["Five-Headed Dragon", "Cyberdark Dragon"],
+        deck: ["Hunter Dragon", "Hunter Dragon", "Hunter Dragon", "Masked Dragon", "Masked Dragon",
+          "Cyberdark Horn", "Cyberdark Edge", "Cyberdark Keel", ...Array(12).fill("Petit Moth")] },
+      player: {} });
+    expect(npcActivated(p, "Future Fusion")).toBe(true);
+    const dumped = p.msgs.filter(m => m.type === "MOVE" && Number((m.from as any)?.controller) === 1
+      && Number((m.from as any)?.location) === 1 && Number((m.to as any)?.location) === 16);
+    expect(dumped).toHaveLength(3);
+    const pick = p.npc.find(d => d.sel.type === "SELECT_CARD"
+      && (d.sel.selects as any[]).some(c => c.code === code("Five-Headed Dragon")))!;
+    expect(pick).toBeDefined();
+    const index = (pick.resp!.indicies as number[])[0]!;
+    expect((pick.sel.selects as any[])[index].code).toBe(code("Cyberdark Dragon"));
   });
 
   it.each(["Cyberdark Horn", "Cyberdark Edge", "Cyberdark Keel"])("chooses an equipped %s over a bare Hunter Dragon (duel 911)", cyberdark => {
@@ -63,9 +81,9 @@ describe.skipIf(!existsSync(join(ENGINE_DATA_DIR, "scripts.pack")))("Hell Kaiser
     expect(p.log.some(line => line.includes("LP 8000 -> 5500"))).toBe(true);
   });
 
-  it("uses Foolish Burial's setup with Horn even when Hunter Dragon is also summonable", () => {
+  it.each([78, 79, 80])("uses Foolish Burial's setup with Horn even when Hunter Dragon is also summonable at stage %i", npcId => {
     const p = play(dc, {
-      npcId: 80, first: "player", turns: 2,
+      npcId, first: "player", turns: 2,
       npc: { hand: ["Hunter Dragon", "Cyberdark Horn", "Foolish Burial"], deck: ["Hunter Dragon", "Hunter Dragon", ...Array(12).fill("Petit Moth")] },
       player: { mzone: ["Lyla, Lightsworn Sorceress"] },
     });
@@ -116,9 +134,9 @@ describe.skipIf(!existsSync(join(ENGINE_DATA_DIR, "scripts.pack")))("Hell Kaiser
     expect(msgs(p, "SUMMONING", "Cyberdark Horn")).toHaveLength(0);
   });
 
-  it("keeps its only graveyard Dragon for Cyberdark instead of reviving it first", () => {
+  it.each([78, 79, 80])("keeps its only graveyard Dragon for Cyberdark instead of reviving it first at stage %i", npcId => {
     const p = play(dc, {
-      npcId: 80, first: "player", turns: 2,
+      npcId, first: "player", turns: 2,
       npc: { hand: ["Cyberdark Keel", "Premature Burial"], grave: ["Hunter Dragon", "Card Trooper"] },
       player: { mzone: ["Wulf, Lightsworn Beast"] },
     });
@@ -294,4 +312,15 @@ describe.skipIf(!existsSync(join(ENGINE_DATA_DIR, "scripts.pack")))("Hell Kaiser
     expect(recycledField).toHaveLength(0);
     expect(leftField(p, "Brron, Mad King of Dark World")).toBe(true);
   });
+  it.each(["Snatch Steal", "Raigeki"])("special summons Cyber Dragon before %s closes its summon window (2056)", spell => {
+    const p = play(dc, { npcId: 5, first: "player", turns: 2,
+      npc: { hand: ["Cyber Dragon", spell], lp: 2400 },
+      player: { mzone: ["Cyber Twin Dragon"] } });
+    expect(msgs(p, "SPSUMMONING", "Cyber Dragon")).toHaveLength(1);
+    const summon = p.log.findIndex(l => l.includes("Special Summoned Cyber Dragon"));
+    const activation = p.log.findIndex(l => l.startsWith("NPC activated " + spell));
+    expect(activation).toBeGreaterThan(summon);
+    expect(p.log.some(l => l.includes("Cyber Dragon attacks"))).toBe(true);
+  });
+
 });

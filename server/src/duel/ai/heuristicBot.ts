@@ -237,6 +237,8 @@ export class HeuristicBot {
   #idleActions = 0;
   /** Material count of the latest unselect prompt (variable-ATK contact fusions). */
   #summonMaterialCount = 0;
+  /** Free summon made before an answer clears its combat threat; ready it for this Battle Phase. */
+  #attackSetupSummon = 0;
   /** `${loc}:${seq}:${desc}` of effects activated this turn: stops re-activation loops. */
   #activatedThisTurn = new Set<string>();
   /** `code:desc` of chains activated in the current chain window: stops re-chain loops. */
@@ -427,7 +429,7 @@ export class HeuristicBot {
       this.#declaredAttacker = null;
       this.#attackSeen = true;
       this.#deadAttackers.clear();
-      if (this.#turnPlayer === this.seat) { this.#idleActions = 0; this.#activatedThisTurn.clear(); this.#allIn = false; }
+      if (this.#turnPlayer === this.seat) { this.#idleActions = 0; this.#activatedThisTurn.clear(); this.#allIn = false; this.#attackSetupSummon = 0; }
     }
     this.#board = (this.#vision && this.#peek ? boardFromState(this.#peek(), this.seat, true) : null) ?? boardFromView(sel, this.seat) ?? this.#board;
     if (turn !== this.#heldTurn) {
@@ -441,6 +443,7 @@ export class HeuristicBot {
     this.#turn = from.#turn;
     this.#idleActions = from.#idleActions;
     this.#summonMaterialCount = from.#summonMaterialCount;
+    this.#attackSetupSummon = from.#attackSetupSummon;
     this.#activatedThisTurn = new Set(from.#activatedThisTurn);
     this.#chainedThisWindow = new Set(from.#chainedThisWindow);
     this.#allIn = from.#allIn;
@@ -742,6 +745,18 @@ export class HeuristicBot {
     return quick;
   }
 
+  /** Keep a free Cyber Dragon before stealing/removing the board closes its summon window. */
+  #summonBeforeActivation(ev: P<"selectIdleCmd">, code: number): Json | null {
+    const name = this.#nameOf(code), ctx = this.#ctx();
+    if ((name !== "snatch steal" && name !== "raigeki") || ctx.myMon.length > 0 || ctx.oppMon.length === 0) return null;
+    const i = ev.spSummonable.findIndex((c, j) => this.#nameOf(c.code) === "cyber dragon" && this.#specialSummonAllowed(ev, j, ctx));
+    if (i < 0) return null;
+    // The follow-up answer removes the current combat threat. In Main 1 this body
+    // should be ready to attack after that answer, not summoned into defence.
+    this.#attackSetupSummon = this.#battleAhead() ? ev.spSummonable[i]!.code : 0;
+    return respIdle("SELECT_SPECIAL_SUMMON", i);
+  }
+
   /** The activation a card rule asks for now (its idleActivate is true, its priority > 0), the highest priority first. */
   #ruledActivation(ev: P<"selectIdleCmd">): Json | null {
     const ctx = this.#ctx();
@@ -753,6 +768,8 @@ export class HeuristicBot {
     });
     if (best < 0) return null;
     const a = ev.activatable[best]!;
+    const setup = this.#summonBeforeActivation(ev, a.code);
+    if (setup) return setup;
     this.#activatedThisTurn.add(`${a.code}:${a.location}:${a.sequence}:${a.description}`);
     this.#activated(a.code);
     return respIdle("SELECT_ACTIVATE", best);
@@ -1456,6 +1473,8 @@ export class HeuristicBot {
       }
       if (best >= 0) {
         const a = ev.activatable[best]!;
+        const setup = this.#summonBeforeActivation(ev, a.code);
+        if (setup) { this.#idleActions++; return setup; }
         this.#activatedThisTurn.add(`${a.code}:${a.location}:${a.sequence}:${a.description}`);
         this.#idleActions++;
         this.#activated(a.code);
@@ -2647,6 +2666,10 @@ export class HeuristicBot {
 
   /** Face-up attack for a real attacker that can hold; a wall (DEF > ATK) or an outclassed body defends. */
   #position(code: number, positions: number): number {
+    if (this.#attackSetupSummon === code) {
+      this.#attackSetupSummon = 0;
+      if (this.#battleAhead() && (positions & POS.FACEUP_ATTACK)) return POS.FACEUP_ATTACK;
+    }
     const printed = this.#stat(code);
     let { atk, def } = printed;
     if (this.#nameOf(code) === "chimeratech fortress dragon") atk = 1000 * Math.max(2, this.#summonMaterialCount);

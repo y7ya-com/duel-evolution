@@ -99,6 +99,17 @@ describe("the live overlay", () => {
     expect([rulesOf(set, 84)["pot of greed"], rulesOf(set, 51)["pot of greed"]!.idlePriority]).toEqual([{ idlePriority: 1 }, 140]);
   });
 
+  it("shares Cyberdark rules across Kaiser stages and keeps stage-specific overlays", () => {
+    const set = buildRules({ npcs: { "78": { "future fusion": { idlePriority: 1 } } } }, 3);
+    for (const id of [78, 79]) {
+      expect(rulesOf(set, id)["foolish burial"]).toBe(rulesOf(set, 80)["foolish burial"]);
+      expect(rulesOf(set, id)["premature burial"]).toBe(rulesOf(set, 80)["premature burial"]);
+    }
+    expect(rulesOf(set, 78)["future fusion"]).toEqual({ idlePriority: 1 });
+    expect(rulesOf(set, 79)["future fusion"]).toBe(rulesOf(set, 80)["future fusion"]);
+    expect(rulesOf(set, 51)["foolish burial"]).toBe(set.compiled.staples["foolish burial"]);
+  });
+
   it("D1: versions pushed, a dry run stores nothing, a revert, the newest loaded at start", async () => {
     const db = d1();
     expect((await loadAiRules(db)).version).toBe(0);

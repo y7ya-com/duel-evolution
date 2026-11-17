@@ -23,6 +23,17 @@ const battle = () => select("SELECT_BATTLECMD", undefined, undefined, {
 });
 
 describe("NPC battle replays", () => {
+  it("does not delay Raigeki for a Cyber Dragon summon forbidden by a card rule", () => {
+    const bot = new HeuristicBot(0, { ...cards,
+      name: c => c === 2100 ? "Cyber Dragon" : c === 12580477 ? "Raigeki" : "" },
+    { rules: buildRules({ staples: { "cyber dragon": { specialSummon: false } } }, 1) });
+    const r = bot.choose(select("SELECT_IDLECMD", [], [mon(2800)], {
+      special_summons: [{ code: 2100, controller: 0, location: 2, sequence: 0 }],
+      activates: [{ code: 12580477, controller: 0, location: 2, sequence: 1 }], to_bp: true, to_ep: true,
+    }));
+    expect(r).toMatchObject({ action: "SELECT_ACTIVATE", index: 0 });
+  });
+
   it("cancels after Call of the Haunted introduces a stronger monster", () => {
     const bot = new HeuristicBot(0, cards);
     expect(bot.choose(battle())?.action).toBe("SELECT_BATTLE");
