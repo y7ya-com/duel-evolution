@@ -29,7 +29,7 @@ export interface Side {
   /** Monster zones in order (zone 0, 1, ...): a name (face-up attack) or [name, position]. */
   mzone?: (string | [string, MonsterPos])[];
   /** Spell/trap zones in order: a name (face-down) or [name, "up" | "set"]. */
-  szone?: (string | [string, "up" | "set"])[];
+  szone?: (string | [string, "up" | "set"] | null)[];
   grave?: string[];
   /** The deck, drawn from the end of the list (default: Petit Moths, a 300 ATK vanilla). */
   deck?: string[];
@@ -74,6 +74,7 @@ function setupOf(scene: Scene): DuelSetup {
       cards.push({ player, code: code(n), location: "mzone", sequence, pos });
     });
     (s.szone ?? []).forEach((m, sequence) => {
+      if (m === null) return;
       const [n, pos] = typeof m === "string" ? [m, "set" as const] : m;
       cards.push({ player, code: code(n), location: "szone", sequence, pos });
     });

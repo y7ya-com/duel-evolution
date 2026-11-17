@@ -28,7 +28,7 @@ export { activeRules, buildRules, setActiveRules, type RuleSet } from "./ruleSet
 export type Tier = "easy" | "hard" | "elite";
 
 /** Which AI played, in the duel record (npcDuelLog.ts): one more whenever the AI's play changes. */
-export const NPC_AI_REV = 26;
+export const NPC_AI_REV = 27;
 
 /** Per-NPC personalities (NPC id -> style). */
 export const STYLE_BY_NPC: Record<number, BotStyle> = {};
@@ -132,6 +132,7 @@ export class NpcAi {
         budgetMs: cfg.budgetMs,
         maxCandidates: cfg.maxCandidates,
         spy,
+        publicReplies: o.link?.()?.opts.heart_of_cards === o.seat,
       };
     }
     // its own deck list (the duel it plays: inMyDeck in the rules)

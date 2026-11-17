@@ -13,11 +13,14 @@
 //     never answers optionally (no chains, no optional effects: its hidden cards stay out of the picture) and the
 //     end board is scored from the NPC's masked view. What remains: a rollout that draws a card draws the real top
 //     card of the NPC's own deck.
+//     Yugi additionally tests available face-up negates both immediately and
+//     saved for the payoff. Unknown traps remain unknown; their risk is estimated
+//     in the draw planner instead of reading their real identities.
 //   - spy (the flag, off by default): every real decision, up to the start of the NPC's next turn, with full-vision
 //     pilots on both seats holding the opponent's ACTUAL hand, scored on the unmasked board.
 import type { Deck, DuelCore, Json, NewOptions } from "../engine/core.ts";
 import type { HeuristicBot } from "./heuristicBot.ts";
-import { PHASE, type Prompt } from "./prompt.ts";
+import { LOCATION, PHASE, POS, type Prompt } from "./prompt.ts";
 
 /** One command of the live duel since its `new`: a response (r, by player p) or, without r, an `auto`. */
 export interface LoggedCmd { r?: Json; p?: number }
@@ -44,6 +47,27 @@ export interface SearchAccess {
   maxCandidates: number;
   /** Spy horizon (see above) instead of the honest one. */
   spy: boolean;
+  /** Yugi's public negation forecasts; never reveals or activates a hidden set card. */
+  publicReplies?: boolean;
+}
+
+const PUBLIC_COUNTERS = new Set([34487429, 48229808, 93016201]); // Rainbow Ruins, Horus LV8, Royal Oppression
+/** The native engine offers legal effects; only face-up, public field cards may
+ * answer an honest forecast. Do not consult the defender's hand or set identities. */
+export function publicCounterReply(sel: Json, deferDraw: boolean): Json | null {
+  if (sel.type !== "SELECT_CHAIN" || deferDraw) return null;
+  const options = (Array.isArray(sel.selects) ? sel.selects : []) as Json[];
+  const i = options.findIndex(c => PUBLIC_COUNTERS.has(Number(c.code))
+    && (Number(c.location) & (LOCATION.MZONE | LOCATION.SZONE)) !== 0
+    && (Number(c.position) & (POS.FACEUP_ATTACK | POS.FACEUP_DEFENSE)) !== 0);
+  return i < 0 ? null : { type: "SELECT_CHAIN", index: i };
+}
+
+function hasPublicCounter(live: Json, seat: number): boolean {
+  const players = (live.view as Json | undefined)?.players as Json[] | undefined;
+  const foe = players?.[1 - seat];
+  return [foe?.szone, foe?.mzone].some(zone => Array.isArray(zone) && zone.some(c => c
+    && PUBLIC_COUNTERS.has(Number((c as Json).code)) && (Number((c as Json).position) & 5) !== 0));
 }
 
 const SIM_PROMPT_CAP = 400; // prompts answered after the injection before a rollout is cut short
@@ -84,7 +108,7 @@ type Horizon = (sel: Json, events: Json[], live: Json) => boolean;
  * Fork + replay + inject + play forward to the horizon. The fork's state at the horizon (duelcore `query`), a number
  * (+-1e9: the duel ended), or null when the fork failed structurally (the replay did not reach the live select).
  */
-function forkPlay(access: SearchAccess, seat: number, live: Json, prompt: Prompt, inject: Json, liveBot: HeuristicBot, stopAt: Horizon): Json | number | null {
+function forkPlay(access: SearchAccess, seat: number, live: Json, prompt: Prompt, inject: Json, liveBot: HeuristicBot, stopAt: Horizon, reply: "first" | "payoff" = "first"): Json | number | null {
   const t0 = performance.now();
   const L = access.link();
   if (!L) return null;
@@ -101,12 +125,14 @@ function forkPlay(access: SearchAccess, seat: number, live: Json, prompt: Prompt
     if (!sameSelect(evs[evs.length - 1], live)) { simStats.drift++; return null; }
     pol[seat]!.applyExternalResponse(prompt, inject);
     evs = dc.respond(id, inject, seat);
-    let prompts = 0, incomingResolved = false;
+    let prompts = 0, incomingResolved = false, ownDrawLink = false;
     for (;;) {
       let stop = false;
       for (const e of evs) {
         if (e.ev !== "msg") continue;
         if (e.type === "BATTLE" || e.type === "ATTACK_DISABLED") incomingResolved = true;
+        if (e.type === "CHAINING" && Number(e.controller) === seat) ownDrawLink = liveBot.isResourceDraw(Number(e.code));
+        if (e.type === "CHAIN_END") ownDrawLink = false;
         pol[0]!.observe(e);
         pol[1]!.observe(e);
         if (access.spy && e.type === "NEW_TURN" && e.player === seat) stop = true;
@@ -117,7 +143,20 @@ function forkPlay(access: SearchAccess, seat: number, live: Json, prompt: Prompt
       if (stopAt(last, evs, live)) break;
       if (++prompts > SIM_PROMPT_CAP) break;
       const p = Number(last.player);
-      const r = last.retry ? null : !access.spy && p !== seat ? passive(pol[p]!, last) : pol[p]!.choose(last);
+      const publicReply = access.publicReplies && !access.spy && p !== seat
+        ? publicCounterReply(last, reply === "payoff" && ownDrawLink) : null;
+      // The Crystal Beast replacement is a public choice (97 = place this
+      // destroyed monster in the Spell/Trap Zone), not Pegasus's deck search.
+      const crystalReplacement = access.publicReplies && !access.spy && p !== seat && last.type === "SELECT_EFFECTYN"
+        && Number(last.description) === 97 && Number(last.location) === LOCATION.MZONE && (Number(last.position) & 5) !== 0
+        && /^Crystal Beast /.test(dc.cardDB.name(Number(last.code))) ? { type: "SELECT_EFFECTYN", yes: true } : null;
+      const costs = (Array.isArray(last.selects) ? last.selects : []) as Json[];
+      const publicCost = access.publicReplies && !access.spy && p !== seat && last.type === "SELECT_CARD"
+        && Number(last.min) === Number(last.max) && Number(last.min) > 0 && costs.length > 0
+        && costs.every(c => Number(c.controller) === p && Number(c.location) === LOCATION.MZONE && (Number(c.position) & 5) !== 0)
+        ? { type: "SELECT_CARD", indicies: costs.map((c, i) => ({i, atk: dc.cardDB.get(Number(c.code))?.attack ?? 0}))
+          .sort((a, b) => a.atk - b.atk || a.i - b.i).slice(0, Number(last.min)).map(c => c.i) } : null;
+      const r = last.retry ? null : publicReply ?? crystalReplacement ?? publicCost ?? (!access.spy && p !== seat ? passive(pol[p]!, last) : pol[p]!.choose(last));
       evs = r ? dc.respond(id, r, p) : dc.auto(id);
     }
     // A passed attack window can reach damage before the next prompt; a revival can stop at its replay.
@@ -136,10 +175,15 @@ function forkPlay(access: SearchAccess, seat: number, live: Json, prompt: Prompt
 export function rolloutScore(access: SearchAccess, seat: number, live: Json, prompt: Prompt, inject: Json, liveBot: HeuristicBot): number | null {
   const pilot = access.makePolicy(seat, true, () => ({}));
   // honest: the end of the NPC's own turn (spy: its next turn, stopped in forkPlay)
-  const r = forkPlay(access, seat, live, prompt, inject, liveBot, (sel, _events, l) => !access.spy && sel.turn !== l.turn);
-  if (r === null || typeof r === "number") return r;
-  pilot.copyTurnState(liveBot);
-  return pilot.valueOf(r);
+  const scores: number[] = [];
+  const replies = access.publicReplies && !access.spy && hasPublicCounter(live, seat) ? ["first", "payoff"] as const : ["first"] as const;
+  for (const reply of replies) {
+    const r = forkPlay(access, seat, live, prompt, inject, liveBot, (sel, _events, l) => !access.spy && sel.turn !== l.turn, reply);
+    if (r === null) return null;
+    pilot.copyTurnState(liveBot);
+    scores.push(typeof r === "number" ? r : pilot.valueOf(r));
+  }
+  return Math.min(...scores);
 }
 
 /**

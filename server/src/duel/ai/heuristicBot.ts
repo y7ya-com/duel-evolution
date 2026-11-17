@@ -480,6 +480,8 @@ export class HeuristicBot {
   /** Copies another player's per-turn bookkeeping (a rollout pilot continuing the live player's turn). */
   copyTurnState(from: HeuristicBot): void {
     this.#turn = from.#turn;
+    this.#normalSummoned = from.#normalSummoned;
+    this.#oppNormalSummoned = from.#oppNormalSummoned;
     this.#idleActions = from.#idleActions;
     this.#summonMaterialCount = from.#summonMaterialCount;
     this.#attackSetupSummon = from.#attackSetupSummon;
@@ -518,7 +520,119 @@ export class HeuristicBot {
     const b = boardFromState(state, this.seat, this.#vision);
     if (b) this.#board = b;
     const p = this.#boardPosition();
-    return this.#style.light ? evaluate(p) : valueWithReply(p, this.#planOpts().replyWeight);
+    const score = this.#style.light ? evaluate(p) : valueWithReply(p, this.#planOpts().replyWeight);
+    return !this.#heartSkill || Math.abs(score) >= 1e9 ? score
+      : score + this.#heartHandQuality(this.#me()?.hand ?? []) - this.#crystalResources();
+  }
+
+  /** A resource draw, rather than every card that can eventually draw (Underdog
+   * in hand is not an immediately usable draw spell). Also used by honest forks. */
+  isResourceDraw(code: number): boolean {
+    const k = this.#cards.brain.get(code);
+    return !!k && (k.type & TYPE_SPELL) !== 0 && (k.type & (TYPE_CONTINUOUS | TYPE_FIELD)) === 0
+      && (k.has("draw") || /^(reload|magical mallet|card destruction|hand destruction)$/.test(this.#nameOf(code)));
+  }
+
+  #crystalResources(): number {
+    const opp = this.#opp();
+    const crystals = opp?.szone.filter(c => c && !isFaceDown(c.position) && /^crystal beast /.test(this.#nameOf(c.code))).length ?? 0;
+    const ruins = opp?.szone.some(c => c && !isFaceDown(c.position) && this.#nameOf(c.code) === "ancient city - rainbow ruins");
+    // Destroyed Crystal Beasts become public spell resources, not lost cards.
+    return crystals * 750 + (this.#ruinsNegateReady() ? 1800 : 0)
+      + (ruins && crystals >= 4 ? 700 : 0);
+  }
+
+  #ruinsNegateReady(): boolean {
+    const opp = this.#opp();
+    return !!opp && opp.szone.some(c => c && !isFaceDown(c.position) && this.#nameOf(c.code) === "ancient city - rainbow ruins")
+      && opp.szone.filter(c => c && !isFaceDown(c.position) && /^crystal beast /.test(this.#nameOf(c.code))).length >= 3
+      && opp.mzone.some(c => c && !isFaceDown(c.position) && /^crystal beast /.test(this.#nameOf(c.code)));
+  }
+
+  #heartEffectBody(code: number): number {
+    if (!this.#heartSkill || this.#board?.players.some(p => p.szone.some(c => c && !isFaceDown(c.position)
+      && this.#nameOf(c.code) === "skill drain"))) return 0;
+    const n = this.#nameOf(code), hand = this.#me()?.hand ?? [];
+    return /^(tribe-infecting virus|snipe hunter)$/.test(n) && hand.length >= 2
+      && this.#oppMonsters().some(c => !c.faceDown) ? 2000 : 0;
+  }
+
+  /** Stress estimates for one unknown interruption, not knowledge of a set
+   * card. Compare stopping the resource draw with stopping its single payoff;
+   * a hand with a second independent answer retains more of its value. */
+  #heartDrawRisk(code: number): number {
+    const hidden = this.#opp()?.szone.filter(c => c && isFaceDown(c.position)).length ?? 0;
+    if (!hidden || this.#trapLock()) return 0;
+    const name = this.#nameOf(code), k = this.#cards.brain.get(code);
+    if (name === "obelisk the tormentor") {
+      const route = obeliskPlan(this.#obeliskResources([name]));
+      return route ? Math.min(hidden, Math.max(0, route.length - 1)) * 1000 : 2000;
+    }
+    const reserve = this.#me()?.hand.filter(c => this.#cards.brain.get(c)?.any(REMOVAL)).length ?? 0;
+    const drawStopped = this.isResourceDraw(code) ? 1500 : 1000;
+    const payoffStopped = this.isResourceDraw(code) ? 900
+      : ((k?.type ?? 0) & TYPE_MONSTER) !== 0 ? 1800
+      : k?.any(REMOVAL) ? 1000 + this.#oppMaxAtk() * 0.35 : 1000;
+    return Math.max(drawStopped, payoffStopped) * Math.min(2, hidden) / (1 + Math.min(2, reserve) * 0.4);
+  }
+
+  #tribeRace(ev: { available: number; count: number }): number[] {
+    if (!this.#heartSkill || this.#nameOf(this.#pickSubject()) !== "tribe-infecting virus") return lowestBits(ev.available, ev.count);
+    let best = lowestBits(ev.available, 1)[0] ?? 1, gain = -Infinity;
+    for (const race of lowestBits(ev.available, 32)) {
+      const worth = (p: PlayerBoard | null) => (p?.mzone ?? []).reduce((sum, c) => sum + (c && !isFaceDown(c.position)
+        && ((this.#cards.brain.get(c.code)?.race ?? 0) & race) !== 0 ? 1000 + Math.max(0, c.attack ?? this.#stat(c.code).atk) : 0), 0);
+      const score = worth(this.#opp()) - worth(this.#me());
+      if (score > gain) { gain = score; best = race; }
+    }
+    return [best];
+  }
+
+  #tribePublicGain(): number {
+    const worth = (p: PlayerBoard | null, race: number) => (p?.mzone ?? []).reduce((s, c) => s + (c && !isFaceDown(c.position)
+      && ((this.#cards.brain.get(c.code)?.race ?? 0) & race) !== 0 ? 1000 + Math.max(0, c.attack ?? this.#stat(c.code).atk) : 0), 0);
+    return Math.max(0, ...(this.#opp()?.mzone ?? []).filter(c => c && !isFaceDown(c.position)).map(c => {
+      const race = this.#cards.brain.get(c!.code)?.race ?? 0;
+      return worth(this.#opp(), race) - worth(this.#me(), race);
+    }));
+  }
+
+  /** Correction to evaluate()'s flat 1000 per held card: redundant normals and
+   * dead spells are not the same resource as a playable, complementary answer. */
+  #heartHandQuality(hand: number[]): number {
+    const me = this.#me(), foe = this.#opp();
+    const names = hand.map(c => this.#nameOf(c));
+    const field = me?.mzone.filter(Boolean).length ?? 0;
+    const foes = foe?.mzone.filter(Boolean).length ?? 0;
+    const wipes = /^(raigeki|dark hole|lightning vortex|smashing ground|fissure)$/;
+    const costBody = names.some(n => /^(tribe-infecting virus|snipe hunter)$/.test(n));
+    const cheap = hand.some(c => {
+      const k = this.#cards.brain.get(c), n = this.#nameOf(c);
+      return n === "chorus of sanctuary" || (!!k && (k.type & TYPE_MONSTER) !== 0 && !(k.type & TYPE_EFFECT) && this.#stat(c).atk <= 1700);
+    });
+    let value = 0, normals = 0, removal = 0;
+    hand.forEach(c => {
+      const n = this.#nameOf(c), k = this.#cards.brain.get(c);
+      if (!k) return;
+      if ((k.type & TYPE_MONSTER) !== 0) {
+        const tributes = /^(slifer the sky dragon|obelisk the tormentor|the winged dragon of ra)$/.test(n) ? 3 : k.tributes();
+        if (tributes > field && !names.includes("ancient rules")) value -= 550;
+        if (k.tributes() === 0 && !(k.type & (TYPE_RITUAL | TYPE_EXTRA))) normals++;
+        if (/^(tribe-infecting virus|snipe hunter)$/.test(n) && foes) value += hand.length < 2 ? -900 : cheap ? 900 : -500;
+      } else {
+        if (wipes.test(n)) { removal++; value += foes ? 450 : -650; }
+        if (/^(monster reborn|premature burial)$/.test(n) && !(me?.grave.length || foe?.grave.length)) value -= 650;
+        if (n === "chorus of sanctuary") value -= 600;
+        if (this.#locked(c)) value -= 900;
+      }
+    });
+    value -= Math.max(0, normals - (costBody && cheap ? 2 : 1)) * 450;
+    value -= Math.max(0, removal - 1) * 550;
+    const plan = this.#combo;
+    if (plan && names.includes(plan.assembler) && names.filter(n => plan.pieces.includes(n)).length >= plan.need) value += 2500;
+    const magnetNames = [...names, ...(me?.mzone ?? []).filter(Boolean).map(c => this.#nameOf(c!.code))];
+    if (names.includes("valkyrion the magna warrior") && ["alpha the magnet warrior", "beta the magnet warrior", "gamma the magnet warrior"].every(n => magnetNames.includes(n))) value += 4000;
+    return value;
   }
 
   /** Bookkeeping for a response injected into a rollout instead of chosen by this pilot (the follow-up target choice
@@ -824,7 +938,11 @@ export class HeuristicBot {
     if (!code) return undefined;
     let r = TAG_RULES.get(code);
     if (r === undefined) { r = tagRule(this.#cards.brain.get(code)) ?? null; TAG_RULES.set(code, r); }
-    const named = this.#rules[this.#nameOf(code)];
+    const name = this.#nameOf(code);
+    const named = this.#rules[name] ?? (this.#heartSkill && name === "tribe-infecting virus" ? {
+      idleActivate: (ctx: RuleCtx) => !ctx.ext?.fieldMonsterEffectsNegated && (this.#me()?.hand.length ?? 0) > 0 && this.#tribePublicGain() > 0,
+      idlePriority: 100,
+    } : undefined);
     return named ? (r ? { ...r, ...named } : named) : r ?? undefined;
   }
 
@@ -997,6 +1115,17 @@ export class HeuristicBot {
   #idlePriority(code: number, ctx: RuleCtx, ref?: CardRef, action?: Action): number {
     const name = this.#nameOf(code);
     if (this.#locked(code)) return -Infinity;
+    if (this.#heartSkill && this.#ruinsNegateReady()) {
+      if (/^(heavy storm|giant trunade)$/.test(name) && !(ctx.ext?.myLinkedCards)
+        && (name !== "heavy storm" || (this.#me()?.szone.filter(Boolean).length ?? 0) <= 1)) return 150;
+      if (/^(tribe-infecting virus|snipe hunter)$/.test(name) && ref && (ref.location & LOCATION.MZONE) !== 0
+        && !ctx.ext?.fieldMonsterEffectsNegated && (this.#me()?.hand.length ?? 0) > 0
+        && (name !== "tribe-infecting virus" || this.#tribePublicGain() > 0)) return 155;
+      // Lead with an independent monster effect when spells face a public
+      // negate. If its summon is stopped, recomputation releases the spell.
+      if (/^(raigeki|dark hole|lightning vortex)$/.test(name) && !this.#normalSummoned
+        && this.#me()?.hand.some(c => this.#heartEffectBody(c) > 0)) return -Infinity;
+    }
     // Clear the visible draw-skill counter before spending draw spells. This
     // preference belongs only to a seat that actually has Heart of the Cards.
     if (this.#heartSkill && /^(mystical space typhoon|dust tornado|heavy storm|harpie's feather duster|giant trunade)$/.test(name)
@@ -1381,6 +1510,8 @@ export class HeuristicBot {
     if (ev.kind !== "selectCard") this.#pendingAttacker = null;
     const t0 = performance.now();
     const scored: { c: Candidate; s: number }[] = [];
+    const uncertainDraw = ev.kind === "announceCard" && ev.heart && this.#heartSkill && !this.#trapLock()
+      && this.#opp()?.szone.some(c => c && isFaceDown(c.position));
     try {
       const limit = Math.max(2, search.maxCandidates);
       // Keep the phase-exit lines (the last two) in the pool: a busy hand can offer many summons/effects.
@@ -1391,8 +1522,11 @@ export class HeuristicBot {
         if (scored.length > 0 && performance.now() - t0 > search.budgetMs) break;
         const s = rolloutScore(search, this.seat, sel, ev, c.resp, this);
         if (s === null) return this.respond(ev); // replay drift: the whole decision falls back to the heuristic
-        scored.push({ c, s: Math.abs(s) >= 1e9 ? s : s - (c.risk ?? 0) });
-        if (s >= 1e9) break; // a winning line
+        // An honest passive win is conditional when unknown traps remain. Keep
+        // comparing plans and charge the same interruption stress budget.
+        scored.push({ c, s: s >= 1e9 && uncertainDraw ? 30000 - (c.risk ?? 0)
+          : Math.abs(s) >= 1e9 ? s : s - (c.risk ?? 0) });
+        if (s >= 1e9 && !uncertainDraw) break;
       }
     } catch {
       return this.respond(ev);
@@ -1447,13 +1581,19 @@ export class HeuristicBot {
     const drawCard = (code: number) => !!this.#cards.brain.get(code)?.has("draw")
       || /^(reload|magical mallet|card destruction|hand destruction)$/.test(this.#nameOf(code));
     const drawUsed = [...this.#heartMade].some(([code, n]) => n > 0 && drawCard(code))
-      || [...(me?.hand ?? []), ...this.#heartPending].some(drawCard);
+      || (me?.hand ?? []).some(c => this.isResourceDraw(c)) || this.#heartPending.some(drawCard);
     const magnets = ["alpha the magnet warrior", "beta the magnet warrior", "gamma the magnet warrior"];
     const has = (name: string) => present.includes(name);
+    const hiddenBackrow = this.#opp()?.szone.filter(c => c && isFaceDown(c.position)).length ?? 0;
+    const crystalFoes = this.#opp()?.mzone.filter(c => c && !isFaceDown(c.position) && /^crystal beast /.test(this.#nameOf(c.code))).length ?? 0;
+    const publicNegate = this.#ruinsNegateReady();
+    const clutter = this.#heartHandQuality(me?.hand ?? []) < -500;
     const materials = [...present, ...(me?.mzone ?? []).filter(c => c && !isFaceDown(c.position)).map(c => this.#nameOf(c!.code))];
     const comboPieces = this.#combo?.pieces.filter(n => materials.includes(n)).length ?? 0;
     const completesFusion = (name: string) => !!this.#combo && this.#combo.pieces.includes(name) && !materials.includes(name)
       && has(this.#combo.assembler) && comboPieces >= this.#combo.need - 1;
+    const completesMagnets = (name: string) => has("valkyrion the magna warrior") && magnets.includes(name)
+      && !materials.includes(name) && magnets.every(n => n === name || materials.includes(n));
     const resources = this.#obeliskResources(this.#heartPending.map(c => this.#nameOf(c)));
     const finishesObelisk = new Set(!this.#heartSkill || obeliskPlan(resources) ? [] : OBELISK_PIECES.filter(name =>
       !!obeliskPlan({ ...resources, hand: [...resources.hand, name] })));
@@ -1469,14 +1609,22 @@ export class HeuristicBot {
         if (name === "valkyrion the magna warrior") score += magnets.every(has) ? 15000 : -6000;
         if (name === "dark magician" && has("ancient rules")) score += 11000;
         if (completesFusion(name)) score += 30000;
+        if (completesMagnets(name)) score += 30000;
         if (has(name)) score -= 500;
+        // A signature name alone is not a plan: on turn one the 2000-DEF wall
+        // already in hand will be set instead of another vanilla-sized beater.
+        if (tributes === 0 && this.#turn <= 1 && !completesFusion(name) && !finishesObelisk.has(name)
+          && (me?.hand.some(c => { const k = this.#cards.brain.get(c); return k && k.tributes() === 0
+            && (k.type & TYPE_MONSTER) !== 0 && this.#stat(c).def >= st.def; }))) score -= 8500;
         if (!ctx.ext?.fieldMonsterEffectsNegated && BATTLE_PROOF.has(c.code) && tributes === 0 && ctx.oppMon.length > 0 && field === 0)
           score += ctx.myLp <= ctx.oppMaxAtk * 2 ? 14000 : 3000;
         if (!ctx.ext?.fieldMonsterEffectsNegated && /^(exiled force|tribe-infecting virus|snipe hunter)$/.test(name) && ctx.oppMon.length > 0
           && (name === "exiled force" || hand.length > 0)) score += 11000;
       } else {
         if (YUGI_SIGNATURE.test(name)) score += 6000;
-        if (/^(pot of greed|graceful charity)$/.test(name)) score += 6500;
+        if (/^(pot of greed|graceful charity)$/.test(name)) score += 8500
+          + (clutter ? (name === "graceful charity" && hand.length >= 3 ? 8000 : 3500) : 0)
+          + (hiddenBackrow >= 2 || publicNegate ? 4000 : 0);
         if (/^(raigeki|dark hole|lightning vortex|snatch steal|brain control|smashing ground|fissure)$/.test(name))
           score += ctx.oppMon.length ? (ctx.oppMaxAtk >= ctx.myMaxAtk ? 12000 : 4000) : -4000;
         if (/^(mystical space typhoon|heavy storm|harpie's feather duster|giant trunade)$/.test(name)) score += ctx.oppBackrow ? 6000 : -4000;
@@ -1492,23 +1640,37 @@ export class HeuristicBot {
         if (name === "double summon") score += this.#normalSummoned && (ctx.ext?.myHandMonsters ?? 0) > 0 ? 7000 : 0;
         if (name === "dark factory of mass production") score += (me?.grave.filter(c => ((this.#cards.brain.get(c)?.type ?? 0) & (TYPE_MONSTER | TYPE_EFFECT)) === TYPE_MONSTER).length ?? 0) >= 2 ? 6000 : -3000;
         if (has(name)) score -= 2000;
+        if (/^(raigeki|dark hole|lightning vortex|smashing ground|fissure)$/.test(name))
+          score -= crystalFoes * 3000 + (publicNegate ? 5000 : 0);
       }
       if (this.#locked(c.code)) score -= 1e6;
       if (finishesObelisk.has(name)) score += 45000;
+      score -= this.#heartDrawRisk(c.code);
       score -= (this.#heartMade.get(c.code) ?? 0) * 500;
       return score;
     };
     const ranked = cards.map((c, i) => ({ c, i })).filter(({c}) => !drawUsed || !drawCard(c.code))
       .map(({c, i}) => ({ i, score: rank(c) })).sort((a, b) => b.score - a.score || a.i - b.i).map(x => x.i);
+    // Reserve slots for genuinely different plans. Six similar removal spells
+    // must not crowd every resource/protection line out of native lookahead.
+    const categories = [
+      (c: CardRef) => /^(pot of greed|graceful charity)$/.test(this.#nameOf(c.code)),
+      (c: CardRef) => /^(giant trunade|heavy storm|royal decree|spiritualism)$/.test(this.#nameOf(c.code)),
+      (c: CardRef) => /^(marshmallon|spirit reaper|swords of revealing light|mirror force)$/.test(this.#nameOf(c.code)),
+    ];
+    const diverse = [ranked[0], ...categories.map(test => ranked.find(i => test(cards[i]!))), ...ranked]
+      .filter((i): i is number => i !== undefined);
     const seen = new Set<number>();
-    return ranked.flatMap(lead => {
+    return diverse.flatMap(lead => {
       if (seen.has(cards[lead]!.code)) return [];
       seen.add(cards[lead]!.code);
       const code = cards[lead]!.code;
       // Value Yugi's identity in the rollout as well as its shortlist. A proven
       // win/loss still overrides this preference in #searchDecide.
       const name = this.#nameOf(code);
-      const risk = finishesObelisk.has(name) ? -6000 : completesFusion(name) ? -4000 : YUGI_SIGNATURE.test(name) ? -1500 : 1500;
+      const singleSpell = /^(raigeki|dark hole|lightning vortex|snatch steal|brain control|smashing ground|fissure)$/.test(name);
+      const risk = (finishesObelisk.has(name) ? -6000 : completesFusion(name) || completesMagnets(name) ? -4000 : YUGI_SIGNATURE.test(name) ? -1500 : 1500)
+        + this.#heartDrawRisk(code) + (singleSpell ? Math.min(2, hiddenBackrow) * 1300 : 0);
       return [{ resp: { type: "ANNOUNCE_CARD", card: code }, risk, commit: () => this.#heartChosen(code) }];
     });
   }
@@ -1630,7 +1792,7 @@ export class HeuristicBot {
       case "selectYesNo": return this.#battleYesNo(ev.description, ev.text);
       case "selectOption": return this.#selectOption(ev);
       case "selectCounter": return this.#selectCounter(ev);
-      case "announceRace": return { type: "ANNOUNCE_RACE", races: lowestBits(ev.available, ev.count) };
+      case "announceRace": return { type: "ANNOUNCE_RACE", races: this.#tribeRace(ev) };
       case "announceAttrib": return { type: "ANNOUNCE_ATTRIB", attributes: lowestBits(ev.available, ev.count) };
       case "announceNumber": return { type: "ANNOUNCE_NUMBER", value: this.#ruleFor(this.#lastActivated)?.number?.(this.#withSelf(this.#ctx(), this.#lastActivated), ev.options.map(Number)) ?? 0 };
       case "sortCard": return respSort();
@@ -2169,7 +2331,7 @@ export class HeuristicBot {
       let st = this.#normalSummonStats(c.code);
       const summonAtkBonus = st.atk - this.#stat(c.code).atk;
       // Summon setup must not count the monster itself as its future discard.
-      const bonus = this.#ruleFor(c.code)?.summonScore?.(this.#withSelf(ctx, c.code, c)) ?? 0;
+      const bonus = Math.max(this.#heartEffectBody(c.code), this.#ruleFor(c.code)?.summonScore?.(this.#withSelf(ctx, c.code, c)) ?? 0);
       const setIndex = ev.monsterSet.findIndex((x) => x.code === c.code);
       let n = /^(slifer the sky dragon|obelisk the tormentor|the winged dragon of ra)$/.test(this.#nameOf(c.code)) ? 3 : st.level > 6 ? 2 : st.level > 4 ? 1 : 0;
       // offered with fewer monsters than its tributes: its own summon without tributes (Fusilier Dragon at half its
@@ -2637,6 +2799,22 @@ export class HeuristicBot {
     // a weakening card keeps the opponent's.
     const hint = this.#hint;
     this.#hint = 0;
+    if (this.#heartSkill && hint === H_DISCARD && this.#nameOf(this.#pickSubject()) === "graceful charity"
+      && ev.min === ev.max && ev.min > 0 && ev.min <= 3 && ev.cards.length <= 16
+      && ev.cards.every(c => c.controller === this.seat && (c.location & LOCATION.HAND) !== 0)) {
+      let best: number[] | null = null, value = -Infinity;
+      const visit = (from: number, chosen: number[]) => {
+        if (chosen.length === ev.min) {
+          const kept = ev.cards.filter((_, i) => !chosen.includes(i)).map(c => c.code);
+          const score = this.#heartHandQuality(kept) + kept.reduce((s, c) => s + this.#worth(c, true) * 0.03, 0);
+          if (score > value) { value = score; best = [...chosen]; }
+          return;
+        }
+        for (let i = from; i <= ev.cards.length - (ev.min - chosen.length); i++) visit(i + 1, [...chosen, i]);
+      };
+      visit(0, []);
+      if (best) return respCards(best);
+    }
     if (this.#obeliskRevive && this.#nameOf(this.#pickSubject()) === "monster reborn") {
       const i = ev.cards.findIndex(c => c.controller === this.seat && (c.location & LOCATION.GRAVE) !== 0 && this.#nameOf(c.code) === this.#obeliskRevive);
       this.#obeliskRevive = undefined;
