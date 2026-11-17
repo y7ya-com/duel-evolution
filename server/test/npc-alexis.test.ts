@@ -62,4 +62,45 @@ describe.skipIf(!existsSync(join(ENGINE_DATA_DIR, "scripts.pack")))("Alexis's ta
     expect(leftField(p, "Blue-Eyes White Dragon")).toBe(true);
   });
 
+  it("Advanced Ritual Art completes Enrise's LIGHT Fairy materials instead of dumping more Fiends", () => {
+    const p = play(dc, { npcId: 68, first: "player", turns: 2,
+      npc: { lp: 1800, hand: ["Advanced Ritual Art", "Demise, King of Armageddon", "Sky Scourge Enrise"],
+        grave: ["Manju of the Ten Thousand Hands", "Archfiend Soldier"],
+        deck: ["Dunames Dark Witch", "Dunames Dark Witch", "Zure, Knight of Dark World", "Zure, Knight of Dark World", ...Array(16).fill("Mirror Force")] },
+      player: { mzone: ["Blue-Eyes White Dragon"] } });
+    expect(msgs(p, "SPSUMMONING", "Sky Scourge Enrise")).toHaveLength(1);
+    expect(npcActivated(p, "Sky Scourge Enrise")).toBe(true);
+    expect(leftField(p, "Blue-Eyes White Dragon")).toBe(true);
+  });
+
+  it.each([false, true])("sets up The A. Forces before summoning its winning attacker: already active %s", active => {
+    const p = play(dc, { npcId: 66, first: "player", turns: 2,
+      npc: { hand: active ? ["Etoile Cyber"] : ["Etoile Cyber", "The A. Forces"],
+        szone: active ? [["The A. Forces", "up"]] : [] },
+      player: { mzone: ["Feral Imp"], lp: 100 } });
+    expect(msgs(p, "SUMMONING", "Etoile Cyber")).toHaveLength(1);
+    expect(p.end?.winner).toBe(1);
+  });
+
+  it("recognises Command Knight's own boost without another Warrior already present", () => {
+    const p = play(dc, { npcId: 67, first: "player", turns: 2,
+      npc: { hand: ["Command Knight"] }, player: { mzone: ["Mystic Tomato"], lp: 200 } });
+    expect(msgs(p, "SUMMONING", "Command Knight")).toHaveLength(1);
+    expect(p.end?.winner).toBe(1);
+  });
+
+  it("counts The A. Forces spell boost even while Skill Drain suppresses monster effects", () => {
+    const p = play(dc, { npcId: 66, first: "player", turns: 2,
+      npc: { hand: ["Etoile Cyber"], szone: [["The A. Forces", "up"]] },
+      player: { mzone: ["Feral Imp"], szone: [["Skill Drain", "up"]], lp: 100 } });
+    expect(p.end?.winner).toBe(1);
+  });
+
+  it("does not plan an A. Forces boost while Spell Canceller negates it", () => {
+    const p = play(dc, { npcId: 66, first: "player", turns: 2,
+      npc: { hand: ["Etoile Cyber"], szone: [["The A. Forces", "up"]] },
+      player: { mzone: ["Feral Imp", "Spell Canceller"], lp: 100 } });
+    expect(p.end?.winner).not.toBe(1);
+  });
+
 });

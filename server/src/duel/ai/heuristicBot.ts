@@ -1000,6 +1000,9 @@ export class HeuristicBot {
       myBanishedMaxAtk: maxAtk(me.removed), oppRemoved: opp.removed.filter(isMon).length, oppRemovedMaxAtk: maxAtk(opp.removed),
       myEffectMon: effectMon(me), oppEffectMon: effectMon(opp),
       myFaceUpWarriors: me.mzone.filter(c => c && !isFaceDown(c.position) && ((this.#cards.brain.get(c.code)?.race ?? 0) & 1) !== 0).length,
+      myHandWarriors: me.hand.filter(c => ((this.#cards.brain.get(c)?.race ?? 0) & 1) !== 0).length,
+      myGraveLightFairies: me.grave.filter(c => { const k = this.#cards.brain.get(c); return !!k && (k.race & 4) !== 0 && (k.attribute & 16) !== 0; }).length,
+      myGraveDarkFiends: me.grave.filter(c => { const k = this.#cards.brain.get(c); return !!k && (k.race & 8) !== 0 && (k.attribute & 32) !== 0; }).length,
       fieldMonsterEffectsNegated: b.players.some(p => p.szone.some(c => c && !isFaceDown(c.position) && this.#nameOf(c.code) === "skill drain")),
       oppChainThreat: threat, oppChainHitsMine: hits,
       oppSummonAtk: this.#summonedAtk(),
@@ -1817,11 +1820,21 @@ export class HeuristicBot {
     return this.#summonPlays(ev, ctx)[0] ?? null;
   }
 
-  /** Cyberdark's Normal Summon equips a Level 3-or-lower Dragon from our own graveyard. Judge
-   * the body it will actually produce, including the direct-damage shortcut (duel 911), rather than
-   * its printed 800 ATK. This reads public cards only; a Set does not trigger the equip. */
+  /** Project low-level Warrior auras and Cyberdark's legal graveyard equip (duel 911)
+   * when judging a Normal Summon. Public field/graveyard cards only; setting the
+   * monster receives neither its face-up aura bonus nor its on-summon equip. */
   #normalSummonStats(code: number): { atk: number; def: number; level: number } {
-    const st = this.#stat(code), me = this.#me();
+    const st = { ...this.#stat(code) }, me = this.#me();
+    // Price public Warrior auras on the body we are about to summon. A face-down
+    // set receives none; #summonPlays removes this projected ATK for its set line.
+    if (me && st.level <= 4 && ((this.#cards.brain.get(code)?.race ?? 0) & 1) !== 0) {
+      const allies = me.mzone.filter(c => c && !isFaceDown(c.position) && ((this.#cards.brain.get(c.code)?.race ?? 0) & 3) !== 0).length + 1;
+      const forces = me.szone.filter(c => c && !isFaceDown(c.position) && this.#nameOf(c.code) === "the a. forces" && !this.#locked(c.code)).length;
+      st.atk += forces * allies * 200;
+      const drained = this.#board?.players.some(p => p.szone.some(c => c && !isFaceDown(c.position) && this.#nameOf(c.code) === "skill drain"));
+      if (!drained) st.atk += 400 * (me.mzone.filter(c => c && !isFaceDown(c.position) && this.#nameOf(c.code) === "command knight").length
+        + (this.#nameOf(code) === "command knight" ? 1 : 0));
+    }
     if (!/^(cyberdark horn|cyberdark edge|cyberdark keel)$/.test(this.#nameOf(code)) || !me
       || me.szone.slice(0, 5).filter(Boolean).length >= 5) return st;
     const locked = this.#board?.players.some(p => p.szone.some(c => c && !isFaceDown(c.position)
@@ -1933,7 +1946,7 @@ export class HeuristicBot {
       if (seen.has(c.code) || this.#ruleFor(c.code)?.keepInHand) return;
       seen.add(c.code);
       let st = this.#normalSummonStats(c.code);
-      const equipAtk = st.atk - this.#stat(c.code).atk;
+      const summonAtkBonus = st.atk - this.#stat(c.code).atk;
       // Summon setup must not count the monster itself as its future discard.
       const bonus = this.#ruleFor(c.code)?.summonScore?.(this.#withSelf(ctx, c.code, c)) ?? 0;
       const setIndex = ev.monsterSet.findIndex((x) => x.code === c.code);
@@ -1947,10 +1960,10 @@ export class HeuristicBot {
       // Reaper into a 3000)
       if (battleAhead && opp.length > 0 && setIndex >= 0 && !this.#isFlip(c.code) && !STAYS_SET.test(this.#nameOf(c.code)) && !ON_SUMMON.has(c.code) && bonus <= 0) {
         const tributes = n > 0 ? fodder.slice(0, n).map((t) => t.seq) : [];
-        const up = this.#afterSummon(c.code, false, tributes, st).trade, down = this.#afterSummon(c.code, true, tributes, { ...st, atk: st.atk - equipAtk }).trade;
+        const up = this.#afterSummon(c.code, false, tributes, st).trade, down = this.#afterSummon(c.code, true, tributes, { ...st, atk: st.atk - summonAtkBonus }).trade;
         if (Math.abs(up - down) > 200) set = down > up;
       }
-      if (set && equipAtk) st = { ...st, atk: st.atk - equipAtk }; // A Set has no on-summon equip.
+      if (set && summonAtkBonus) st = { ...st, atk: st.atk - summonAtkBonus }; // A Set receives neither its equip nor face-up Warrior auras.
       const stat = set ? st.def : st.atk;
       if (n > 0 && bonus <= 0) {
         const tributes = fodder.slice(0, n);
@@ -2770,6 +2783,13 @@ export class HeuristicBot {
    *  gave up its face-up Manju for Zorc and kept a dead Gil Garth in hand, then had no blocker). */
   #materialCost(c: CardRef): number {
     const code = c.code;
+    // Advanced Ritual Art selects a level-sum from the deck. Its graveyard setup
+    // rule must apply here too, not only to ordinary SELECT_CARD prompts.
+    if ((c.location & LOCATION.DECK) !== 0 && this.#nameOf(this.#pickSubject()) === "advanced ritual art") {
+      const pick = this.#ruleFor(this.#pickSubject())?.pick;
+      if (pick) return -pick.score(this.#ctx(), this.#ruleCard(c));
+    }
+
     if ((c.location & LOCATION.HAND) !== 0) {
       const k = this.#cards.brain.get(code);
       const dead = this.#normalSummoned || (k?.tributes() ?? 0) > this.#monstersOf(this.#me()).length;

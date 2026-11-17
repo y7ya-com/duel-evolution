@@ -400,7 +400,7 @@
     "neo-spacian dark panther": {"idleActivate": {"not": {"named": "elemental hero neos"}}},
     "rope of life": {"chainReact": {"all": [{">": ["effectSummonGain", 0]}, {">": ["effectSummonGain", {"*": [1200, {"max": [0, {"-": ["myHand", {"+": ["myHandDead", "myHandDiscardPayoff"]}]}]}]}]}]}},
     "just desserts": {"idleActivate": {"any": [{">=": [{"*": [500, {"count": "oppMon"}]}, "oppLp"]}, {">": [{"*": [500, {"count": "oppMon"}]}, 1200]}]}, "chainReact": {"all": [{">=": [{"count": "oppMon"}, 1]}, {"any": [{">=": [{"*": [500, {"count": "oppMon"}]}, "oppLp"]}, {">": [{"*": [500, {"count": "oppMon"}]}, 1200]}, "selfThreatened"]}]}},
-    "the a. forces": {"idleActivate": {">=": [{"count": "myMon", "where": {"not": "faceDown"}}, 1]}, "idlePriority": 60},
+    "the a. forces": {"idleActivate": {"any": [{">=": ["myFaceUpWarriors", 1]}, {"all": ["normalSummonLeft", {">=": ["myHandWarriors", 1]}]}]}, "idlePriority": 60},
     "curse of royal": {"chainReact": {"all": ["oppChained", "oppChainHitsMyBackrow"]}, "chainPriority": 90},
     "pandemonium": {"idleActivate": {"all": [{"not": "sameCardActive"}, {"not": "myFieldSpell"}, {">=": [{"+": [{"inMyHand": "archfiend"}, {"onMyField": "archfiend"}, {"inMyHand": "shadowknight archfiend"}, {"onMyField": "shadowknight archfiend"}, {"inMyHand": "skull archfiend of lightning"}, {"onMyField": "skull archfiend of lightning"}, {"inMyHand": "infernalqueen archfiend"}, {"onMyField": "infernalqueen archfiend"}, {"inMyHand": "darkbishop archfiend"}, {"onMyField": "darkbishop archfiend"}, {"inMyHand": "terrorking archfiend"}, {"onMyField": "terrorking archfiend"}, {"inMyHand": "vilepawn archfiend"}, {"onMyField": "vilepawn archfiend"}, {"inMyHand": "desrook archfiend"}, {"onMyField": "desrook archfiend"}, {"inMyHand": "imprisoned queen archfiend"}, {"onMyField": "imprisoned queen archfiend"}, {"inMyHand": "mazera deville"}, {"onMyField": "mazera deville"}]}, 1]}]}, "idlePriority": 90},
     "b.e.s. tetran": {"idleActivate": {"any": [{">=": ["oppFaceUpBackrow", 1]}, {"all": [{">=": ["oppBackrow", 1]}, {"<=": ["myMaxAtk", "oppMaxAtk"]}]}]}, "idlePriority": 100, "pick": {"score": {"if": ["mine", -1, {"if": ["faceDown", 12, 10]}]}, "min": 0}},
@@ -472,6 +472,9 @@
     },
     "38": {
       "reasoning": {"idleActivate": {"all": [{"<": [{"count": "myMon"}, 3]}, {">=": [{"+": [{"inMyDeck": "dark magician of chaos"}, {"inMyDeck": "jinzo"}, {"inMyDeck": "d.d.m. - different dimension master"}, {"inMyDeck": "toon cannon soldier"}]}, 1]}]}, "idlePriority": 60}
+    },
+    "68": {
+      "advanced ritual art": {"idleActivate": true, "idlePriority": 55, "pick": {"score": {"if": ["inDeck", {"+": ["atk", {"if": [{"any": [{"all": [{">=": [{"inMyHand": "sky scourge enrise"}, 1]}, {"==": [{"inMyHand": "sky scourge norleras"}, 0]}, {">=": ["myGraveDarkFiends", 1]}, {">=": ["myGraveLightFairies", 1]}, {"<": ["myGraveLightFairies", 3]}, {"is": "dunames dark witch"}]}, {"all": [{">=": [{"inMyHand": "sky scourge norleras"}, 1]}, {"==": [{"inMyHand": "sky scourge enrise"}, 0]}, {">=": ["myGraveLightFairies", 1]}, {">=": ["myGraveDarkFiends", 1]}, {"<": ["myGraveDarkFiends", 3]}, {"any": [{"is": "zure, knight of dark world"}, {"is": "archfiend soldier"}]}]}]}, 10000, 0]}]}, "atk"]}}}
     },
     "80": {
       "foolish burial": {"idleActivate": {"all": [{"==": [{"inMyGrave": "hunter dragon"}, 0]}, {">=": [{"inMyDeck": "hunter dragon"}, 1]}, {">=": [{"+": [{"inMyHand": "cyberdark horn"}, {"inMyHand": "cyberdark edge"}, {"inMyHand": "cyberdark keel"}]}, 1]}]}, "idlePriority": 130, "pick": {"score": {"if": [{"is": "hunter dragon"}, 10000, "atk"]}}},

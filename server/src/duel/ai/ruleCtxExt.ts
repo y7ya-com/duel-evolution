@@ -8,7 +8,7 @@ export const EXT_NUM = [
   "oppFaceUpBackrow", "oppFaceUpSpells", "mySetBackrow", "myFreeStZones", "oppFreeZones",
   "myHandMonsters", "myHandSpare", "myHandMaxMonAtk",
   "myGraveMonsters", "myGraveSpells", "oppGraveMonsters", "myBanishedMaxAtk", "oppRemoved", "oppRemovedMaxAtk",
-  "myEffectMon", "oppEffectMon", "myFaceUpWarriors",
+  "myEffectMon", "oppEffectMon", "myFaceUpWarriors", "myHandWarriors", "myGraveLightFairies", "myGraveDarkFiends",
   /** What the opponent's live chain links hit of mine: ATK of my monsters + 1000 per Spell/Trap; and how many cards. */
   "oppChainThreat", "oppChainHitsMine",
   /** ATK of the monster the opponent just summoned (this response window), 0 none. */
