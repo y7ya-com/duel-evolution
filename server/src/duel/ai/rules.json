@@ -470,7 +470,7 @@
       "destiny draw": {"idleActivate": true, "idlePriority": 140}
     },
     "38": {
-      "reasoning": {"idleActivate": {"all": [{"==": [{"count": "myMon"}, 0]}, {">": [{"count": "oppMon"}, 0]}]}, "idlePriority": 60}
+      "reasoning": {"idleActivate": {"all": [{"<": [{"count": "myMon"}, 3]}, {">=": [{"+": [{"inMyDeck": "dark magician of chaos"}, {"inMyDeck": "jinzo"}, {"inMyDeck": "d.d.m. - different dimension master"}, {"inMyDeck": "toon cannon soldier"}]}, 1]}]}, "idlePriority": 60}
     },
     "80": {
       "foolish burial": {"idleActivate": {"all": [{"==": [{"inMyGrave": "hunter dragon"}, 0]}, {">=": [{"inMyDeck": "hunter dragon"}, 1]}, {">=": [{"+": [{"inMyHand": "cyberdark horn"}, {"inMyHand": "cyberdark edge"}, {"inMyHand": "cyberdark keel"}]}, 1]}]}, "idlePriority": 130, "pick": {"score": {"if": [{"is": "hunter dragon"}, 10000, "atk"]}}},

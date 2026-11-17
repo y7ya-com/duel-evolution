@@ -50,6 +50,21 @@ describe.skipIf(!haveData)("NPC scenarios (real engine)", () => {
     expect(msgs(p, "SPSUMMONING", "Cyberdark Horn")).toHaveLength(0);
   });
 
+  it.each([false, true])("Reasoning develops a board without waiting for an opposing monster: own body %s (1985)", hasBody => {
+    const p = play(dc, { npcId: 38, first: "npc", turns: 1,
+      npc: { hand: ["Reasoning"], mzone: hasBody ? ["D.D.M. - Different Dimension Master"] : [],
+        deck: ["Jinzo", ...Array(12).fill("Reckless Greed")] }, player: {} });
+    expect(npcActivated(p, "Reasoning")).toBe(true);
+    expect(msgs(p, "SPSUMMONING", "Jinzo")).toHaveLength(1);
+  });
+
+  it("holds Reasoning when its combo deck has no summonable monsters left", () => {
+    const p = play(dc, { npcId: 38, first: "player", turns: 2,
+      npc: { hand: ["Reasoning"], deck: Array(12).fill("Reckless Greed") },
+      player: { mzone: ["Gemini Elf"] } });
+    expect(npcActivated(p, "Reasoning")).toBe(false);
+  });
+
   // ---- battle
   it("attacks the monster it beats even with a battle-indestructible Spirit Reaper beside it (duel 303)", () => {
     const p = play(dc, {
