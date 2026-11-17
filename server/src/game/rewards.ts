@@ -25,10 +25,14 @@ function state(g: Game | null, p: PP.P): RewardState {
   rollover(r, time(g), others);
   eventsRollover(r, time(g), REWARDS.events, g?.npcs?.length ? mapNpcs(g) : []);
   // First steps and events are once per account; deleting/remaking a character cannot reset claimed grants.
-  for (const m of r.missions) if ((m.kind === "first" || m.kind === "event") && claimedElsewhere(others, m)) m.claimed = true;
+  for (const m of r.missions) if ((m.kind === "first" || m.kind === "event") && claimedElsewhere([r, ...others], m)) m.claimed = true;
   return r;
 }
-const claimedElsewhere = (others: RewardState[], m: Mission) => others.some(q => q.missions.some(x => x.id === m.id && x.claimed));
+// Receipts and audit survive old daily resets that discarded the claimed event row.
+const claimedElsewhere = (others: RewardState[], m: Mission) => others.some(q =>
+  q.missions.some(x => x.id === m.id && x.claimed)
+  || Object.values(q.receipts).some(x => x.id === m.id)
+  || q.audit.some(x => x.id === m.id));
 function grant(g: Game | null, p: PP.P, r: RewardState, id: string, mp: number, requestId?: string) {
   const w = PP.mpBalances(p);
   if (!Number.isSafeInteger(mp) || mp <= 0 || w.total + mp > 0xffffffff) throw new Error("reward-wallet-overflow");

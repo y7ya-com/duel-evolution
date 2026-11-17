@@ -57,8 +57,8 @@ export function rollover(r: RewardState, now: number, peers: RewardState[] = [])
     r.missions.push({ ...options[picks[i]], id: `daily:${day}:${i}`, kind: "daily", mp: REWARDS.daily.mp, progress: 0, claimed: false });
   }
   r.issued.push(day);
-  // Claimed daily/weekly entries are represented by durable receipts/audit, not active slots.
-  r.missions = r.missions.filter(m => !m.claimed || m.kind === "first" || m.kind === "lifetime");
+  // Only recurring missions are discarded. Keep one-off event claims across daily resets.
+  r.missions = r.missions.filter(m => !m.claimed || (m.kind !== "daily" && m.kind !== "weekly"));
 }
 export function progress(r: RewardState, event: RewardEvent, count = 1) {
   if (!Number.isSafeInteger(count) || count <= 0) return;
