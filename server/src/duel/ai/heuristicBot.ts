@@ -34,6 +34,7 @@ import type { RuleCtxExt } from "./ruleCtxExt.ts";
 import { activeRules, rulesOf, type RuleSet } from "./ruleSet.ts";
 import { H_ATOHAND, H_DISCARD, H_EQUIP, H_RELEASE, H_REMOVE, H_SET, H_SPSUMMON, H_SUMMON, H_TODECK, H_TOGRAVE, TAGS_NO_BOOST, TYPE_EXTRA, TYPE_CONTINUOUS, TYPE_COUNTER, TYPE_EFFECT, TYPE_EQUIP, TYPE_FIELD, TYPE_FUSION, TYPE_MONSTER, TYPE_QUICKPLAY, TYPE_RITUAL, TYPE_SPELL, TYPE_TRAP, tagMask } from "../brain/cards.ts";
 import { COMBO_PLANS, type ComboPlan } from "./comboPlans.ts";
+import { OBELISK_PIECES, obeliskPlan, type ObeliskResources } from "./yugiObelisk.ts";
 import { evaluate, type EvalMon, type Position } from "./evaluate.ts";
 import { canPay, costOrder, discardBenefit, expendable, neverSet, type CostView } from "./costPick.ts";
 import {
@@ -317,6 +318,8 @@ export class HeuristicBot {
   #knownOppHand = new Map<number, number>();
   #heartMade = new Map<number, number>();
   #heartPending: number[] = [];
+  #obeliskDiscard: string | undefined;
+  #obeliskRevive: string | undefined;
   #heartSkill: boolean;
   /** `${zone}:${code}` of the monsters I controlled but did not own at the start of this turn (a Creature Swap): not
    *  what this turn's Brain Control lent me. */
@@ -459,6 +462,8 @@ export class HeuristicBot {
       this.#turn = turn;
       this.#heartMade.clear();
       this.#heartPending = [];
+      this.#obeliskDiscard = undefined;
+      this.#obeliskRevive = undefined;
       this.#declaredAttacker = null;
       this.#attackSeen = true;
       this.#deadAttackers.clear();
@@ -501,6 +506,8 @@ export class HeuristicBot {
     this.#knownOppHand = new Map(from.#knownOppHand);
     this.#heartMade = new Map(from.#heartMade);
     this.#heartPending = [...from.#heartPending];
+    this.#obeliskDiscard = from.#obeliskDiscard;
+    this.#obeliskRevive = from.#obeliskRevive;
     this.#heldBefore = new Set(from.#heldBefore);
     this.#heldTurn = from.#heldTurn;
   }
@@ -532,7 +539,10 @@ export class HeuristicBot {
       if (r.action === "SELECT_ACTIVATE") {
         const a = ev.activatable[index];
         if (a) { this.#activatedThisTurn.add(`${a.code}:${a.location}:${a.sequence}:${a.description}`); this.#activated(a.code); }
+        if (this.#heartSkill && a && this.#nameOf(a.code) === "monster reborn") this.#obeliskRevive = obeliskPlan(this.#obeliskResources())?.[0]?.target;
       }
+      if (r.action === "SELECT_SPECIAL_SUMMON" && this.#nameOf(ev.spSummonable[index]?.code ?? 0) === "the tricky")
+        this.#obeliskDiscard = obeliskPlan(this.#obeliskResources())?.[0]?.discard;
     } else if (ev.kind === "selectEffectYN" && r.yes === true) {
       this.#activatedThisTurn.add(this.#effKey(ev));
     } else if (ev.kind === "selectChain" && index >= 0) {
@@ -620,6 +630,55 @@ export class HeuristicBot {
     const offered = new Set(ev.activatable.map((a) => this.#nameOf(a.code)));
     if (this.#comboState()?.ready && offered.has(plan.assembler)) return true;
     return this.#comboPayoffLive() && !!plan.afterPayoff?.some((name) => offered.has(name));
+  }
+
+  #obeliskResources(extra: string[] = []): ObeliskResources {
+    const me = this.#me(), ctx = this.#ctx();
+    const normals = new Set([...(me?.hand ?? []), ...(me?.grave ?? []), ...(me?.removed ?? []), ...this.#heartPending]
+      .filter(c => ((this.#cards.brain.get(c)?.type ?? 0) & (TYPE_MONSTER | TYPE_EFFECT | TYPE_RITUAL | TYPE_EXTRA)) === TYPE_MONSTER)
+      .map(c => this.#nameOf(c)));
+    return {
+      hand: [...(me?.hand ?? []).map(c => this.#nameOf(c)), ...extra],
+      field: (me?.mzone ?? []).filter(Boolean).map(c => this.#nameOf(c!.code)),
+      grave: (me?.grave ?? []).map(c => this.#nameOf(c)),
+      removed: (me?.removed ?? []).map(c => this.#nameOf(c)),
+      dimensionSafe: !this.#opp()?.removed.some(c => ((this.#cards.brain.get(c)?.type ?? 0) & TYPE_MONSTER) !== 0),
+      lp: me?.lp ?? 0,
+      normalLeft: !this.#normalSummoned,
+      normalMonster: name => normals.has(name),
+      spellLocked: this.#locked(24874630),
+      effectsNegated: !!ctx.ext?.fieldMonsterEffectsNegated,
+    };
+  }
+
+  /** Reserve the Normal Summon for a complete Obelisk route. Recompute after
+   * every resolved effect, so a negated extender never invents missing bodies. */
+  #obeliskAction(ev: P<"selectIdleCmd">): Json | null {
+    if (!this.#heartSkill || this.#idleActions >= MAX_IDLE_ACTIONS) return null;
+    const route = obeliskPlan(this.#obeliskResources()), step = route?.[0];
+    if (!step) return null;
+    // Keep an already available lethal attack rather than tributing it away.
+    if (ev.canBattlePhase && planBattle(this.#planInput(), this.#planOpts()).outcome.lethal) return respIdle("TO_BP");
+    const list = step.action === "SELECT_SUMMON" ? ev.summonable : step.action === "SELECT_SPECIAL_SUMMON" ? ev.spSummonable : ev.activatable;
+    const index = list.findIndex(c => this.#nameOf(c.code) === step.name);
+    if (index < 0) return null; // native legality, including summon/tribute locks
+    // Sweep unknown backrow before exposing the setup to it. This uses only
+    // the public count, never the identity of the opponent's set cards.
+    if (this.#opp()?.szone.some(Boolean)) {
+      const linked = (this.#ctx().ext?.myLinkedCards ?? 0) > 0;
+      const clear = ev.activatable.findIndex(c => /^(giant trunade|harpie's feather duster|heavy storm)$/.test(this.#nameOf(c.code))
+        && !this.#locked(c.code) && (this.#nameOf(c.code) === "harpie's feather duster" || !linked)
+        && (this.#nameOf(c.code) !== "heavy storm" || !this.#me()?.szone.some(Boolean)));
+      if (clear >= 0) {
+        this.#idleActions++; this.#activated(ev.activatable[clear]!.code);
+        return respIdle("SELECT_ACTIVATE", clear);
+      }
+    }
+    this.#idleActions++;
+    this.#obeliskDiscard = step.discard;
+    this.#obeliskRevive = step.target;
+    if (step.action === "SELECT_ACTIVATE") this.#activated(list[index]!.code);
+    return respIdle(step.action, index);
   }
 
   // ---- board helpers ----------------------------------------------------------------------------------------------
@@ -1272,6 +1331,8 @@ export class HeuristicBot {
   /** With search (elite), the real decisions are scored by fork rollouts; with blunder (easy), a random legal line
    *  sometimes replaces the heuristic's; everything else (and any search failure) is the plain heuristic. */
   decide(ev: Prompt, sel?: Json): Json | null {
+    if (ev.kind === "selectIdleCmd") { const god = this.#obeliskAction(ev); if (god) return god; }
+    if (ev.kind === "selectCard" && this.#obeliskRevive && this.#nameOf(this.#pickSubject()) === "monster reborn") return this.respond(ev);
     if (ev.kind === "selectIdleCmd" && this.#hasForcedComboAction(ev)) return this.respond(ev);
     if (this.#blunder > 0 && ev.kind === "selectIdleCmd" && this.#rng() < this.#blunder) {
       // a random line among the plays, never "end the turn" (production: an easy NPC skipped two turns holding six traps)
@@ -1393,6 +1454,9 @@ export class HeuristicBot {
     const comboPieces = this.#combo?.pieces.filter(n => materials.includes(n)).length ?? 0;
     const completesFusion = (name: string) => !!this.#combo && this.#combo.pieces.includes(name) && !materials.includes(name)
       && has(this.#combo.assembler) && comboPieces >= this.#combo.need - 1;
+    const resources = this.#obeliskResources(this.#heartPending.map(c => this.#nameOf(c)));
+    const finishesObelisk = new Set(!this.#heartSkill || obeliskPlan(resources) ? [] : OBELISK_PIECES.filter(name =>
+      !!obeliskPlan({ ...resources, hand: [...resources.hand, name] })));
     const rank = (c: CardRef): number => {
       const name = this.#nameOf(c.code), k = this.#cards.brain.get(c.code), st = this.#normalSummonStats(c.code);
       let score = this.#worth(c.code, true);
@@ -1430,6 +1494,7 @@ export class HeuristicBot {
         if (has(name)) score -= 2000;
       }
       if (this.#locked(c.code)) score -= 1e6;
+      if (finishesObelisk.has(name)) score += 45000;
       score -= (this.#heartMade.get(c.code) ?? 0) * 500;
       return score;
     };
@@ -1443,7 +1508,7 @@ export class HeuristicBot {
       // Value Yugi's identity in the rollout as well as its shortlist. A proven
       // win/loss still overrides this preference in #searchDecide.
       const name = this.#nameOf(code);
-      const risk = completesFusion(name) ? -4000 : YUGI_SIGNATURE.test(name) ? -1500 : 1500;
+      const risk = finishesObelisk.has(name) ? -6000 : completesFusion(name) ? -4000 : YUGI_SIGNATURE.test(name) ? -1500 : 1500;
       return [{ resp: { type: "ANNOUNCE_CARD", card: code }, risk, commit: () => this.#heartChosen(code) }];
     });
   }
@@ -1615,6 +1680,7 @@ export class HeuristicBot {
   // ---- main phase -------------------------------------------------------------------------------------------------
   #idle(ev: P<"selectIdleCmd">): Json {
     if (this.#style.fool) return this.#foolIdle(ev);
+    const god = this.#obeliskAction(ev); if (god) return god;
     const ctx = this.#ctx();
     const oppMax = ctx.oppMaxAtk;
     const oppHasMon = ctx.oppMon.length > 0;
@@ -2571,6 +2637,17 @@ export class HeuristicBot {
     // a weakening card keeps the opponent's.
     const hint = this.#hint;
     this.#hint = 0;
+    if (this.#obeliskRevive && this.#nameOf(this.#pickSubject()) === "monster reborn") {
+      const i = ev.cards.findIndex(c => c.controller === this.seat && (c.location & LOCATION.GRAVE) !== 0 && this.#nameOf(c.code) === this.#obeliskRevive);
+      this.#obeliskRevive = undefined;
+      if (i >= 0 && ev.min === 1) return respCards([i]);
+    }
+    // Tricky's discard belongs to the same resource route as the summon. In
+    // particular, do not pitch the unplayable-looking God instead of its fodder.
+    if (this.#obeliskDiscard && ev.cards.every(c => c.controller === this.seat && (c.location & LOCATION.HAND) !== 0)) {
+      const i = ev.cards.findIndex(c => this.#nameOf(c.code) === this.#obeliskDiscard);
+      if (i >= 0 && ev.min === 1) { this.#obeliskDiscard = undefined; return respCards([i]); }
+    }
     const k = this.#cards.brain.get(this.#lastActivated);
     if ((hint === H_EQUIP || !!k?.has("boost")) && ev.min <= 1 && !k?.any(TAGS_NO_BOOST)) {
       const battler = this.#turnPlayer === this.seat ? this.#declaredAttacker?.sequence
@@ -2693,6 +2770,10 @@ export class HeuristicBot {
       return respUnselect(index);
     };
     if (ev.selectable.length === 0) return choose(null);
+    if (this.#obeliskDiscard && ev.selectable.every(c => c.controller === this.seat && (c.location & LOCATION.HAND) !== 0)) {
+      const i = ev.selectable.findIndex(c => this.#nameOf(c.code) === this.#obeliskDiscard);
+      if (i >= 0) { this.#obeliskDiscard = undefined; return choose(i); }
+    }
     // Eight Machines give Chimeratech 6400 ATK and eight monster attacks. Keep the
     // rest of the deck instead of dumping every remaining monster for Future Fusion.
     if (this.#nameOf(this.#pickSubject()) === "future fusion" && ev.finishable && ev.unselectable.length >= 8) return choose(null);
