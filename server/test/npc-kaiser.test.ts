@@ -3,11 +3,12 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { DuelCore } from "../src/duel/engine/core.ts";
 import { createNodeDuelCore, ENGINE_DATA_DIR } from "../src/duel/engine/node.ts";
-import { npcDeck, toCodes } from "../src/duel/data.ts";
+import { brainDb, npcDeck, toCodes } from "../src/duel/data.ts";
 import { deckNpc } from "../src/duel/npcRules.ts";
+import { HeuristicBot, cardInfo } from "../src/duel/ai/index.ts";
 import { nrThreshold } from "../src/game/npcs.ts";
 import { check } from "../src/duel/deckCheck.ts";
-import { leftField, msgs, npcActivated, play, attacker, passive, code } from "./npcScenario.ts";
+import { leftField, msgs, npcActivated, play, attacker, passive, activating, code } from "./npcScenario.ts";
 
 describe.skipIf(!existsSync(join(ENGINE_DATA_DIR, "scripts.pack")))("Hell Kaiser on the real engine", () => {
   let dc: DuelCore;
@@ -51,6 +52,141 @@ describe.skipIf(!existsSync(join(ENGINE_DATA_DIR, "scripts.pack")))("Hell Kaiser
       player: { szone: ["Mirror Force", "Sakuretsu Armor"], lp: 1000 } });
     expect(npcActivated(p, "Giant Trunade")).toBe(true);
     expect(p.end?.winner).toBe(1);
+  });
+
+  it("keeps a defensive reserve rather than setting all four answers into one Storm (2052)", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Mirror Force", "Torrential Tribute", "Bottomless Trap Hole", "Mystical Space Typhoon"] },
+      player: { mzone: ["Lyla, Lightsworn Sorceress"] } });
+    const sets = p.npc.filter(x => x.resp?.action === "SELECT_SPELL_SET");
+    expect(sets).toHaveLength(2);
+    expect(sets.map(x => (x.sel.spell_sets as any[])[Number(x.resp!.index)].code)).toContain(code("Mirror Force"));
+    expect(sets.map(x => (x.sel.spell_sets as any[])[Number(x.resp!.index)].code)).toContain(code("Torrential Tribute"));
+  });
+
+  it("revives Disk Commander in defence while developing a stronger attacker (2064)", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Monster Reborn", "Cyberdark Keel"], grave: ["Destiny HERO - Disk Commander", "Hunter Dragon"] },
+      player: { mzone: ["Caius the Shadow Monarch"] } });
+    const choice = p.npc.find(x => x.sel.type === "SELECT_POSITION" && x.sel.code === code("Destiny HERO - Disk Commander"));
+    expect(choice?.resp?.position).toBe(4);
+    expect(npcActivated(p, "Destiny HERO - Disk Commander")).toBe(true);
+  });
+
+  it("still revives a weak body in attack for an immediate win on an open field", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Monster Reborn"], grave: ["Destiny HERO - Disk Commander"] }, player: { lp: 200 } });
+    expect(p.end?.winner).toBe(1);
+  });
+
+  it("waits for the attackers to finish before spending a weak Call revival (2066)", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 3,
+      npc: { mzone: [["Cyberdark Horn", "def"], ["Cyberdark Horn", "def"]], szone: ["Call of the Haunted"], grave: ["Hunter Dragon"] },
+      player: { mzone: ["Prime Material Dragon", "Raiza the Storm Monarch"] }, player_policy: attacker });
+    const battles = p.msgs.map((m, i) => m.type === "BATTLE" ? i : -1).filter(i => i >= 0);
+    const call = p.msgs.findIndex(m => m.type === "CHAINING" && m.code === code("Call of the Haunted"));
+    expect(battles).toHaveLength(2);
+    expect(call).toBeGreaterThan(battles[1]!);
+  });
+
+  it("uses Call's weak blocker when that revival saves lethal damage", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 3,
+      npc: { lp: 1000, szone: ["Call of the Haunted"], grave: ["Hunter Dragon"] },
+      player: { mzone: ["Raiza the Storm Monarch"] }, player_policy: attacker });
+    expect(npcActivated(p, "Call of the Haunted")).toBe(true);
+    expect(p.end?.winner).not.toBe(0);
+  });
+
+  it("blocks a lethal direct attack with Call after the opponent clears its defenders", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 3,
+      npc: { lp: 1000, mzone: [["Cyberdark Horn", "def"], ["Cyberdark Horn", "def"]],
+        szone: ["Call of the Haunted"], grave: ["Hunter Dragon"] },
+      player: { mzone: ["Raiza the Storm Monarch"], hand: ["Raigeki"] },
+      player_policy: sel => Number(sel.turn) === 3 ? activating("Raigeki", attacker)(sel) : passive(sel) });
+    const attack = p.msgs.findIndex(m => m.type === "ATTACK");
+    const call = p.msgs.findIndex(m => m.type === "CHAINING" && m.code === code("Call of the Haunted"));
+    expect(attack).toBeGreaterThan(-1);
+    expect(call).toBeGreaterThan(attack);
+    expect(p.end?.winner).not.toBe(0);
+  });
+
+  const rememberedBattle = () => ({ type: "SELECT_BATTLECMD", player: 1, turn: 2, turn_player: 1, phase: 8, lp: [8000, 8000],
+    view: { players: [
+      { mzone: [{ code: code("Lyla, Lightsworn Sorceress"), attack: 1700, defense: 200, position: 1 }], szone: [], hand_count: 2 },
+      { mzone: [{ code: code("Cyberdark Edge"), attack: 2500, defense: 800, position: 1 }], szone: [], hand: [] }] },
+    attacks: [{ code: code("Cyberdark Edge"), controller: 1, location: 4, sequence: 0, can_direct: false }], to_m2: true, to_ep: true });
+  const returnedHonest = () => ({ ev: "msg", type: "MOVE", card: code("Honest"),
+    from: { controller: 0, location: 4, sequence: 0, position: 1 }, to: { controller: 0, location: 2, sequence: 0, position: 0 } });
+
+  it("remembers a public Honest return and does not feed Edge into it", () => {
+    const bot = new HeuristicBot(1, cardInfo(dc.cardDB, brainDb()));
+    bot.observe(returnedHonest());
+    expect(bot.choose(rememberedBattle())?.action).toBe("TO_M2");
+    const fork = new HeuristicBot(1, cardInfo(dc.cardDB, brainDb())); fork.copyTurnState(bot);
+    expect(fork.choose(rememberedBattle())?.action).toBe("TO_M2");
+  });
+
+  it.each([1, 4])("does not learn a hidden Honest moved from location %i", location => {
+    const bot = new HeuristicBot(1, cardInfo(dc.cardDB, brainDb()));
+    const ev = returnedHonest(); ev.from.location = location; ev.from.position = 8;
+    bot.observe(ev);
+    expect(bot.choose(rememberedBattle())?.action).toBe("SELECT_BATTLE");
+  });
+
+  it("forgets a remembered hand card after an unidentifiable departure", () => {
+    const bot = new HeuristicBot(1, cardInfo(dc.cardDB, brainDb())); bot.observe(returnedHonest());
+    bot.observe({ ev: "msg", type: "MOVE", card: code("Honest"), from: { controller: 0, location: 2, sequence: 0 },
+      to: { controller: 0, location: 4, sequence: 1, position: 8 } });
+    expect(bot.choose(rememberedBattle())?.action).toBe("SELECT_BATTLE");
+  });
+
+  it("spends public Honest memory when the card visibly leaves the hand", () => {
+    const bot = new HeuristicBot(1, cardInfo(dc.cardDB, brainDb())); bot.observe(returnedHonest());
+    bot.observe({ ev: "msg", type: "MOVE", card: code("Honest"), from: { controller: 0, location: 2, sequence: 0 },
+      to: { controller: 0, location: 16, sequence: 0, position: 1 } });
+    expect(bot.choose(rememberedBattle())?.action).toBe("SELECT_BATTLE");
+  });
+
+  it("uses the public engine event when Honest returns to hand, then bypasses the LIGHT monster", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Cyberdark Edge"], grave: ["Hunter Dragon"] },
+      player: { mzone: ["Honest", "Lyla, Lightsworn Sorceress"] }, player_policy: activating("Honest") });
+    expect(p.msgs.some(m => m.type === "MOVE" && m.card === code("Honest") && (m.to as any)?.location === 2)).toBe(true);
+    expect(leftField(p, "Lyla, Lightsworn Sorceress")).toBe(false);
+    expect(p.log.some(l => l.includes("attacks directly"))).toBe(true);
+  });
+
+  it("learns an explicit hand reveal addressed to this seat without double-counting it", () => {
+    const bot = new HeuristicBot(1, cardInfo(dc.cardDB, brainDb()));
+    const reveal = { ev: "msg", type: "CONFIRM_CARDS", player: 1,
+      cards: [{ code: code("Honest"), controller: 0, location: 2, sequence: 0 }] };
+    bot.observe(reveal); bot.observe(reveal);
+    expect(bot.choose(rememberedBattle())?.action).toBe("TO_M2");
+    bot.observe({ ev: "msg", type: "MOVE", card: code("Honest"), from: { controller: 0, location: 2 }, to: { controller: 0, location: 16 } });
+    expect(bot.choose(rememberedBattle())?.action).toBe("SELECT_BATTLE");
+  });
+
+  it("ignores a reveal addressed only to the other seat", () => {
+    const bot = new HeuristicBot(1, cardInfo(dc.cardDB, brainDb()));
+    bot.observe({ ev: "msg", type: "CONFIRM_CARDS", player: 0,
+      cards: [{ code: code("Honest"), controller: 0, location: 2, sequence: 0 }] });
+    expect(bot.choose(rememberedBattle())?.action).toBe("SELECT_BATTLE");
+  });
+
+  it("reassesses an attack replay when Honest has become public", () => {
+    const bot = new HeuristicBot(1, cardInfo(dc.cardDB, brainDb()));
+    expect(bot.choose(rememberedBattle())?.action).toBe("SELECT_BATTLE");
+    bot.observe(returnedHonest());
+    expect(bot.choose({ ...rememberedBattle(), type: "SELECT_YESNO", description: 30 })?.yes).toBe(false);
+  });
+
+  it("a hidden hand shuffle does not reveal cards or erase a remembered public return", () => {
+    const bot = new HeuristicBot(1, cardInfo(dc.cardDB, brainDb()));
+    bot.observe({ ev: "msg", type: "SHUFFLE_HAND", player: 0, cards: [code("Honest"), code("Honest")] });
+    expect(bot.choose(rememberedBattle())?.action).toBe("SELECT_BATTLE");
+    bot.observe(returnedHonest());
+    bot.observe({ ev: "msg", type: "SHUFFLE_HAND", player: 0, cards: [0, 0] });
+    expect(bot.choose(rememberedBattle())?.action).toBe("TO_M2");
   });
 
   it.each([78, 79, 80])("recipe %i uses forty supported cards with only the owner's boss ban-list exceptions", (id) => {

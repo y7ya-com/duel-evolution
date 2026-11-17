@@ -100,11 +100,12 @@ function forkPlay(access: SearchAccess, seat: number, live: Json, prompt: Prompt
     if (!sameSelect(evs[evs.length - 1], live)) { simStats.drift++; return null; }
     pol[seat]!.applyExternalResponse(prompt, inject);
     evs = dc.respond(id, inject, seat);
-    let prompts = 0;
+    let prompts = 0, incomingResolved = false;
     for (;;) {
       let stop = false;
       for (const e of evs) {
         if (e.ev !== "msg") continue;
+        if (e.type === "BATTLE" || e.type === "ATTACK_DISABLED") incomingResolved = true;
         pol[0]!.observe(e);
         pol[1]!.observe(e);
         if (access.spy && e.type === "NEW_TURN" && e.player === seat) stop = true;
@@ -118,7 +119,8 @@ function forkPlay(access: SearchAccess, seat: number, live: Json, prompt: Prompt
       const r = last.retry ? null : !access.spy && p !== seat ? passive(pol[p]!, last) : pol[p]!.choose(last);
       evs = r ? dc.respond(id, r, p) : dc.auto(id);
     }
-    return dc.query(id);
+    // A passed attack window can reach damage before the next prompt; a revival can stop at its replay.
+    return { ...dc.query(id), ai_pending_attack_resolved: incomingResolved || evs.at(-1)?.type === "SELECT_BATTLECMD" };
   } finally {
     if (open) dc.end(id);
     simStats.forks++;

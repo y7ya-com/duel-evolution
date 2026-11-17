@@ -31,6 +31,21 @@ describe("battle planner", () => {
     expect(planBattle({ ...input, opp: [] }).outcome.lethal).toBe(true);
   });
 
+  it("does not feed a stronger attacker to a publicly known Honest", () => {
+    const light = { ...up(3, 1700), light: true };
+    const input = { ...guarded([up(0, 2500)], [light], 0), oppHonest: 1 };
+    expect(nextAttack(input)).toBe(null);
+    expect(nextAttack({ ...input, oppHonest: 0 })?.target).toBe(3);
+    expect(nextAttack({ ...input, opp: [{ ...light, light: false }] })?.target).toBe(3);
+  });
+
+  it("can bypass a known Honest for genuine direct lethal", () => {
+    const input = { ...guarded([up(0, 2500)], [{ ...up(3, 1700), light: true }], 0, 1000), oppHonest: 1,
+      attackers: [{ ...atk(0, up(0, 2500), true), directScale: 0.5 }] };
+    expect(planBattle(input).outcome.lethal).toBe(true);
+    expect(nextAttack(input)?.target).toBe(null);
+  });
+
   it("plays around public attack negation instead of wasting its strongest attack (duel 911)", () => {
     const input = guarded([up(0, 2500), up(1, 1700)], [{ ...up(2, 1700), effectThreat: 1000 }], 1);
     expect(planBattle(input).attacks[0]).toMatchObject({ target: 2 });

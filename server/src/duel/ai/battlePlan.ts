@@ -21,7 +21,7 @@
 import { evaluate, type EvalMon, type Position } from "./evaluate.ts";
 
 /** A monster with its Monster Zone (the planner removes the right one when it dies). */
-export interface PlanMon extends EvalMon { seq: number }
+export interface PlanMon extends EvalMon { seq: number; light?: boolean; honestBaseAtk?: number }
 /** One monster able to attack now: its index in the battle command, its zone, its ATK, and whether it may attack
  *  directly while the opponent still has monsters. */
 export interface PlanAttacker { index: number; seq: number; atk: number; canDirect: boolean;
@@ -57,6 +57,8 @@ export interface PlanInput {
   /** Public, usable single-attack negations in the defender's graveyard (Necro Gardna).
    * Hidden cards are never counted. The defender may spend one now or save it for a later attack. */
   oppAttackNegates?: number;
+  /** Honest copies publicly known to remain in the opposing hand. */
+  oppHonest?: number;
 }
 
 export interface PlanOpts {
@@ -245,7 +247,7 @@ export function compareOutcomes(a: Outcome, b: Outcome): number {
 
 /** The best plan for this Battle Phase (an empty plan = attack no more). */
 export function planBattle(input: PlanInput, opts: PlanOpts = PLAN_DEFAULTS): BattlePlan {
-  if ((input.oppAttackNegates ?? 0) > 0) return planWithNegation(input, opts);
+  if ((input.oppAttackNegates ?? 0) > 0 || (input.oppHonest ?? 0) > 0) return planWithNegation(input, opts);
   const openDirect = input.opp.length === 0;
   let best: BattlePlan | null = null;
   let nodes = 0;
@@ -276,13 +278,16 @@ export function planBattle(input: PlanInput, opts: PlanOpts = PLAN_DEFAULTS): Ba
  * allowing it with negating it, then take their stronger response. Replan after the real response.
  * The search has the same node ceiling as ordinary combat; an exhausted search stops conservatively. */
 function planWithNegation(input: PlanInput, opts: PlanOpts): BattlePlan & { end: Position } {
+  // Honest's boost lasts through this Battle Phase, but not the opponent's next turn.
+  const finish = (s: State): State => ({ ...s, opp: s.opp.map(m => m.honestBaseAtk === undefined ? m : { ...m, atk: m.honestBaseAtk }) });
   let nodes = 0;
-  const solve = (s: State, negates: number, attacks: PlannedAttack[]): BattlePlan & { end: Position } => {
-    const outcome = outcomeOf(input, s, attacks, opts);
-    // An unused, public graveyard answer remains an opposing card resource. Without pricing it,
+  const solve = (s: State, negates: number, honest: number, attacks: PlannedAttack[]): BattlePlan & { end: Position } => {
+    const end = finish(s);
+    const outcome = outcomeOf(input, end, attacks, opts);
+    // An unused public answer remains an opposing card resource. Without pricing it,
     // a guaranteed negation ties with passing, so the NPC never makes the opponent spend it.
-    outcome.value -= negates * 1000;
-    let best: BattlePlan & { end: Position } = { attacks, outcome, end: { ...input.base, myLp: s.myLp, oppLp: s.oppLp, myMon: s.my, oppMon: s.opp } };
+    outcome.value -= (negates + honest) * 1000;
+    let best: BattlePlan & { end: Position } = { attacks, outcome, end: { ...input.base, myLp: end.myLp, oppLp: end.oppLp, myMon: end.my, oppMon: end.opp } };
     if (++nodes > opts.maxNodes || s.myLp <= 0 || s.oppLp <= 0) return best;
     for (let i = 0; i < input.attackers.length; i++) {
       const a = input.attackers[i]!, bit = 1 << i;
@@ -291,9 +296,14 @@ function planWithNegation(input: PlanInput, opts: PlanOpts): BattlePlan & { end:
       for (const t of targets) {
         if (nodes >= opts.maxNodes) return best;
         const next = [...attacks, { index: a.index, seq: a.seq, atk: a.atk, target: t?.seq ?? null }];
-        const allowed = solve(resolve(s, a, t, bit), negates, next);
-        const denied = negates > 0 ? solve({ ...s, used: s.used | bit }, negates - 1, next) : null;
-        const worst = denied && compareOutcomes(denied.outcome, allowed.outcome) < 0 ? denied : allowed;
+        const allowed = solve(resolve(s, a, t, bit), negates, honest, next);
+        const denied = negates > 0 ? solve({ ...s, used: s.used | bit }, negates - 1, honest, next) : null;
+        let worst = denied && compareOutcomes(denied.outcome, allowed.outcome) < 0 ? denied : allowed;
+        if (honest > 0 && t?.light && !t.faceDown && t.attackPos && !a.bounces) {
+          const boosted = { ...t, atk: t.atk + (s.my.find(m => m.seq === a.seq)?.atk ?? a.atk), honestBaseAtk: t.honestBaseAtk ?? t.atk };
+          const answered = solve(resolve({ ...s, opp: s.opp.map(m => m.seq === t.seq ? boosted : m) }, a, boosted, bit), negates, honest - 1, next);
+          if (compareOutcomes(answered.outcome, worst.outcome) < 0) worst = answered;
+        }
         // If the guaranteed result is equal, offer the less valuable attacker first: the defender
         // may spend its answer on it, preserving the stronger attack without risking a worse board.
         const cmp = compareOutcomes({ ...worst.outcome, lead: 0 }, { ...best.outcome, lead: 0 });
@@ -303,7 +313,7 @@ function planWithNegation(input: PlanInput, opts: PlanOpts): BattlePlan & { end:
     return best;
   };
   return solve({ myLp: input.base.myLp, oppLp: input.base.oppLp, my: input.my, opp: input.opp, used: 0, flipCost: 0 },
-    Math.max(0, Math.floor(input.oppAttackNegates ?? 0)), []);
+    Math.max(0, Math.floor(input.oppAttackNegates ?? 0)), Math.max(0, Math.floor(input.oppHonest ?? 0)), []);
 }
 
 // ---- Master Duel's attack decision ---------------------------------------------------------------------------------
@@ -356,7 +366,7 @@ export function attackerOrder(input: PlanInput): PlanAttacker[] {
 
 /** The attack to make now, Master Duel's way, or null: no attack gains anything (go to Main Phase 2). */
 export function nextAttack(input: PlanInput): PlannedAttack | null {
-  if ((input.oppAttackNegates ?? 0) > 0) return planWithNegation(input, PLAN_DEFAULTS).attacks[0] ?? null;
+  if ((input.oppAttackNegates ?? 0) > 0 || (input.oppHonest ?? 0) > 0) return planWithNegation(input, PLAN_DEFAULTS).attacks[0] ?? null;
   const openDirect = input.opp.length === 0;
   let best: { attack: PlannedAttack; cls: number; gain: number; order: number; worth: number } | null = null;
   const s0: State = { myLp: input.base.myLp, oppLp: input.base.oppLp, my: input.my, opp: input.opp, used: 0, flipCost: 0 };
@@ -382,7 +392,7 @@ export function nextAttack(input: PlanInput): PlannedAttack | null {
 /** The attacks Master Duel's CPU would make this Battle Phase on this board: nextAttack, resolved, again (at most 10).
  *  Its attackers are "the plan": only they are raised to attack position before the battle. */
 export function planAttacks(input: PlanInput): PlannedAttack[] {
-  if ((input.oppAttackNegates ?? 0) > 0) return planWithNegation(input, PLAN_DEFAULTS).attacks;
+  if ((input.oppAttackNegates ?? 0) > 0 || (input.oppHonest ?? 0) > 0) return planWithNegation(input, PLAN_DEFAULTS).attacks;
   const out: PlannedAttack[] = [];
   let cur = input;
   for (let n = 0; n < 10; n++) {
@@ -439,7 +449,7 @@ export function stealValue(input: PlanInput, take: PlanMon): number {
 
 /** The board after planAttacks' Battle Phase on this one: the attacks and the end position (for comparing plays). */
 export function planEnd(input: PlanInput): { attacks: PlannedAttack[]; end: Position } {
-  if ((input.oppAttackNegates ?? 0) > 0) {
+  if ((input.oppAttackNegates ?? 0) > 0 || (input.oppHonest ?? 0) > 0) {
     const plan = planWithNegation(input, PLAN_DEFAULTS);
     return { attacks: plan.attacks, end: plan.end };
   }
