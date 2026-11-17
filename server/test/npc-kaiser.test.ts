@@ -13,6 +13,46 @@ describe.skipIf(!existsSync(join(ENGINE_DATA_DIR, "scripts.pack")))("Hell Kaiser
   let dc: DuelCore;
   beforeAll(async () => { dc = await createNodeDuelCore(); }, 60_000);
 
+  it("Edge follows its planned monster attack instead of bypassing Lyla (duel 2052)", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Cyberdark Edge"], grave: ["Hunter Dragon"], lp: 2750 },
+      player: { mzone: ["Lyla, Lightsworn Sorceress", "Garoth, Lightsworn Warrior"] } });
+    expect(leftField(p, "Lyla, Lightsworn Sorceress")).toBe(true);
+    expect(p.log.some(l => l.includes("attacks directly"))).toBe(false);
+  });
+
+  it("Edge takes a genuinely lethal half-strength direct attack past a stronger monster", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Cyberdark Edge"], grave: ["Hunter Dragon"] },
+      player: { mzone: ["Blue-Eyes White Dragon"], lp: 1200 } });
+    expect(p.end?.winner).toBe(1);
+  });
+
+  it("Edge's direct shortcut does not invent lethal damage at full ATK", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Cyberdark Edge"], grave: ["Hunter Dragon"] },
+      player: { mzone: ["Lyla, Lightsworn Sorceress"], lp: 1800 } });
+    expect(leftField(p, "Lyla, Lightsworn Sorceress")).toBe(true);
+    expect(p.end?.winner).not.toBe(1);
+  });
+
+  it("does not return Edge's winning equip to hand with Giant Trunade (duel 2066)", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 4,
+      npc: { hand: ["Cyberdark Edge"], grave: ["Hunter Dragon"],
+        deck: [...Array(18).fill("Petit Moth"), "Giant Trunade", "Petit Moth"] },
+      player: { mzone: ["Blue-Eyes White Dragon"], szone: ["Mirror Force"], lp: 2000 } });
+    expect(npcActivated(p, "Giant Trunade")).toBe(false);
+    expect(p.end?.winner).toBe(1);
+  });
+
+  it("still clears backrow with Trunade when the winning attack remains intact", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Giant Trunade"], mzone: ["Hunter Dragon"] },
+      player: { szone: ["Mirror Force", "Sakuretsu Armor"], lp: 1000 } });
+    expect(npcActivated(p, "Giant Trunade")).toBe(true);
+    expect(p.end?.winner).toBe(1);
+  });
+
   it.each([78, 79, 80])("recipe %i uses forty supported cards with only the owner's boss ban-list exceptions", (id) => {
     const deck = npcDeck(id)!;
     expect(deck.main).toHaveLength(40);

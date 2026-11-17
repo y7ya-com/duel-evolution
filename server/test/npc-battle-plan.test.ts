@@ -21,6 +21,16 @@ describe("battle planner", () => {
     my, opp, attackers: my.map((m, i) => atk(i, m)), oppAttackNegates: negates,
   });
 
+  it("prices Edge's direct attack at half ATK with blockers, and full ATK once they are gone", () => {
+    const self = up(0, 2500), wall = up(3, 3000);
+    const input = { ...guarded([self], [wall], 0, 1800),
+      attackers: [{ ...atk(0, self, true), directScale: 0.5 }] };
+    expect(planBattle(input).outcome.lethal).toBe(false);
+    expect(planEnd(input).end.oppLp).toBe(550);
+    expect(planBattle({ ...input, base: { ...input.base, oppLp: 1200 } }).outcome.lethal).toBe(true);
+    expect(planBattle({ ...input, opp: [] }).outcome.lethal).toBe(true);
+  });
+
   it("plays around public attack negation instead of wasting its strongest attack (duel 911)", () => {
     const input = guarded([up(0, 2500), up(1, 1700)], [{ ...up(2, 1700), effectThreat: 1000 }], 1);
     expect(planBattle(input).attacks[0]).toMatchObject({ target: 2 });

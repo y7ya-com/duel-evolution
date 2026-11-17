@@ -27,6 +27,8 @@ export interface PlanMon extends EvalMon { seq: number }
 export interface PlanAttacker { index: number; seq: number; atk: number; canDirect: boolean;
   /** Its attack returns the target and itself to the hand before damage (Neo-Spacian Grand Mole). */
   bounces?: boolean;
+  /** Direct-attack effect multiplier while blockers remain (Cyberdark Edge halves its ATK). */
+  directScale?: number;
   /** Borrowed until the End Phase (Brain Control): losing it costs nothing. */
   lent?: boolean;
   /** It deals piercing damage (Gravekeeper's Spear Soldier). */
@@ -90,7 +92,7 @@ function resolve(s: State, a: PlanAttacker, t: PlanMon | null, bit: number): Sta
   const used = s.used | bit;
   const me = my.find((m) => m.seq === a.seq);
   const atk = me?.atk ?? a.atk;
-  if (t === null) return { myLp, oppLp: oppLp - atk, my, opp, used, flipCost };
+  if (t === null) return { myLp, oppLp: oppLp - Math.floor(atk * (opp.length ? a.directScale ?? 1 : 1)), my, opp, used, flipCost };
   // a bounce: both leave the field, no battle (a battle-proof target goes too)
   if (a.bounces) return { myLp, oppLp, my: my.filter((m) => m.seq !== a.seq), opp: opp.filter((m) => m.seq !== t.seq), used, flipCost };
   const guard = guardOf(t);
