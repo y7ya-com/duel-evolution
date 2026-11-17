@@ -65,6 +65,43 @@ describe.skipIf(!haveData)("NPC scenarios (real engine)", () => {
     expect(npcActivated(p, "Reasoning")).toBe(false);
   });
 
+  it("revives Stratos for a lethal fusion recovery instead of taking the largest graveyard body", () => {
+    const p = play(dc, { npcId: 61, first: "player", turns: 2,
+      npc: { hand: ["Monster Reborn", "Polymerization", "Elemental HERO Wildheart"],
+        grave: ["Blue-Eyes White Dragon", "Elemental HERO Stratos"],
+        deck: ["Elemental HERO Bladedge", ...Array(16).fill("Reckless Greed")], extra: ["Elemental HERO Wildedge"] },
+      player: { mzone: ["Gemini Elf", "Gemini Elf", "Gemini Elf"], lp: 3500 } });
+    expect(msgs(p, "SPSUMMONING", "Elemental HERO Stratos")).toHaveLength(1);
+    expect(p.end?.winner).toBe(1);
+  });
+
+  it("chooses a fusion's burn-lethal line over its larger printed-ATK alternative", () => {
+    const p = play(dc, { npcId: 61, first: "player", turns: 2,
+      npc: { hand: ["Polymerization", "King of the Swamp", "Elemental HERO Wildheart", "Elemental HERO Burstinatrix"],
+        extra: ["Elemental HERO Wildedge", "Elemental HERO Flame Wingman"] },
+      player: { mzone: ["Gene-Warped Warwolf"], lp: 2100 } });
+    expect(msgs(p, "SPSUMMONING", "Elemental HERO Flame Wingman")).toHaveLength(1);
+    expect(p.end?.winner).toBe(1);
+  });
+
+  it.each([false, true])("prices Solemn's payment against the surviving public board: protect battle lock %s", lock => {
+    const p = play(dc, { npcId: 5, first: "npc", turns: 2,
+      npc: { lp: 800, mzone: ["Hunter Dragon"], szone: ["Solemn Judgment", [lock ? "Swords of Revealing Light" : "Future Fusion", "up"]] },
+      player: { mzone: ["Beaver Warrior"], hand: ["Axe of Despair", "Mystical Space Typhoon"] },
+      player_policy: sel => {
+        if (sel.type === "SELECT_CHAIN" && !sel.forced) return { type: "SELECT_CHAIN", index: null };
+        if (sel.type === "SELECT_CARD") {
+          const i = (sel.selects as any[]).findIndex(c => c.code === code(lock ? "Swords of Revealing Light" : "Future Fusion"));
+          if (i >= 0) return { type: "SELECT_CARD", indicies: [i] };
+          const own = (sel.selects as any[]).findIndex(c => c.controller === 0 && c.code === code("Beaver Warrior"));
+          if (own >= 0) return { type: "SELECT_CARD", indicies: [own] };
+        }
+        return activating("Axe of Despair", activating("Mystical Space Typhoon", attacker))(sel);
+      } });
+    expect(npcActivated(p, "Solemn Judgment")).toBe(lock);
+    expect(p.end?.winner).not.toBe(0);
+  });
+
   // ---- battle
   it("attacks the monster it beats even with a battle-indestructible Spirit Reaper beside it (duel 303)", () => {
     const p = play(dc, {

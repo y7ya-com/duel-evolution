@@ -288,7 +288,7 @@ export class HeuristicBot {
   #plannedTarget: number | null | undefined;
   /** The select being answered (a what-if forks the duel at it), and this decision's what-if results. */
   #sel: Json | null = null;
-  #whatIfs = new Map<string, { gain: number; summon: number }>();
+  #whatIfs = new Map<string, { gain: number; summon: number; survives: boolean | null }>();
   #stored: { turn: number; seqs: ReadonlySet<number> } | null = null;
   #deckList: number[] = [];
   /** My monsters (zones) that declared an attack this turn, and my attack under way (its zone, its target's). */
@@ -1151,23 +1151,28 @@ export class HeuristicBot {
 
   /** The action played out under the real rules (simSearch.ts whatIf): the board's value after it minus now, and the
    *  ATK it brought to my field minus the ATK it took from it. 0 / 0 without the lookahead or on a failed fork. */
-  #whatIf(action: Action): { gain: number; summon: number } {
+  #whatIf(action: Action): { gain: number; summon: number; survives: boolean | null } {
     const key = JSON.stringify(action.resp);
     const known = this.#whatIfs.get(key);
     if (known) return known;
-    let out = { gain: 0, summon: 0 };
+    let out: { gain: number; summon: number; survives: boolean | null } = { gain: 0, summon: 0, survives: null };
     if (this.#search && this.#sel) {
       const before = this.#board;
       try {
         const st = whatIf(this.#search, this.seat, this.#sel, action.prompt, action.resp, this);
-        if (typeof st === "number") out = { gain: st, summon: 0 };
+        if (typeof st === "number") out = { gain: st, summon: 0, survives: st >= 0 };
         else if (st) {
           const now = this.#positionValue(), mineNow = this.#myMonsterAtks();
           this.#board = boardFromState(st, this.seat, this.#vision) ?? before;
           const after = this.#positionValue(), mineAfter = this.#myMonsterAtks();
           const came = [...mineAfter].filter(([k]) => !mineNow.has(k)).reduce((n, [, a]) => n + a, 0);
           const went = [...mineNow].filter(([k]) => !mineAfter.has(k)).reduce((n, [, a]) => n + a, 0);
-          out = { gain: Math.round(after - now), summon: came - went };
+          const reserve = this.#me()?.szone.some(c => c && isFaceDown(c.position)
+            && ATTACK_ANSWER.test(this.#nameOf(c.code)) && !this.#locked(c.code));
+          out = { gain: Math.round(after - now), summon: came - went,
+            // A reserved attack answer needs its own response window: this static
+            // public-board forecast cannot conclude that the player dies through it.
+            survives: reserve ? null : replyPosition(this.#boardPosition()).myLp > 0 };
         }
       } catch {
         // a failed what-if reads as no gain
@@ -1247,7 +1252,8 @@ export class HeuristicBot {
     try {
       const limit = Math.max(2, search.maxCandidates);
       // Keep the phase-exit lines (the last two) in the pool: a busy hand can offer many summons/effects.
-      const pool = cands.length <= limit ? cands : [...cands.slice(0, limit - 2), ...cands.slice(-2)];
+      const pool = cands.length <= limit ? cands : ev.kind === "selectIdleCmd"
+        ? [...cands.slice(0, limit - 2), ...cands.slice(-2)] : cands.slice(0, limit);
       for (const c of pool) {
         // every candidate in the pool is played out: only a runaway decision stops early (the safety ceiling)
         if (scored.length > 0 && performance.now() - t0 > search.budgetMs) break;
@@ -1277,6 +1283,12 @@ export class HeuristicBot {
       // Only on OUR OWN turn (protecting a play); on the opponent's turn the fast heuristic reacts.
       case "selectChain": return this.#turnPlayer === this.seat ? this.#chainCandidates(ev) : null;
       case "selectOption": return ev.options.map((_, i) => ({ resp: respOption(i) }));
+      case "selectCard": return this.#recoveryCandidates(ev);
+      case "selectPosition": {
+        const preferred = this.#position(ev.code, ev.positions);
+        return [...new Set([preferred, POS.FACEUP_ATTACK, POS.FACEUP_DEFENSE, POS.FACEDOWN_DEFENSE, POS.FACEDOWN_ATTACK])]
+          .filter(p => (ev.positions & p) !== 0).map(p => ({ resp: respPosition(p) }));
+      }
       case "selectEffectYN": {
         const key = this.#effKey(ev);
         if (this.#activatedThisTurn.has(key)) return null;
@@ -1287,6 +1299,32 @@ export class HeuristicBot {
       }
       default: return null;
     }
+  }
+
+  /** Compare complete follow-ups for a public, single-card gain: a search,
+   * revival or fusion destination. Costs and opposing hidden cards stay out. */
+  #recoveryCandidates(ev: P<"selectCard">): Candidate[] | null {
+    if (ev.min !== 1 || ev.max !== 1 || ev.cards.length < 2
+      || (this.#hint !== H_ATOHAND && this.#hint !== H_SPSUMMON)) return null;
+    const publicGain = ev.cards.every(c => c.code && ((c.controller === this.seat
+      && (c.location & (LOCATION.DECK | LOCATION.EXTRA | LOCATION.HAND)) !== 0)
+      || (c.location & LOCATION.GRAVE) !== 0));
+    if (!publicGain) return null;
+    // A delayed fusion / explicit combo goal extends beyond the searched turn.
+    // Keep its named setup plan rather than pricing only its immediate board.
+    if (this.#nameOf(this.#pickSubject()) === "future fusion" || ev.cards.some(c => this.#ruleFor(c.code)?.keepInHand)) return null;
+    const combo = this.#comboState();
+    if (combo && ev.cards.some(c => (c.location & LOCATION.EXTRA) !== 0 && this.#nameOf(c.code) === combo.plan.fusion)) return null;
+    const preferred = this.#rulePick(ev.cards, 1, 1) ?? this.#pickTargets(ev.cards, 1, 1, this.#hint);
+    const ranked = this.#pickTargets(ev.cards, ev.cards.length, ev.cards.length, this.#hint);
+    const seen = new Set<string>();
+    const rule = this.#ruleFor(this.#pickSubject())?.pick, ctx = this.#ctx();
+    return [...preferred, ...ranked].flatMap(i => {
+      const c = ev.cards[i]!, key = `${c.controller}:${c.location}:${c.code}`;
+      if (seen.has(key) || (rule && rule.score(ctx, this.#ruleCard(c)) < (rule.min ?? 0))) return [];
+      seen.add(key);
+      return [{ resp: respCards([i]) }];
+    });
   }
 
   #idleCandidates(ev: P<"selectIdleCmd">): Candidate[] {
@@ -2113,6 +2151,18 @@ export class HeuristicBot {
     return respYesNo(yes);
   }
 
+  /** Do not pay for a negation that turns a survivable public board into lethal.
+   * Compare real chain resolutions, including the LP payment and removed cards.
+   * Main 1 only: pending/spent battle attacks require a different forecast. */
+  #paidResponseAllowed(ev: P<"selectChain">, index: number): boolean {
+    if (this.#nameOf(ev.chains[index]!.code) !== "solemn judgment" || !this.#search || !this.#sel
+      || this.#turnPlayer === this.seat || this.#board?.phase !== PHASE.MAIN1) return true;
+    const paid = this.#whatIf({ prompt: ev, resp: respChain(index) });
+    if (paid.survives !== false) return true;
+    const pass = this.#whatIf({ prompt: ev, resp: respChain(null) });
+    return pass.survives !== true;
+  }
+
   #chain(ev: P<"selectChain">): Json {
     if (ev.chains.length === 0) return respChain(null);
     if (ev.forced) return respChain(0);
@@ -2121,7 +2171,8 @@ export class HeuristicBot {
     // A set card the opponent's chain is taking: used now if it does anything (production: Scapegoat, Raigeki Break,
     // Ring of Destruction and Compulsory Evacuation Device destroyed unused).
     const doomedIdx = ev.chains.findIndex((c, i) => this.#isDoomed(c) && !this.#chainedThisWindow.has(`${c.code}:${c.description}`) && !this.#locked(c.code)
-      && (this.#ruleFor(c.code)?.doomed?.(this.#withSelf(this.#ctx(), c.code, c, { prompt: ev, resp: respChain(i) })) ?? true));
+      && (this.#ruleFor(c.code)?.doomed?.(this.#withSelf(this.#ctx(), c.code, c, { prompt: ev, resp: respChain(i) })) ?? true)
+      && this.#paidResponseAllowed(ev, i));
     if (doomedIdx >= 0) {
       const c = ev.chains[doomedIdx]!;
       this.#chainedThisWindow.add(`${c.code}:${c.description}`);
@@ -2192,6 +2243,7 @@ export class HeuristicBot {
       if (own && !this.#ruleFor(c.code)?.ownTurn && !(ctx.oppChained && this.#cards.brain.get(c.code)?.has("negate"))) continue;
       const rule = this.#ruleFor(c.code);
       if (rule?.chainReact && !rule.chainReact(this.#withSelf(ctx, c.code, c, { prompt: ev, resp: respChain(i) }))) continue;
+      if (!this.#paidResponseAllowed(ev, i)) continue;
       // Chain Strike about to go: a burn card that deals 1000 or more goes under it first, raising its link
       if (this.#nameOf(c.code) === "chain strike") {
         const under = this.#strikeFodder(ev, ctx);

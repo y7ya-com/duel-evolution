@@ -150,7 +150,10 @@ export function whatIf(access: SearchAccess, seat: number, live: Json, prompt: P
   return forkPlay(access, seat, live, prompt, inject, liveBot, (sel, events, l) => {
     if (events.some((e) => e.ev === "msg" && e.type === "CHAIN_END")) chained = true;
     if (sel.turn !== l.turn) return true;
-    const mine = Number(sel.player) === seat && (sel.type === "SELECT_IDLECMD" || sel.type === "SELECT_BATTLECMD");
-    return mine || (chained && Number(sel.player) !== seat);
+    // Once either player can choose a new main/battle action, this action is over.
+    // In particular a passed summon-response window has no CHAIN_END: continuing
+    // until our next command would let the opposing pilot use its hidden hand.
+    const command = sel.type === "SELECT_IDLECMD" || sel.type === "SELECT_BATTLECMD";
+    return command || (chained && Number(sel.player) !== seat);
   });
 }
