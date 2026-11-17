@@ -999,6 +999,8 @@ export class HeuristicBot {
       oppGraveMonsters: opp.grave.filter(isMon).length,
       myBanishedMaxAtk: maxAtk(me.removed), oppRemoved: opp.removed.filter(isMon).length, oppRemovedMaxAtk: maxAtk(opp.removed),
       myEffectMon: effectMon(me), oppEffectMon: effectMon(opp),
+      myFaceUpWarriors: me.mzone.filter(c => c && !isFaceDown(c.position) && ((this.#cards.brain.get(c.code)?.race ?? 0) & 1) !== 0).length,
+      fieldMonsterEffectsNegated: b.players.some(p => p.szone.some(c => c && !isFaceDown(c.position) && this.#nameOf(c.code) === "skill drain")),
       oppChainThreat: threat, oppChainHitsMine: hits,
       oppSummonAtk: this.#summonedAtk(),
       incomingDamage: incoming,
@@ -1932,7 +1934,8 @@ export class HeuristicBot {
       seen.add(c.code);
       let st = this.#normalSummonStats(c.code);
       const equipAtk = st.atk - this.#stat(c.code).atk;
-      const bonus = this.#ruleFor(c.code)?.summonScore?.(ctx) ?? 0;
+      // Summon setup must not count the monster itself as its future discard.
+      const bonus = this.#ruleFor(c.code)?.summonScore?.(this.#withSelf(ctx, c.code, c)) ?? 0;
       const setIndex = ev.monsterSet.findIndex((x) => x.code === c.code);
       let n = st.level > 6 ? 2 : st.level > 4 ? 1 : 0;
       // offered with fewer monsters than its tributes: its own summon without tributes (Fusilier Dragon at half its

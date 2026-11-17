@@ -8,7 +8,7 @@ export const EXT_NUM = [
   "oppFaceUpBackrow", "oppFaceUpSpells", "mySetBackrow", "myFreeStZones", "oppFreeZones",
   "myHandMonsters", "myHandSpare", "myHandMaxMonAtk",
   "myGraveMonsters", "myGraveSpells", "oppGraveMonsters", "myBanishedMaxAtk", "oppRemoved", "oppRemovedMaxAtk",
-  "myEffectMon", "oppEffectMon",
+  "myEffectMon", "oppEffectMon", "myFaceUpWarriors",
   /** What the opponent's live chain links hit of mine: ATK of my monsters + 1000 per Spell/Trap; and how many cards. */
   "oppChainThreat", "oppChainHitsMine",
   /** ATK of the monster the opponent just summoned (this response window), 0 none. */
@@ -60,6 +60,8 @@ export const EXT_BOOL = [
   /** A spare card to discard (myHandSpare >= 1); a monster of mine worth little as a tribute (or one I only borrowed). */
   "discardFodder", "cheapTribute",
   "myFieldSpell", "myLockActive",
+  /** A visible Skill Drain suppresses effects of face-up monsters on the field. */
+  "fieldMonsterEffectsNegated",
   /** The opponent's live top link is a Spell / Trap / one that stays on the field (Continuous, Equip, Field); it would
    *  destroy or remove one of my Spell / Trap cards; it works from a graveyard (a revival). */
   "oppChainedSpell", "oppChainedTrap", "oppChainedLingering", "oppChainHitsMyBackrow", "oppChainUsesGrave",
