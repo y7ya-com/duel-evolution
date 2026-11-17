@@ -2473,8 +2473,10 @@ export class HeuristicBot {
     const valued = cards.map((c) => ({
       controller: c.controller,
       location: c.location,
-      // Deck searches should find engine starters, not merely the highest printed ATK.
-      value: this.#removalValue(c) + (ctx && c.code ? (this.#ruleFor(c.code)?.summonScore?.(ctx) ?? 0) : 0),
+      // A hand search can Normal Summon and trigger its equip later; a recruiter
+      // Special Summon cannot. Price the public graveyard bonus only for hand searches.
+      value: this.#removalValue(c) + (ctx && c.code && hint === H_ATOHAND
+        ? Math.max(0, this.#normalSummonStats(c.code).atk - this.#stat(c.code).atk) : 0) + (ctx && c.code ? (this.#ruleFor(c.code)?.summonScore?.(ctx) ?? 0) : 0),
     }));
     // the engine says the pick summons or adds the card (a Special Summon from the hand: Marauding Captain): our best,
     // not the cheapest as a cost would be

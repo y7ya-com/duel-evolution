@@ -13,6 +13,43 @@ describe.skipIf(!haveData)("NPC scenarios (real engine)", () => {
   let dc: DuelCore;
   beforeAll(async () => { dc = await createNodeDuelCore(); }, 60_000);
 
+  it.each(["Mystical Space Typhoon", "Heavy Storm"])("does not pay half its LP to protect only Solemn Judgment from %s (1677/1767)", removal => {
+    const p = play(dc, { npcId: 5, first: "player", turns: 1,
+      npc: { szone: ["Solemn Judgment"], lp: 7550 },
+      player: { hand: [removal] }, player_policy: activating(removal) });
+    expect(npcActivated(p, "Solemn Judgment")).toBe(false);
+    expect(leftField(p, "Solemn Judgment")).toBe(true);
+  });
+
+  it("still uses Solemn Judgment to protect another card from Heavy Storm", () => {
+    const p = play(dc, { npcId: 5, first: "player", turns: 1,
+      npc: { szone: ["Solemn Judgment", "Mirror Force"] },
+      player: { hand: ["Heavy Storm"] }, player_policy: activating("Heavy Storm") });
+    expect(npcActivated(p, "Solemn Judgment")).toBe(true);
+    expect(leftField(p, "Mirror Force")).toBe(false);
+  });
+
+  it.each(["no Dragon", "equipped", "Skill Drain"])("Sangan searches for usable summon strength: %s (1906)", state => {
+    const p = play(dc, { npcId: 5, first: "npc", turns: 2,
+      npc: { mzone: [["Sangan", "set"]], grave: state !== "no Dragon" ? ["Hunter Dragon"] : [],
+        szone: state === "Skill Drain" ? [["Skill Drain", "up"]] : [],
+        deck: ["Cyberdark Horn", "Masked Dragon", ...Array(12).fill("Petit Moth")] },
+      player: { mzone: ["Lyla, Lightsworn Sorceress"] }, player_policy: attacker });
+    const pick = p.npc.find(d => d.sel.type === "SELECT_CARD" && (d.sel.selects as any[]).some(c => c.code === code("Cyberdark Horn")))!;
+    expect(pick).toBeDefined();
+    const index = (pick.resp!.indicies as number[])[0]!;
+    expect((pick.sel.selects as any[])[index].code).toBe(code(state === "equipped" ? "Cyberdark Horn" : "Masked Dragon"));
+  });
+
+  it("does not price a recruiter Special Summon as an equipped Cyberdark", () => {
+    const p = play(dc, { npcId: 5, first: "npc", turns: 2,
+      npc: { mzone: [["Masked Dragon", "set"]], grave: ["Hunter Dragon"],
+        deck: ["Cyberdark Horn", "Masked Dragon", ...Array(12).fill("Petit Moth")] },
+      player: { mzone: ["Lyla, Lightsworn Sorceress"] }, player_policy: attacker });
+    expect(msgs(p, "SPSUMMONING", "Masked Dragon")).toHaveLength(1);
+    expect(msgs(p, "SPSUMMONING", "Cyberdark Horn")).toHaveLength(0);
+  });
+
   // ---- battle
   it("attacks the monster it beats even with a battle-indestructible Spirit Reaper beside it (duel 303)", () => {
     const p = play(dc, {
