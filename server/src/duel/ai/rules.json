@@ -470,6 +470,11 @@
       "destiny hero - diamond dude": {"summonScore": 600, "idleActivate": true, "idlePriority": 110},
       "destiny draw": {"idleActivate": true, "idlePriority": 140}
     },
+    "53": {
+      "heart of the underdog": {"idleActivate": {"all": [{">=": ["myDeck", 3]}, {"not": "sameCardActive"}]}, "idlePriority": 90,
+        "yesNo": {"all": [{">": ["myDeck", 1]}, {"<": ["myHand", 8]}]}},
+      "slifer the sky dragon": {"summonScore": {"if": [{"all": [{">=": ["myHand", 5]}, {">=": [{"count": "myMon"}, 3]}, {"not": "fieldMonsterEffectsNegated"}]}, 2000, 0]}}
+    },
     "38": {
       "reasoning": {"idleActivate": {"all": [{"<": [{"count": "myMon"}, 3]}, {">=": [{"+": [{"inMyDeck": "dark magician of chaos"}, {"inMyDeck": "jinzo"}, {"inMyDeck": "d.d.m. - different dimension master"}, {"inMyDeck": "toon cannon soldier"}]}, 1]}]}, "idlePriority": 60}
     },

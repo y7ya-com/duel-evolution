@@ -139,14 +139,14 @@ describe.skipIf(!haveData)("NPC AI duels", () => {
     } finally { dc.end(id); }
   }, 120_000);
 
-  // The duel host (OcgSession): the NPC AI by default, the parity brain with NPC_AI=py. The NPC (53, elite) goes first
+  // The duel host (OcgSession): the NPC AI by default, the parity brain with NPC_AI=py. The NPC (66, elite) goes first
   // and plays its whole first turn through the host before the player's first decision.
   it.each([["", NpcAi], ["py", NpcBrain]] as const)("NPC_AI=%s: the host's NPC player", async (flag, cls) => {
     setDuelCore(dc);
     try {
       const srv = buildServer(configFrom({ PARITY_SEED: "1", DUEL_PAUSE: "0.0005", NPC_AI: flag }), { accounts: {} }, () => {});
       const conn = new Conn(srv.world, srv.world.seqTable, DUEL_PORT, "peer-ai", () => true, DUEL_PORT);
-      const s = new OcgSession(srv.game, conn, () => {}, 53, 0.0005);
+      const s = new OcgSession(srv.game, conn, () => {}, 66, 0.0005);
       const ids = (xs: number[]) => { const w = new W().u32(xs.length); for (const x of xs) w.u32(x); return w.bytes(); };   // passcodes
       s.clientDeck(0x6601, ids(NPC_DECKS["51"].main));
       s.clientDeck(0x6603, ids(NPC_DECKS["51"].extra ?? []));

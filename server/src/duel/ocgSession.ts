@@ -1,3 +1,4 @@
+import { YUGI_HEART_POOL } from "./yugiHeartPool.ts";
 // py ocg_duel.py: the duel with real rules. OcgSession = a duel against an NPC (duelcore + the translator + the NPC
 // brain), PvpSession = two humans in one duelcore duel (two translator views, the second mirrored), Sender = the
 // paced send queue of a duel connection.
@@ -324,6 +325,7 @@ export class OcgSession {
     const autoChain = !d.cfg.chain_none_prompt;
     const o = USE_BRAIN ? { first: first as 0 | 1, seed, shuffle: true, brain: "python", rule, auto_chain: autoChain, place_order }
       : { first: first as 0 | 1, seed, shuffle: true, rule, auto_chain: autoChain, place_order };
+    if ([51, 52, 53].includes(this.npcId)) Object.assign(o, { heart_of_cards: 1, heart_pool: [...YUGI_HEART_POOL] });
     const log = dc.record(this.id);
     const py = this.g.cfg.npcAi === "py";
     this.rec = { decks, opts: o, cmds: log, t0: now(), tier: !USE_BRAIN ? "engine" : py ? "py" : tierFor(this.npcId, NPC_PROFILES) };

@@ -50,6 +50,7 @@ import { zoneOrder } from "../zones.ts";
 const TAG_RULES = new Map<number, CardRule | null>();
 
 const MAX_IDLE_ACTIONS = 24; // hard safety cap on plays per turn (prevents pathological loops)
+const YUGI_SIGNATURE = /^(dark magician(?: girl| of chaos)?|skilled dark magician|apprentice magician|buster blader|summoned skull|gaia the fierce knight|swift gaia the fierce knight|curse of dragon|gazelle the king of mythical beasts|berfomet|kuriboh|big shield gardna|obnoxious celtic guard|alpha the magnet warrior|beta the magnet warrior|gamma the magnet warrior|valkyrion the magna warrior|king's knight|queen's knight|jack's knight|slifer the sky dragon|obelisk the tormentor|the winged dragon of ra|black luster soldier(?: - envoy of the beginning)?|gandora the dragon of destruction|polymerization|ancient rules|magical dimension|dark magic attack|thousand knives|swords of revealing light|mirror force|magic cylinder|monster reborn)$/;
 
 /** Set cards that really answer a committed board or an attack: what a spy-vision player fears, pops first, and
  *  discounts its board eval by. */
@@ -163,6 +164,8 @@ export interface BotOpts {
   npcId?: number;
   /** Its deck list (Main + Extra): what is still in the Deck is this less every copy seen (rule inMyDeck). */
   deck?: number[];
+  /** This duel explicitly granted this seat Yugi's private draw skill. */
+  heartSkill?: boolean;
   /** The card rules (ruleSet.ts): the active set when absent. */
   rules?: RuleSet;
   /** Spy vision: boards come from `peek` (the full duel state) instead of the select's honest `view`. */
@@ -312,6 +315,9 @@ export class HeuristicBot {
   #equips = new Map<string, string>();
   /** Lower bounds learned only from public returns/reveals, never raw hidden draws. */
   #knownOppHand = new Map<number, number>();
+  #heartMade = new Map<number, number>();
+  #heartPending: number[] = [];
+  #heartSkill: boolean;
   /** `${zone}:${code}` of the monsters I controlled but did not own at the start of this turn (a Creature Swap): not
    *  what this turn's Brain Control lent me. */
   #heldBefore = new Set<string>();
@@ -324,6 +330,7 @@ export class HeuristicBot {
     this.#cards = cards;
     this.#rules = rulesOf(opts.rules ?? activeRules(), opts.npcId);
     this.#deckList = opts.deck ?? [];
+    this.#heartSkill = !!opts.heartSkill;
     this.#combo = opts.npcId !== undefined ? COMBO_PLANS[opts.npcId] : undefined;
     this.#vision = !!opts.spy && !!opts.peek;
     this.#peek = opts.peek;
@@ -344,6 +351,7 @@ export class HeuristicBot {
   // ---- engine entry points ----------------------------------------------------------------------------------------
   /** Public duel messages (ev.ev === "msg"): chain boundaries reset the per-window guard. */
   observe(ev: Json): void {
+    if (ev.type === "DRAW" && Number(ev.player) === this.seat) this.#heartPending = [];
     switch (ev.type) {
       case "MOVE": {
         const from = ev.from as Json | undefined, to = ev.to as Json | undefined;
@@ -449,6 +457,8 @@ export class HeuristicBot {
     this.#turnPlayer = Number(sel.turn_player ?? 0);
     if (turn !== this.#turn) {
       this.#turn = turn;
+      this.#heartMade.clear();
+      this.#heartPending = [];
       this.#declaredAttacker = null;
       this.#attackSeen = true;
       this.#deadAttackers.clear();
@@ -489,6 +499,8 @@ export class HeuristicBot {
     this.#msgTurnPlayer = from.#msgTurnPlayer;
     this.#equips = new Map(from.#equips);
     this.#knownOppHand = new Map(from.#knownOppHand);
+    this.#heartMade = new Map(from.#heartMade);
+    this.#heartPending = [...from.#heartPending];
     this.#heldBefore = new Set(from.#heldBefore);
     this.#heldTurn = from.#heldTurn;
   }
@@ -506,6 +518,7 @@ export class HeuristicBot {
    *  of an injected attack must know the attacker). */
   applyExternalResponse(ev: Prompt, r: Json): void {
     const index = typeof r.index === "number" ? r.index : -1;
+    if (ev.kind === "announceCard" && ev.heart && typeof r.card === "number") this.#heartChosen(r.card);
     if (ev.kind === "selectBattleCmd") {
       if (r.action === "SELECT_BATTLE") {
         const a = ev.attackable[index];
@@ -925,6 +938,10 @@ export class HeuristicBot {
   #idlePriority(code: number, ctx: RuleCtx, ref?: CardRef, action?: Action): number {
     const name = this.#nameOf(code);
     if (this.#locked(code)) return -Infinity;
+    // Clear the visible draw-skill counter before spending draw spells. This
+    // preference belongs only to a seat that actually has Heart of the Cards.
+    if (this.#heartSkill && /^(mystical space typhoon|dust tornado|heavy storm|harpie's feather duster|giant trunade)$/.test(name)
+      && this.#board?.players.some(p => p.szone.some(c => c && !isFaceDown(c.position) && this.#nameOf(c.code) === "convulsion of nature"))) return 1000;
     if (this.#combo?.afterPayoff?.includes(name) && !this.#comboPayoffLive()) return -Infinity;
     // Returning our own Cyberdark equip can turn a lethal direct attack into
     // nonlethal damage (2066). Check the resolved public board before clearing backrow.
@@ -1338,6 +1355,7 @@ export class HeuristicBot {
       case "selectChain": return this.#turnPlayer === this.seat ? this.#chainCandidates(ev) : null;
       case "selectOption": return ev.options.map((_, i) => ({ resp: respOption(i) }));
       case "selectCard": return this.#recoveryCandidates(ev);
+      case "announceCard": return ev.heart ? this.#heartDrawCandidates(ev) : null;
       case "selectPosition": {
         const preferred = this.#position(ev.code, ev.positions);
         return [...new Set([preferred, POS.FACEUP_ATTACK, POS.FACEUP_DEFENSE, POS.FACEDOWN_DEFENSE, POS.FACEDOWN_ATTACK])]
@@ -1353,6 +1371,86 @@ export class HeuristicBot {
       }
       default: return null;
     }
+  }
+
+  /** The private draw skill ranks its eligible pool using our hand and public board.
+   * Whole-turn engine rollouts compare the leading distinct draws; no opponent hand is read. */
+  #heartDrawCandidates(ev: P<"announceCard">): Candidate[] | null {
+    const cards = ev.cards ?? [];
+    if (!ev.heart || !cards.length || cards.some(c => c.controller !== this.seat || c.location !== LOCATION.DECK)) return null;
+    const ctx = this.#ctx(), me = this.#me(), hand = (me?.hand ?? []).map(c => this.#nameOf(c));
+    const field = (me?.mzone ?? []).filter(Boolean).length;
+    const present = [...hand, ...this.#heartPending.map(c => this.#nameOf(c))];
+    // A draw spell can support a signature play; it must not become a virtual
+    // draw engine. One materialised draw/cycle card per turn, including a pending batch.
+    const drawCard = (code: number) => !!this.#cards.brain.get(code)?.has("draw")
+      || /^(reload|magical mallet|card destruction|hand destruction)$/.test(this.#nameOf(code));
+    const drawUsed = [...this.#heartMade].some(([code, n]) => n > 0 && drawCard(code))
+      || [...(me?.hand ?? []), ...this.#heartPending].some(drawCard);
+    const magnets = ["alpha the magnet warrior", "beta the magnet warrior", "gamma the magnet warrior"];
+    const has = (name: string) => present.includes(name);
+    const materials = [...present, ...(me?.mzone ?? []).filter(c => c && !isFaceDown(c.position)).map(c => this.#nameOf(c!.code))];
+    const comboPieces = this.#combo?.pieces.filter(n => materials.includes(n)).length ?? 0;
+    const completesFusion = (name: string) => !!this.#combo && this.#combo.pieces.includes(name) && !materials.includes(name)
+      && has(this.#combo.assembler) && comboPieces >= this.#combo.need - 1;
+    const rank = (c: CardRef): number => {
+      const name = this.#nameOf(c.code), k = this.#cards.brain.get(c.code), st = this.#normalSummonStats(c.code);
+      let score = this.#worth(c.code, true);
+      if ((k?.type ?? 0) & TYPE_MONSTER) {
+        const tributes = /^(slifer the sky dragon|obelisk the tormentor|the winged dragon of ra)$/.test(name) ? 3 : k?.tributes() ?? 0;
+        score += tributes > field ? -5000 : st.atk + (st.atk > ctx.oppMaxAtk ? 1500 : 0);
+        if (YUGI_SIGNATURE.test(name)) score += tributes <= field || (name === "dark magician" && has("ancient rules")) ? 6500 : 600;
+        if (this.#normalSummoned) score -= 1500;
+        if (magnets.includes(name) && !has(name)) score += (magnets.filter(has).length >= 2 || has("valkyrion the magna warrior")) ? 8000 : 500;
+        if (name === "valkyrion the magna warrior") score += magnets.every(has) ? 15000 : -6000;
+        if (name === "dark magician" && has("ancient rules")) score += 11000;
+        if (completesFusion(name)) score += 30000;
+        if (has(name)) score -= 500;
+        if (!ctx.ext?.fieldMonsterEffectsNegated && BATTLE_PROOF.has(c.code) && tributes === 0 && ctx.oppMon.length > 0 && field === 0)
+          score += ctx.myLp <= ctx.oppMaxAtk * 2 ? 14000 : 3000;
+        if (!ctx.ext?.fieldMonsterEffectsNegated && /^(exiled force|tribe-infecting virus|snipe hunter)$/.test(name) && ctx.oppMon.length > 0
+          && (name === "exiled force" || hand.length > 0)) score += 11000;
+      } else {
+        if (YUGI_SIGNATURE.test(name)) score += 6000;
+        if (/^(pot of greed|graceful charity)$/.test(name)) score += 6500;
+        if (/^(raigeki|dark hole|lightning vortex|snatch steal|brain control|smashing ground|fissure)$/.test(name))
+          score += ctx.oppMon.length ? (ctx.oppMaxAtk >= ctx.myMaxAtk ? 12000 : 4000) : -4000;
+        if (/^(mystical space typhoon|heavy storm|harpie's feather duster|giant trunade)$/.test(name)) score += ctx.oppBackrow ? 6000 : -4000;
+        if (/^(monster reborn|premature burial)$/.test(name)) score += Math.max(ctx.myGraveMaxAtk ?? 0, ctx.oppGraveMaxAtk ?? 0) > 1500 ? 5000 : -3000;
+        if (name === "heart of the underdog") score += !has(name) && !(me?.szone.some(c => c && this.#nameOf(c.code) === name)) ? 6500 : -5000;
+        if (/^(reload|magical mallet)$/.test(name)) score -= hand.length < 3 ? 5000 : 500;
+        if (name === "polymerization") score += this.#combo && comboPieces >= this.#combo.need && !has(name) ? 14000 : -7000;
+        if (name === "ancient rules") score += (me?.hand.some(c => { const k = this.#cards.brain.get(c); return k && !(k.type & TYPE_EFFECT) && this.#stat(c).level >= 5; })) ? 8000 : -2500;
+        if (name === "magical dimension") score += (me?.hand.some(c => ((this.#cards.brain.get(c)?.race ?? 0) & 2) !== 0))
+          && (me?.mzone.some(c => c && !isFaceDown(c.position) && ((this.#cards.brain.get(c.code)?.race ?? 0) & 2) !== 0)) ? 8000 : 0;
+        if (/^(dark magic attack|thousand knives)$/.test(name) && me?.mzone.some(c => c && !isFaceDown(c.position) && this.#nameOf(c.code) === "dark magician"))
+          score += (name === "dark magic attack" ? ctx.oppBackrow : ctx.oppMon.length) > 0 ? 12000 : -3000;
+        if (name === "double summon") score += this.#normalSummoned && (ctx.ext?.myHandMonsters ?? 0) > 0 ? 7000 : 0;
+        if (name === "dark factory of mass production") score += (me?.grave.filter(c => ((this.#cards.brain.get(c)?.type ?? 0) & (TYPE_MONSTER | TYPE_EFFECT)) === TYPE_MONSTER).length ?? 0) >= 2 ? 6000 : -3000;
+        if (has(name)) score -= 2000;
+      }
+      if (this.#locked(c.code)) score -= 1e6;
+      score -= (this.#heartMade.get(c.code) ?? 0) * 500;
+      return score;
+    };
+    const ranked = cards.map((c, i) => ({ c, i })).filter(({c}) => !drawUsed || !drawCard(c.code))
+      .map(({c, i}) => ({ i, score: rank(c) })).sort((a, b) => b.score - a.score || a.i - b.i).map(x => x.i);
+    const seen = new Set<number>();
+    return ranked.flatMap(lead => {
+      if (seen.has(cards[lead]!.code)) return [];
+      seen.add(cards[lead]!.code);
+      const code = cards[lead]!.code;
+      // Value Yugi's identity in the rollout as well as its shortlist. A proven
+      // win/loss still overrides this preference in #searchDecide.
+      const name = this.#nameOf(code);
+      const risk = completesFusion(name) ? -4000 : YUGI_SIGNATURE.test(name) ? -1500 : 1500;
+      return [{ resp: { type: "ANNOUNCE_CARD", card: code }, risk, commit: () => this.#heartChosen(code) }];
+    });
+  }
+
+  #heartChosen(code: number): void {
+    this.#heartMade.set(code, (this.#heartMade.get(code) ?? 0) + 1);
+    this.#heartPending.push(code);
   }
 
   /** Compare complete follow-ups for a public, single-card gain: a search,
@@ -1472,7 +1570,11 @@ export class HeuristicBot {
       case "announceNumber": return { type: "ANNOUNCE_NUMBER", value: this.#ruleFor(this.#lastActivated)?.number?.(this.#withSelf(this.#ctx(), this.#lastActivated), ev.options.map(Number)) ?? 0 };
       case "sortCard": return respSort();
       case "selectSum": return solveSum(ev, (i) => this.#materialCost(ev.cards[i]!));
-      case "announceCard": return solveAnnounceCard(ev.opcodes, this.#cards.brain);
+      case "announceCard": {
+        const draw = this.#heartDrawCandidates(ev)?.[0];
+        if (draw) { draw.commit?.(); return draw.resp; }
+        return solveAnnounceCard(ev.opcodes, this.#cards.brain);
+      }
       default: return null; // rock-paper-scissors and the rest: the engine decides
     }
   }
@@ -1845,20 +1947,20 @@ export class HeuristicBot {
   /** Damage on an open field this turn: what stands in attack, what a position change adds (the first such
    *  monster's index) and the strongest Normal Summon without tribute (its index). */
   #reach(ev: P<"selectIdleCmd">): { standing: number; turned: number; turnIndex: number; summon: number; summonIndex: number } {
-    const standing = this.#monstersOf(this.#me()).reduce((n, m) => n + (m.attackPos ? m.atk : 0), 0);
+    const standing = this.#monstersOf(this.#me()).reduce((n, m) => n + (m.attackPos && !m.noAttack && !this.#ruleNoAttack(m.seq) ? m.atk : 0), 0);
     let turned = 0, turnIndex = -1;
     ev.repositionable.forEach((r, i) => {
       const s = this.#snap(r);
       if (!s || (!isFaceDown(s.position) && (s.position & POS.ATTACK) !== 0)) return;
       const atk = s.attack ?? this.#stat(r.code).atk;
-      if (atk <= 0) return;
+      if (atk <= 0 || this.#ruleNoAttack(r.sequence) || this.#attackLocked({ atk, level: s.level ?? this.#stat(r.code).level, faceDown: false }, this.seat)) return;
       turned += atk;
       if (turnIndex < 0) turnIndex = i;
     });
     let summon = 0, summonIndex = -1;
     ev.summonable.forEach((c, i) => {
       const st = this.#normalSummonStats(c.code);
-      if (st.level <= 4 && st.atk > summon && !this.#ruleFor(c.code)?.keepInHand) { summon = st.atk; summonIndex = i; }
+      if (st.level <= 4 && st.atk > summon && !this.#attackLocked({ ...st, faceDown: false }, this.seat) && !this.#ruleFor(c.code)?.keepInHand) { summon = st.atk; summonIndex = i; }
     });
     return { standing, turned, turnIndex, summon, summonIndex };
   }
@@ -1876,6 +1978,10 @@ export class HeuristicBot {
     const st = { ...this.#stat(code) }, me = this.#me();
     // Price public Warrior auras on the body we are about to summon. A face-down
     // set receives none; #summonPlays removes this projected ATK for its set line.
+    if (me && this.#nameOf(code) === "slifer the sky dragon") {
+      const drained = this.#board?.players.some(p => p.szone.some(c => c && !isFaceDown(c.position) && this.#nameOf(c.code) === "skill drain"));
+      st.atk = st.def = drained ? 0 : Math.max(0, me.hand.length - 1) * 1000;
+    }
     if (me && st.level <= 4 && ((this.#cards.brain.get(code)?.race ?? 0) & 1) !== 0) {
       const allies = me.mzone.filter(c => c && !isFaceDown(c.position) && ((this.#cards.brain.get(c.code)?.race ?? 0) & 3) !== 0).length + 1;
       const forces = me.szone.filter(c => c && !isFaceDown(c.position) && this.#nameOf(c.code) === "the a. forces" && !this.#locked(c.code)).length;
@@ -1999,7 +2105,7 @@ export class HeuristicBot {
       // Summon setup must not count the monster itself as its future discard.
       const bonus = this.#ruleFor(c.code)?.summonScore?.(this.#withSelf(ctx, c.code, c)) ?? 0;
       const setIndex = ev.monsterSet.findIndex((x) => x.code === c.code);
-      let n = st.level > 6 ? 2 : st.level > 4 ? 1 : 0;
+      let n = /^(slifer the sky dragon|obelisk the tormentor|the winged dragon of ra)$/.test(this.#nameOf(c.code)) ? 3 : st.level > 6 ? 2 : st.level > 4 ? 1 : 0;
       // offered with fewer monsters than its tributes: its own summon without tributes (Fusilier Dragon at half its
       // stats: production never played it, counting two tributes it did not have)
       if (n > mine.length) { n = 0; st = { ...st, ...NO_TRIBUTE_STATS[this.#nameOf(c.code)] }; }
@@ -2508,7 +2614,12 @@ export class HeuristicBot {
     const pick = this.#ruleFor(this.#pickSubject())?.pick;
     if (!pick || cards.length === 0) return null;
     const ctx = this.#ctx();
-    const ranked = cards.map((c, i) => { const s = pick.score(ctx, this.#ruleCard(c)); return { i, s: s >= 0 && this.#isAttacker(c) ? s + 1e5 : s }; }).sort((a, b) => b.s - a.s);
+    const clearsHeartCounter = this.#heartSkill && BACKROW_POPPER.test(this.#nameOf(this.#pickSubject()));
+    const ranked = cards.map((c, i) => {
+      const s = clearsHeartCounter && (c.location & LOCATION.SZONE) !== 0 && !isFaceDown(c.position ?? 0) && this.#nameOf(c.code) === "convulsion of nature"
+        ? 1e6 : pick.score(ctx, this.#ruleCard(c));
+      return { i, s: s >= 0 && this.#isAttacker(c) ? s + 1e5 : s };
+    }).sort((a, b) => b.s - a.s);
     const cap = Math.min(max > 0 ? max : cards.length, cards.length);
     const out: number[] = [];
     for (const r of ranked) {

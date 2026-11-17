@@ -28,7 +28,7 @@ export { activeRules, buildRules, setActiveRules, type RuleSet } from "./ruleSet
 export type Tier = "easy" | "hard" | "elite";
 
 /** Which AI played, in the duel record (npcDuelLog.ts): one more whenever the AI's play changes. */
-export const NPC_AI_REV = 23;
+export const NPC_AI_REV = 24;
 
 /** Per-NPC personalities (NPC id -> style). */
 export const STYLE_BY_NPC: Record<number, BotStyle> = {};
@@ -127,7 +127,7 @@ export class NpcAi {
         link: o.link,
         // the NPC's own seat plays on as the NPC would (its strength and style); the other seat at full strength
         makePolicy: (seat, own, peek) => new HeuristicBot(seat, o.cards, own
-          ? { npcId: o.npcId, deck: (() => { const d = o.link?.()?.decks[seat]; return d ? [...d.main, ...(d.extra ?? [])] : undefined; })(), spy, peek, rules, strength: cfg.strength, style }
+          ? { npcId: o.npcId, deck: (() => { const d = o.link?.()?.decks[seat]; return d ? [...d.main, ...(d.extra ?? [])] : undefined; })(), heartSkill: o.link?.()?.opts.heart_of_cards === seat, spy, peek, rules, strength: cfg.strength, style }
           : { spy, peek, rules }),
         budgetMs: cfg.budgetMs,
         maxCandidates: cfg.maxCandidates,
@@ -137,7 +137,7 @@ export class NpcAi {
     // its own deck list (the duel it plays: inMyDeck in the rules)
     const own = o.link?.()?.decks[o.seat];
     const deck = own ? [...own.main, ...(own.extra ?? [])] : undefined;
-    this.bot = new HeuristicBot(o.seat, o.cards, { npcId: o.npcId, deck, seed: o.seed, spy, peek: spy ? o.peek : undefined, search, blunder: cfg.blunder, rules, strength: cfg.strength, style });
+    this.bot = new HeuristicBot(o.seat, o.cards, { npcId: o.npcId, deck, heartSkill: o.link?.()?.opts.heart_of_cards === o.seat, seed: o.seed, spy, peek: spy ? o.peek : undefined, search, blunder: cfg.blunder, rules, strength: cfg.strength, style });
   }
 
   observe(ev: Json): void {

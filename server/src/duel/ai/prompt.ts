@@ -35,7 +35,7 @@ export type Prompt =
   | { kind: "selectSum"; player: number; mode: number; sumVal: number; min: number; max: number; must: SumCard[]; cards: SumCard[] }
   | { kind: "selectCounter"; player: number; count: number; cards: (CardRef & { counters: number })[] }
   | { kind: "announceRace" | "announceAttrib"; player: number; count: number; available: number }
-  | { kind: "announceCard"; player: number; opcodes: unknown[] }
+  | { kind: "announceCard"; player: number; opcodes: unknown[]; heart?: boolean; cards?: CardRef[] }
   | { kind: "announceNumber"; player: number; options: unknown[] }
   | { kind: "sortCard"; player: number }
   | { kind: "other"; player: number; type: string };
@@ -91,7 +91,8 @@ export function toPrompt(sel: Json, me: number, spy = false): Prompt {
     case "SELECT_COUNTER": return { kind: "selectCounter", player, count: num(sel.count), cards: arr(sel.cards).map((c) => ({ ...r(c), counters: num(c.count) })) };
     case "ANNOUNCE_RACE": return { kind: "announceRace", player, count: num(sel.count, 1), available: num(sel.available) };
     case "ANNOUNCE_ATTRIB": return { kind: "announceAttrib", player, count: num(sel.count, 1), available: num(sel.available) };
-    case "ANNOUNCE_CARD": return { kind: "announceCard", player, opcodes: Array.isArray(sel.opcodes) ? sel.opcodes : [] };
+    case "ANNOUNCE_CARD": return { kind: "announceCard", player, opcodes: Array.isArray(sel.opcodes) ? sel.opcodes : [], heart: sel.heart_of_cards === true,
+      cards: sel.heart_of_cards === true && Array.isArray(sel.heart_pool) ? (sel.heart_pool as number[]).map((code, sequence) => ({ code, controller: player, location: LOCATION.DECK, sequence })) : [] };
     case "ANNOUNCE_NUMBER": return { kind: "announceNumber", player, options: Array.isArray(sel.options) ? sel.options : [] };
     case "SORT_CARD":
     case "SORT_CHAIN": return { kind: "sortCard", player };

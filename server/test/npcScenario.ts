@@ -38,6 +38,8 @@ export interface Side {
 }
 
 export interface Scene {
+  heart_of_cards?: 0 | 1;
+  heart_pool?: number[];
   npcId: number;
   npc: Side;
   player: Side;
@@ -108,7 +110,7 @@ let seq = 0;
 export function play(dc: DuelCore, scene: Scene): Played {
   const deckOf = (s: Side) => ({ main: (s.deck ?? Array(20).fill(FILLER)).map(code), extra: (s.extra ?? []).map(code) });
   const decks = [deckOf(scene.player), deckOf(scene.npc)];
-  const opts: NewOptions = { first: scene.first === "npc" ? NPC : PLAYER, seed: 1, shuffle: false, rule: PY_DUEL_RULE, brain: [true, true], auto_chain: true, setup: setupOf(scene) };
+  const opts: NewOptions = { first: scene.first === "npc" ? NPC : PLAYER, seed: 1, shuffle: false, rule: PY_DUEL_RULE, brain: [true, true], auto_chain: true, heart_of_cards: scene.heart_of_cards, heart_pool: scene.heart_pool, setup: setupOf(scene) };
   const id = `scene-${++seq}`;
   const log: LoggedCmd[] = [];
   const ai = new NpcAi({ npcId: scene.npcId, seat: NPC, seed: 1, cards: cardInfo(dc.cardDB, brainDb()), tier: "elite", link: () => ({ dc, decks, opts, log }), peek: () => dc.query(id) });

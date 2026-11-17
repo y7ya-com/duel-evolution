@@ -56,6 +56,7 @@ export const simStats = { forks: 0, ms: 0, drift: 0 };
 /** Is this select worth a search (honest: the NPC's own main phase only)? */
 export function searchable(access: SearchAccess, sel: Json, seat: number): boolean {
   if (access.spy) return true;
+  if (sel.heart_of_cards === true && sel.type === "ANNOUNCE_CARD" && Number(sel.player) === seat) return Number(sel.turn_player) === seat;
   const phase = Number(sel.phase);
   return Number(sel.turn_player) === seat && (phase === PHASE.MAIN1 || phase === PHASE.MAIN2);
 }

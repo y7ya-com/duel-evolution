@@ -24,6 +24,7 @@ export interface ComboPlan {
 }
 
 export const COMBO_PLANS: Record<number, ComboPlan> = {
+  51: { fusion: "gaia the dragon champion", pieces: ["gaia the fierce knight", "curse of dragon", "king of the swamp"], need: 2, assembler: "polymerization" },
   52: { fusion: "dark paladin", pieces: ["dark magician", "buster blader", "king of the swamp"], need: 2, assembler: "polymerization" },
   66: { fusion: "cyber blader", pieces: ["blade skater", "etoile cyber", "the earth - hex-sealed fusion"], need: 2, assembler: "polymerization" },
   67: { fusion: "cyber blader", pieces: ["blade skater", "etoile cyber", "the earth - hex-sealed fusion"], need: 2, assembler: "polymerization" },

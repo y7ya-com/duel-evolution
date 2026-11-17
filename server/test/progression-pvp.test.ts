@@ -11,6 +11,7 @@ import { Reader, W } from "../src/net/proto.ts";
 import { Session } from "../src/game/hub.ts";
 import { createNodeDuelCore } from "../src/duel/engine/node.ts";
 import { NPC_DECKS, setDuelCore } from "../src/duel/data.ts";
+import DUEL_DATA from "../gamedata/duel.json";
 import type { PvpMatch } from "../src/duel/pvpMatch.ts";
 import * as PP from "../src/game/persist.ts";
 
@@ -24,6 +25,8 @@ const u32 = (d: Uint8Array, at = 0) => new DataView(d.buffer, d.byteOffset, d.by
 const type6202 = (d: Uint8Array) => u32(d, 0) & 0xff;
 const deckMsg = (ids: number[]) => { const w = new W().u32(ids.length); for (const x of ids) w.u32(x); return w.bytes(); };   // passcodes
 const SNATCH_STEAL = 45986603;   // YO2 285
+// Keep the owned, legal player fixture independent of tuned NPC boss recipes.
+const ownedFixture = () => ({ main: DUEL_DATA.npc_decks["51"].main.filter(x => x !== SNATCH_STEAL), extra: [...DUEL_DATA.npc_decks["51"].extra] });
 
 describe.skipIf(!have)("PROGRESSION: a PvP deck with unowned cards", () => {
   let srv: Server;
@@ -69,7 +72,7 @@ describe.skipIf(!have)("PROGRESSION: a PvP deck with unowned cards", () => {
   it("is refused before the duel: both players get 0x649b (the bad deck's code 0), the match closes, nobody is paid", async () => {
     const A = client("Alfa", "aaaa", 1), B = client("Beta", "bbbb", 2);
     // A owns its deck (NPC 51's without Snatch Steal, forbidden on the 2008 list); B (a new character) owns nothing
-    const own = { main: NPC_DECKS["51"].main.filter((x) => x !== SNATCH_STEAL), extra: NPC_DECKS["51"].extra };
+    const own = ownedFixture();
     const st = srv.game.store.loadRaw();
     st.accounts.aaaa.profiles = { "0": { ...PP.blankProfile("Alfa"), prog: 1 } };
     PP.trunkAdd(null, st.accounts.aaaa.profiles["0"], [...own.main, ...own.extra]);
@@ -96,7 +99,7 @@ describe.skipIf(!have)("PROGRESSION: a PvP deck with unowned cards", () => {
 
   it("a deck swapped after its check (0x6601 again, or no 0x6603 at all) is checked again at 0x61fe and never starts", async () => {
     const st = srv.game.store.loadRaw();
-    const own = { main: NPC_DECKS["51"].main.filter((x) => x !== SNATCH_STEAL), extra: NPC_DECKS["51"].extra };
+    const own = ownedFixture();
     for (const k of ["aaaa", "bbbb"]) {
       st.accounts[k].profiles = { "0": { ...PP.blankProfile(k), prog: 1 } };
       PP.trunkAdd(null, st.accounts[k].profiles["0"], [...own.main, ...own.extra]);
@@ -126,7 +129,7 @@ describe.skipIf(!have)("PROGRESSION: a PvP deck with unowned cards", () => {
 
   it("NPC duels too: 0x61fe checks the deck again when it isn't the one checked at 0x6603", () => {
     const st = srv.game.store.loadRaw();
-    const own = { main: NPC_DECKS["51"].main.filter((x) => x !== SNATCH_STEAL), extra: NPC_DECKS["51"].extra };
+    const own = ownedFixture();
     st.accounts.aaaa.profiles = { "0": { ...PP.blankProfile("Alfa"), prog: 1 } };
     PP.trunkAdd(null, st.accounts.aaaa.profiles["0"], [...own.main, ...own.extra]);
     srv.game.store.saveRaw(st);
