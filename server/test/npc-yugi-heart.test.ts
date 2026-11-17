@@ -9,7 +9,7 @@ it.each([0, 1] as const)("silently materialises a missing card before Yugi's nor
   const id = "yugi-skill-probe-" + first;
   let evs = dc.new(id, [{ main: Array(20).fill(code("Petit Moth")), extra: [] },
     { main: Array(20).fill(code("Petit Moth")), extra: [] }],
-    { first, rule: "MR1", shuffle: false, brain: [true, true], heart_of_cards: 1, heart_pool: [code("Raigeki")], setup: { draw: 0 } });
+    { first, rule: "MR1", shuffle: false, brain: [true, true], heart_of_cards: 1, heart_copy_limit: 3, heart_pool: [code("Raigeki")], setup: { draw: 0 } });
   let sorts = 0, drew = false;
   for (let n = 0; n < 100; n++) {
     const sel = evs.at(-1)!;
@@ -91,7 +91,7 @@ it("keeps a broad playable pool while excluding off-brand Heroes and Kaiba's Blu
 it("accepts every virtual-pool passcode in the native announcement and draws its real identity", () => {
   for (const c of YUGI_HEART_POOL) {
     const id = "yugi-pool-" + c, d = { main: Array(3).fill(code("Petit Moth")), extra: [] };
-    let evs = dc.new(id, [d, d], { first: 1, rule: "MR1", shuffle: false, brain: [true, true], setup: { draw: 0 }, heart_of_cards: 1, heart_pool: [c] });
+    let evs = dc.new(id, [d, d], { first: 1, rule: "MR1", shuffle: false, brain: [true, true], setup: { draw: 0 }, heart_of_cards: 1, heart_copy_limit: 3, heart_pool: [c] });
     try {
       for (let n = 0; n < 30 && !evs.at(-1)?.heart_of_cards; n++) evs = dc.auto(id);
       expect(evs.at(-1)?.heart_of_cards, dc.cardDB.name(c)).toBe(true);

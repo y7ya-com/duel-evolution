@@ -21,7 +21,7 @@ const canonical = (evs: Json[]) => evs.map(({ id, ms, ...ev }) => ev);
 
 it.each([0, 1] as const)("keeps materialised identities, client packets and archive replay aligned, first seat %i", first => {
   const decks = [0, 1].map(() => ({ main: Array(40).fill(code("Mystical Elf")), extra: [] }));
-  const opts: NewOptions = { seed: 701, first, rule: "MR1", shuffle: false, brain: [true, true], record: true, heart_of_cards: 1, heart_pool: [...YUGI_HEART_POOL] };
+  const opts: NewOptions = { seed: 701, first, rule: "MR1", shuffle: false, brain: [true, true], record: true, heart_of_cards: 1, heart_copy_limit: 3, heart_pool: [...YUGI_HEART_POOL] };
   const id = `yugi-wire-${first}`, log: LoggedCmd[] = [], batches: Json[][] = [];
   const mirror = new YO2Duel(decks, { first, cardmap: new CardMap(JSON.parse(readFileSync(join(GD, "translator.json"), "utf8"))), rng: new PyRandom(701) });
   const wire = new WireDecoder(GD);

@@ -22,7 +22,7 @@ import createCore, {
   type OcgResponse,
 } from "ocgcore-wasm";
 import { Bot } from "./bot.ts";
-import { yugiHeartLua } from "./yugiHeart.ts";
+import { yugiHeartLua, type HeartCopyState } from "./yugiHeart.ts";
 import { YUGI_HEART_POOL, YUGI_HEART_MARKER } from "../yugiHeartPool.ts";
 import { placeOrderFrom, type PlaceOrder } from "../zones.ts";
 import { CardDB, ScriptPack, type CardsJson, type StringsJson } from "./data.ts";
@@ -208,6 +208,8 @@ function parseResponse(r: Json, swap: boolean): OcgResponse {
 interface Session {
   heartPlayer?: 0 | 1;
   heartPool: number[];
+  heartCopies?: HeartCopyState;
+  heartPendingCopy?: number;
   id: unknown;
   duel: Duel;
   /** true = protocol player 1 is core player 0 (they go first) */
@@ -272,6 +274,9 @@ export interface NewOptions {
   heart_of_cards?: 0 | 1;
   /** Explicit snapshot keeps archived skills replayable if the live pool changes. */
   heart_pool?: number[];
+  /** Starting cards and newly materialised copies share this per-duel cap.
+   * Absent only when replaying the original unlimited-skill archives. */
+  heart_copy_limit?: 3;
   first?: 0 | 1;
   seed?: number | string;
   lp?: number;
@@ -426,6 +431,7 @@ export class DuelCore {
     if (o.setup) c.setup = o.setup;
     if (o.heart_of_cards === 0 || o.heart_of_cards === 1) c.heart_of_cards = o.heart_of_cards;
     if (o.heart_pool) c.heart_pool = o.heart_pool;
+    if (o.heart_copy_limit !== undefined) c.heart_copy_limit = o.heart_copy_limit;
     return this.command(c);
   }
 
@@ -519,7 +525,7 @@ export class DuelCore {
     return o;
   }
 
-  private createDuel(decks: { main: number[]; extra: number[] }[], swap: boolean, seed: bigint, lp: number, shuffle: boolean, rnd: () => number, flags: bigint, setup: DuelSetup | null = null, heartPlayer?: 0 | 1, heartPool: number[] = []): Duel {
+  private createDuel(decks: { main: number[]; extra: number[] }[], swap: boolean, seed: bigint, lp: number, shuffle: boolean, rnd: () => number, flags: bigint, setup: DuelSetup | null = null, heartPlayer?: 0 | 1, heartPool: number[] = [], heartCopies?: HeartCopyState): Duel {
     const core = this.core;
     const db = this.db;
     const scripts = this.scripts;
@@ -571,7 +577,7 @@ export class DuelCore {
     }
     if (heartPlayer !== undefined) {
       const seat = (swap ? 1 - heartPlayer : heartPlayer) as 0 | 1;
-      if (!core.loadScript(handle, "yugi_heart.lua", yugiHeartLua(seat, heartPool))) throw new Error("failed to load Yugi draw skill");
+      if (!core.loadScript(handle, "yugi_heart.lua", yugiHeartLua(seat, heartPool, heartCopies))) throw new Error("failed to load Yugi draw skill");
     }
     core.startDuel(handle);
     return duel;
@@ -639,12 +645,50 @@ export class DuelCore {
       && ((w as unknown as { opcodes: (bigint | number)[] }).opcodes).some(op => Number(op) === YUGI_HEART_MARKER);
   }
 
+  private heartAvailable(s: Session, w: SelectMessage): number[] {
+    if (!s.heartCopies) return s.heartPool;
+    const current = Number((w as unknown as { opcodes: (bigint | number)[] }).opcodes[6]);
+    return s.heartPool.filter(code => {
+      const name = s.heartCopies!.aliases.get(code) ?? code;
+      return name === current || (s.heartCopies!.used.get(name) ?? 0) < 3;
+    });
+  }
+
+  /** Validate both the theme and remaining copy allowance before the native answer.
+   * Lua keeps the same ledger, skipping materialisation when no choice remains. */
+  private respondToPrompt(s: Session, w: SelectMessage, resp: OcgResponse): void {
+    let charge: number | undefined;
+    if (this.heartPrompt(s, w)) {
+      const code = Number((resp as unknown as Json).card);
+      if (!s.heartPool.includes(code)) throw new Error("card outside Yugi theme pool");
+      if (!this.heartAvailable(s, w).includes(code)) throw new Error("Yugi three-copy limit reached");
+      if (s.heartCopies) {
+        const current = Number((w as unknown as { opcodes: (bigint | number)[] }).opcodes[6]);
+        const name = s.heartCopies.aliases.get(code) ?? code;
+        if (name !== current) charge = name;
+      }
+    }
+    s.duel.respond(resp);
+    if (charge !== undefined) {
+      const used = s.heartCopies!.used;
+      used.set(charge, (used.get(charge) ?? 0) + 1);
+      s.heartPendingCopy = charge;
+    }
+  }
+
   /** Runs the core: emits the messages, lets the bots play and stops at the first human (or brain) decision */
   private advance(s: Session, out: Out, t0: number) {
     let botSteps = 0;
     let botRetries = 0;
     for (;;) {
       const r = s.duel.step();
+      if (s.heartPendingCopy !== undefined) {
+        if (r.messages.some(m => m.type === OcgMessageType.RETRY)) {
+          const used = s.heartCopies!.used, code = s.heartPendingCopy;
+          used.set(code, used.get(code)! - 1);
+        }
+        s.heartPendingCopy = undefined;
+      }
       applyToTrack(s.track, r.messages);
       for (const b of s.bots) b?.observe(r.messages);
       let retry = false;
@@ -669,7 +713,7 @@ export class DuelCore {
         if (retry && ++botRetries > 50) throw new Error(`el bot no da una respuesta válida a ${msgName(w.type)}`);
         if (++botSteps > BOT_LIMIT) throw new Error("el bot no termina (más de 5000 decisiones seguidas)");
         s.decisions++;
-        s.duel.respond(this.heartPrompt(s, w) ? { type: OcgResponseType.ANNOUNCE_CARD, card: s.heartPool[0]! } : withRandom(s.rnd, () => this.decideBot(bot, w)));
+        this.respondToPrompt(s, w, this.heartPrompt(s, w) ? { type: OcgResponseType.ANNOUNCE_CARD, card: this.heartAvailable(s, w)[0]! } : withRandom(s.rnd, () => this.decideBot(bot, w)));
         continue;
       }
       // Empty chain windows (every phase of the opponent): passed automatically unless auto_chain=false
@@ -701,7 +745,7 @@ export class DuelCore {
       if ((who === 0 || who === 1) && s.brain[who]) ev.view = this.viewFor(s, who);
       if (this.heartPrompt(s, w)) {
         ev.heart_of_cards = true;
-        ev.heart_pool = s.heartPool;
+        ev.heart_pool = this.heartAvailable(s, w);
       }
       out.emit(ev);
       return;
@@ -756,15 +800,29 @@ export class DuelCore {
     if (typeof flags !== "bigint") throw new Error(`rule no válida: ${rule} (MR1..MR5, GOAT, SPEED, RUSH)`);
     const setup = (c.setup ?? null) as DuelSetup | null;
     const heartPlayer = c.heart_of_cards === 0 || c.heart_of_cards === 1 ? c.heart_of_cards : undefined;
+    if (c.heart_copy_limit !== undefined && c.heart_copy_limit !== 3) throw new Error("Yugi copy limit must be three");
     const heartPool = heartPlayer === undefined ? [] : [...new Set((Array.isArray(c.heart_pool) ? c.heart_pool : YUGI_HEART_POOL) as number[])];
     if (heartPlayer !== undefined && (!heartPool.length || heartPool.some(code => !Number.isInteger(code) || !this.db.get(code)))) throw new Error("invalid Yugi card pool");
-    const duel = this.createDuel(norm, swap, seed, lp, c.shuffle !== false, rnd, flags, setup, heartPlayer, heartPool);
+    let heartCopies: HeartCopyState | undefined;
+    if (heartPlayer !== undefined && c.heart_copy_limit === 3) {
+      const used = new Map<number, number>(), aliases = new Map<number, number>();
+      const initial = [...norm[heartPlayer]!.main, ...norm[heartPlayer]!.extra, ...(setup?.cards ?? []).filter(card => card.player === heartPlayer).map(card => card.code)];
+      for (const code of [...initial, ...heartPool]) {
+        let name = code;
+        const seen = new Set<number>();
+        while (this.db.get(name)?.alias && !seen.has(name)) { seen.add(name); name = this.db.get(name)!.alias; }
+        if (name !== code) aliases.set(code, name);
+      }
+      for (const code of initial) { const name = aliases.get(code) ?? code; used.set(name, (used.get(name) ?? 0) + 1); }
+      heartCopies = { used, aliases };
+    }
+    const duel = this.createDuel(norm, swap, seed, lp, c.shuffle !== false, rnd, flags, setup, heartPlayer, heartPool, heartCopies);
     const placeOrder = placeOrderFrom(c.place_order);
     const bots: (Bot | null)[] = [0, 1].map((coreP) => {
       const protoP = swap ? 1 - coreP : coreP;
       return botFlags[protoP] ? new Bot((code) => this.db.get(code), placeOrder) : null;
     });
-    const s: Session = { id: c.id, duel, swap, bots, placeOrder, heartPlayer, heartPool, track: { lp: setup?.lp ? (swap ? [setup.lp[1], setup.lp[0]] : [setup.lp[0], setup.lp[1]]) : [lp, lp], turn: 0, turnPlayer: 0, phase: 0 }, rnd, waiting: null, brain, retries: [0, 0], humanRetries: 0, decisions: 0, autoChain: c.auto_chain !== false, autoPassed: 0,
+    const s: Session = { id: c.id, duel, swap, bots, placeOrder, heartPlayer, heartPool, heartCopies, track: { lp: setup?.lp ? (swap ? [setup.lp[1], setup.lp[0]] : [setup.lp[0], setup.lp[1]]) : [lp, lp], turn: 0, turnPlayer: 0, phase: 0 }, rnd, waiting: null, brain, retries: [0, 0], humanRetries: 0, decisions: 0, autoChain: c.auto_chain !== false, autoPassed: 0,
       rec: c.record ? this.recorder(duel, swap, seed, flags, lp) : null };
     this.sessions.set(key(c.id), s);
     out.emit({ ev: "created", id: c.id, first, seed: seed.toString(), lp, bot: [Boolean(botFlags[0]), Boolean(botFlags[1])], brain, auto_chain: s.autoChain, rule });
@@ -780,7 +838,7 @@ export class DuelCore {
     }
     let resp: OcgResponse;
     if (auto) {
-      resp = this.heartPrompt(s, w) ? { type: OcgResponseType.ANNOUNCE_CARD, card: s.heartPool[0]! } : withRandom(s.rnd, () => this.decideBot(new Bot((code) => this.db.get(code), s.placeOrder), w));
+      resp = this.heartPrompt(s, w) ? { type: OcgResponseType.ANNOUNCE_CARD, card: this.heartAvailable(s, w)[0]! } : withRandom(s.rnd, () => this.decideBot(new Bot((code) => this.db.get(code), s.placeOrder), w));
     } else {
       resp = parseResponse(c.response as Json, s.swap);
       const ok = RESPONSE_FOR[w.type];
@@ -789,11 +847,10 @@ export class DuelCore {
         throw new Error(`respuesta de tipo ${rt[resp.type]} para ${msgName(w.type)}; se espera ${ok.map((t) => rt[t]).join(" o ")}`);
       }
     }
-    if (this.heartPrompt(s, w) && !s.heartPool.includes(Number((resp as unknown as Json).card))) throw new Error("card outside Yugi theme pool");
     s.waiting = null;
     s.decisions++;
     try {
-      s.duel.respond(resp);
+      this.respondToPrompt(s, w, resp);
     } catch (e) {
       // The library could not encode it (missing fields): the same decision is still pending
       s.waiting = w;

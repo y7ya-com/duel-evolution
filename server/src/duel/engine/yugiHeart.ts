@@ -1,11 +1,20 @@
 /** Yugi's private draw skill. The engine owns every materialisation, so commands and
  * archives replay it exactly. It adds no chain, hint or extra draw event. */
-export function yugiHeartLua(player: 0 | 1, pool: readonly number[]): string {
+export interface HeartCopyState { used: Map<number, number>; aliases: Map<number, number> }
+const luaTable = (entries: ReadonlyMap<number, number>) => `{${[...entries].map(([k, v]) => `[${k}]=${v}`).join(",")}}`;
+export function yugiHeartLua(player: 0 | 1, pool: readonly number[], copies?: HeartCopyState): string {
   return `
 local yugi=${player}
 local pool={${pool.join(",")}}
 local allowed={}
 for _,code in ipairs(pool) do allowed[code]=true end
+local capped=${copies ? "true" : "false"}
+local used=${copies ? luaTable(copies.used) : "{}"}
+local aliases=${copies ? luaTable(copies.aliases) : "{}"}
+local function identity(code) return aliases[code] or code end
+local function available(code,current)
+  return not capped or identity(code)==current or (used[identity(code)] or 0)<3
+end
 local opcodes={TYPE_MONSTER+TYPE_SPELL+TYPE_TRAP,OPCODE_ISTYPE,0x59475549,OPCODE_NOT,OPCODE_NOT,OPCODE_AND}
 local known={}
 local busy=false
@@ -37,11 +46,22 @@ local function prepare(n)
   table.sort(cards,function(a,b) return a:GetSequence()>b:GetSequence() end)
   busy=true
   for _,c in ipairs(cards) do
-    local code
-    repeat code=Duel.AnnounceCard(yugi,table.unpack(opcodes)) until allowed[code]
-    -- Reuse the hidden card's identity/slot for the legacy client. The final
-    -- argument installs the new card's real effects (after the link-marker slot).
-    c:Recreate(code,nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,true)
+    local current=identity(c:GetOriginalCode())
+    local haschoice=false
+    for _,code in ipairs(pool) do if available(code,current) then haschoice=true break end end
+    if haschoice then
+      local filter={table.unpack(opcodes)}
+      if capped then
+        -- Private metadata identifies an existing copy that needs no new allowance.
+        -- Keep the original filter unchanged when replaying unlimited-skill archives.
+        for _,op in ipairs({current,OPCODE_NOT,OPCODE_NOT,OPCODE_AND}) do filter[#filter+1]=op end
+      end
+      local code
+      repeat code=Duel.AnnounceCard(yugi,table.unpack(filter)) until allowed[code] and available(code,current)
+      if capped and identity(code)~=current then used[identity(code)]=(used[identity(code)] or 0)+1 end
+      -- Reuse the hidden card's slot and install the new card's real effects.
+      c:Recreate(code,nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,true)
+    end
   end
   busy=false
 end
