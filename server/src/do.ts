@@ -1,3 +1,6 @@
+import { Projector } from "./db/project.ts";
+import { opStatements } from "./db/sql.ts";
+import { applyNpcSweepRecovery, planNpcSweepRecovery, RECOVERY_KEY, type RecoveryTrade } from "./game/npc-sweep-recovery.ts";
 import { rewardsView, rewardsClaim, rewardDeckSaved, rewardShopVisited } from "./game/rewards.ts";
 import { craftView, craftOperation, deckNeeds, type Deck } from "./game/crafting.ts";
 // WorldDO: the singleton Durable Object that terminates every client's gateway WebSocket (see DESIGN.md).
@@ -8,7 +11,7 @@ import { configFrom } from "./config.ts";
 import { buildServer, type Server } from "./server.ts";
 import type { Env } from "./env.ts";
 import { bootDuel } from "./duel/boot.ts";
-import { attach, loadState, type D1Sink } from "./db/d1.ts";
+import { attach, loadState, MAX_BATCH, type D1Sink } from "./db/d1.ts";
 import { adminSink, loadAdmin } from "./db/admin.ts";
 import { aiRulesPost, aiRulesView, loadAiRules } from "./duel/aiRulesStore.ts";
 import { setActiveRules } from "./duel/ai/index.ts";
@@ -91,6 +94,30 @@ export class WorldDO extends DurableObject<Env> {
         console.error(`[d1] game state not loaded (${e}); running without D1`);
         this.srv = buildServer(cfg, null, log);
         this.discord();
+      }
+      // Run after the old instance has been quiesced by deploy.sh, before accepting players. A failure must
+      // fail initialization, never fall back to an empty in-memory server or accept play with a partial recovery.
+      if (env.NPC_SWEEP_RECOVERY === "2026-11") {
+        if (!this.sink || !db || !env.BUCKET) throw new Error("NPC recovery requires D1 and private R2 backup");
+        const raw = this.srv.game.store.loadRaw();
+        if (!raw[RECOVERY_KEY]) {
+          const trades = (await db.prepare("SELECT * FROM trade_log WHERE result = 'done' ORDER BY at, id").all<RecoveryTrade>()).results;
+          const plan = planNpcSweepRecovery(raw, trades);
+          const at = Date.now() / 1000, backup = `private/backups/npc-sweep-recovery-${Date.now()}.json`;
+          if (plan.accounts.length) await env.BUCKET.put(backup, JSON.stringify({ at, state: raw, trades, plan }));
+          applyNpcSweepRecovery(raw, plan, at);
+          raw[RECOVERY_KEY].backup = plan.accounts.length ? backup : null;
+          // Marker, wallets, inventories and audits must share ONE atomic D1 batch. The normal sink can
+          // split large saves, so refuse an oversized recovery and commit this one directly before updating RAM.
+          const store = this.srv.game.store;
+          const statements = opStatements(new Projector(store.peek()).diff(raw).ops);
+          if (statements.length > MAX_BATCH) throw new Error("NPC recovery exceeds one atomic batch");
+          await db.batch(statements.map(s => db.prepare(s.sql).bind(...s.params)));
+          store.onSave = null;
+          store.saveRaw(raw);
+          this.sink = attach(store, db, { baseline: raw });
+          console.warn(`[economia] NPC sweep recovery: ${plan.accounts.length} accounts, ${plan.accounts.reduce((n, a) => n + a.excess, 0)} duplicate shards; backup ${backup}`);
+        }
       }
       await bootDuel(env.BUCKET, log);
     });

@@ -12,6 +12,7 @@ export interface Env extends DiscordEnv {
   DEV?: string;
   /** "py": the py-parity NPC brain (parity runs); otherwise the NPC AI. */
   NPC_AI?: string;
+  NPC_SWEEP_RECOVERY?: string;
   NPC_AI_SPY?: string;
   /** "py": py's automatic zone order, the first free zone from the left (parity runs); otherwise the centre first. */
   PLACE_ORDER?: string;
