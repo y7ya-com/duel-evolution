@@ -15,6 +15,19 @@ export interface EvalMon {
   known?: boolean;
   /** Estimated value lost by turning this set monster face-up (FLIP removal/search, floaters, etc.). */
   flipRisk?: number;
+  /** Cannot be destroyed by battle (Spirit Reaper, Marshmallon: battleProof.json): battle damage still applies. */
+  battleProof?: boolean;
+  /** What its owner gets back when it is destroyed (a search, a summon, a revival: aiCategories.json). */
+  afterlife?: number;
+  /** A face-up lock stops it attacking (Messenger of Peace at 1500 ATK, Gravity Bind, Swords of Revealing Light...). */
+  noAttack?: boolean;
+  /** A battle it survives sets off its own effect (a Gladiator Beast: battleProof.json battleTrigger). */
+  battleTrigger?: boolean;
+  /** Destroyed, it destroys a monster (Newdoria: battleProof.json revenge): its killer goes with it. */
+  revenge?: boolean;
+  /** Public, ready removal effect with a target on the other side (Lyla versus backrow).
+   * Its value is additional to the body, so trading equal ATK can remove a real threat. */
+  effectThreat?: number;
 }
 export interface Position {
   myMon: EvalMon[];
@@ -47,6 +60,7 @@ export function evaluate(p: Position): number {
   s += power(p.myMon) * POWER * stick - power(p.oppMon) * POWER;
   s += bestBody(p.myMon) * stick * BEST - bestBody(p.oppMon) * BEST;
   s += (p.myMon.length - p.oppMon.length) * PRESENCE;
+  s += p.myMon.reduce((n, m) => n + (m.effectThreat ?? 0), 0) - p.oppMon.reduce((n, m) => n + (m.effectThreat ?? 0), 0);
   s += (p.myLp - p.oppLp) * 0.05;
   return s;
 }

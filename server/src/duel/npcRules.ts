@@ -7,6 +7,7 @@ import * as PP from "../game/persist.ts";
 import type { Game } from "../game/game.ts";
 import { nrChainBase, nrMidB3, nrThreshold, ORIGINALS } from "../game/npcs.ts";
 import { NPC_DECKS } from "./data.ts";
+import { npcWinDrop } from "./npcDrops.ts";
 import LD from "../../gamedata/lobby.json";
 
 type P = Record<string, any>; // a profile, py shape
@@ -90,6 +91,7 @@ function applyFriendship(g: Game, p: P, nid: number, result: string, oldEntry: n
   e[3] = newB3(old, result, nid);
   PP.npcbinSet(p, nid, e);
   const [bits, cards] = rewards(p, nid, Math.max(old, 1), e[3], result);
+  bits.push(...npcWinDrop(g, p, nid, result));
   const pkg = bits.length || cards.length ? PP.pendingAdd(g, p, bits, cards, PP.VIA_NPC, `NPC ${nid} b3 ${old}->${e[3]}`) : null;
   (p.last_npc_end ??= {}).present = pkg ? PRESENT : 0;
   return pkg;

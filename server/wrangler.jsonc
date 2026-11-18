@@ -39,6 +39,7 @@
         "DEPLOY_ENV": "production",
         "NPC_AI": "ai", // board-aware timing, replay reassessment and bounded lookahead (src/duel/ai)
         "CLIENT_PREFIX": "recomp-de/", // the sign-in client build; game data from recomp/ (src/worker.ts)
+        "NPC_SWEEP_RECOVERY": "2026-11", // backed-up, one-time duplicate event payout recovery
         "PROGRESSION": "1", // the 2008 card progression and the MP economy (config.ts, persist.ts ECON)
         // The Discord bot (discord/, moved here from duelforge): ids only; scripts/setup-discord.mjs fills them. Secrets
         // DISCORD_BOT_TOKEN, DISCORD_CHAT_WEBHOOK_URL and DISCORD_PUBLIC_KEY (public, but a secret keeps it out of the repo's leak guard). Without the token the bot is off (no relay, no #duels).

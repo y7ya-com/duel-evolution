@@ -15,13 +15,39 @@
 //
 import { TYPE_CONTINUOUS, TYPE_COUNTER, TYPE_EQUIP, TYPE_MONSTER, TYPE_QUICKPLAY, TYPE_SPELL, TYPE_TRAP, tagMask, type Card } from "../brain/cards.ts";
 import { HELPERS } from "./ruleExpr.ts";
+import type { RuleCtxExt } from "./ruleCtxExt.ts";
 
 // Rules read a RuleCtx (the board the player already computes) and cover the decision points where blind play hurts
 // most: activating a card in the main phase (idleActivate / idlePriority), a battle-phase effect (battleActivate),
 // springing a set card on the opponent's turn (chainReact) and summon ranking (summonScore). Names are cards.cdb's
 // English names, lowercase.
 
-export interface RuleMon { atk: number; def: number; faceDown: boolean; attackPos: boolean }
+export interface RuleMon { atk: number; def: number; faceDown: boolean; attackPos: boolean;
+  /** Its Level (0 unknown), a Fusion Monster, a pending opponent chain link targets it, and (an opponent's monster)
+   *  removing it alone makes my attacks this turn lethal. */
+  level?: number; fusion?: boolean; chainHit?: boolean; blocksLethal?: boolean }
+
+
+/** A candidate card in a pick (CardRule.pick): where it is, whose it is, what it is, and its name (lowercase). */
+export interface RuleCard extends RuleMon {
+  mine: boolean; onField: boolean; inHand: boolean; inGrave: boolean; inDeck: boolean; inExtra: boolean; banished: boolean;
+  isMonster: boolean; isSpell: boolean; isTrap: boolean; name: string;
+  /** Another copy of it is in my hand already. */
+  copyInHand: boolean;
+  /** A monster of mine that can still attack this turn. */
+  canAttack: boolean;
+  /** A card of the same name is already on my field or in my hand (another one than this). */
+  alreadyHave: boolean;
+  /** A copy of it is face-up on my field. */
+  copyOnField: boolean;
+  /** Its worth as the NPC's own picks price it (the discard / search order). */
+  worth: number;
+  /** A monster whose destruction destroys a monster (Newdoria): destroying it costs one of mine. */
+  revenge: boolean;
+}
+
+/** My cards by zone, as lowercase names (the named-card operators: inMyHand, inMyDeck, onMyField, inMyGrave). */
+export interface RuleZones { hand: string[]; deck: string[]; field: string[]; grave: string[]; fieldSpells: string[] }
 
 export interface RuleCtx {
   myLp: number;
@@ -57,6 +83,10 @@ export interface RuleCtx {
   attackOnDefense: boolean;
   /** The chain's last link is the opponent's (something to negate or answer). */
   oppChained: boolean;
+  /** More board facts (EXT_NUM / EXT_BOOL). */
+  ext?: RuleCtxExt;
+  /** My cards by zone (deck: the NPC's deck list less every copy seen elsewhere). */
+  zones?: RuleZones;
 }
 
 export interface CardRule {
@@ -73,14 +103,29 @@ export interface CardRule {
   summonScore?: (ctx: RuleCtx) => number;
   /** The card's own yes/no prompt (an upkeep cost, an optional payment): pay / accept? No rule = no. */
   yesNo?: (ctx: RuleCtx) => boolean;
-  /** Its own Special Summon from the hand, when the engine offers it: do it? No rule = yes. */
+  /** Its own Special Summon from the hand, when the engine offers it: do it? No rule = yes. With an idlePriority > 0
+   *  it is made before the search weighs the turn (Lava Golem under the NPC's own lock). */
   specialSummon?: (ctx: RuleCtx) => boolean;
+  /** This monster of mine stays out of my attacks (its survival is the plan: Des Wombat under Dark Snake Syndrome). */
+  noAttack?: (ctx: RuleCtx) => boolean;
+  /** This set FLIP monster of mine: Flip Summon it now? No rule = when its flip, played out on the engine, leaves the
+   *  board better (a flip that refills both hands needs one: the board value counts only my hand). */
+  flip?: (ctx: RuleCtx) => boolean;
   /** Never Normal Summon or Set it (an Exodia piece: it wins from the hand). */
   keepInHand?: boolean;
   /** Set, and about to be destroyed by the opponent's chain: use it now? No rule = yes (it is lost otherwise). */
   doomed?: (ctx: RuleCtx) => boolean;
   /** Its own option prompt: the option's index. No rule = the first. */
   option?: (ctx: RuleCtx) => number;
+  /** Among several cards that could answer the same chain window: higher goes first (default: a negation of the
+   *  opponent's link 50, else 0). */
+  chainPriority?: number;
+  /** Its card picks (a target, a cost, a search, a revival, a discard): each offered card's score (higher first);
+   *  cards under `min` are not taken unless the prompt needs them. No rule = the generic pick (chooseTargets). */
+  pick?: { score: (ctx: RuleCtx, card: RuleCard) => number; min?: number };
+  /** Its chainReact is asked on my own turn too (its trigger window, a battle trick for my own attack, an answer to an
+   *  opponent's link that is not a negation). Without it only negations answer on my turn. */
+  ownTurn?: boolean;
   /** Its own number to declare (a cost to pay, say): the index among the values offered. No rule = the first. */
   number?: (ctx: RuleCtx, values: number[]) => number;
 }
@@ -122,7 +167,8 @@ export function tagRule(c: Card | undefined): CardRule | undefined {
     if (c.has("revive")) return { idleActivate: (x) => Math.max(x.myGraveMaxAtk, x.oppGraveMaxAtk) >= 1500, idlePriority: 95, chainReact };
     if (c.has("stall")) return { idleActivate: outgunned, chainReact };
     // An equip needs a monster of mine worth it (the engine also offers the opponent's).
-    if (c.type & TYPE_EQUIP) return { idleActivate: (x) => (c.any(M_REMOVES_MON) ? x.oppMaxAtk >= 1500 : x.myMon.some((m) => !m.faceDown)) };
+    // A boost waits for my Battle Phase (production equipped Mage Power going first, and Book of Moon took both).
+    if (c.type & TYPE_EQUIP) return { idleActivate: (x) => (c.any(M_REMOVES_MON) ? x.oppMaxAtk >= 1500 : x.myMon.some((m) => !m.faceDown) && !!x.ext?.battlePhaseAhead) };
     if (quick) return { idleActivate: never, chainReact };
     return undefined;
   }

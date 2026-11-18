@@ -37,5 +37,8 @@ export function setActiveRules(set: RuleSet): void { active = set; }
 /** The staples merged with one NPC's own rules (theirs win on a name). */
 export function rulesOf(set: RuleSet, npcId?: number): Record<string, CardRule> {
   const own = npcId !== undefined ? set.compiled.npcs[npcId] : undefined;
-  return own ? { ...set.compiled.staples, ...own } : set.compiled.staples;
+  // All three Hell Kaiser friendship stages now use the Cyberdark recipe. Share its
+  // setup/revival rules while allowing a live overlay to override an individual stage.
+  const shared = npcId === 78 || npcId === 79 ? set.compiled.npcs[80] : undefined;
+  return own || shared ? { ...set.compiled.staples, ...shared, ...own } : set.compiled.staples;
 }

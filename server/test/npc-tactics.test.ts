@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { HeuristicBot, chooseTargets, type CardInfo } from "../src/duel/ai/heuristicBot.ts";
 import { tagRule, type RuleCtx } from "../src/duel/ai/cardRules.ts";
-import { bundledRules } from "../src/duel/ai/ruleSet.ts";
+import { buildRules, bundledRules } from "../src/duel/ai/ruleSet.ts";
 import { brainDb } from "../src/duel/data.ts";
 import { deckNpc } from "../src/duel/npcRules.ts";
 import { nrCompWins } from "../src/game/npcs.ts";
@@ -23,6 +23,17 @@ const battle = () => select("SELECT_BATTLECMD", undefined, undefined, {
 });
 
 describe("NPC battle replays", () => {
+  it("does not delay Raigeki for a Cyber Dragon summon forbidden by a card rule", () => {
+    const bot = new HeuristicBot(0, { ...cards,
+      name: c => c === 2100 ? "Cyber Dragon" : c === 12580477 ? "Raigeki" : "" },
+    { rules: buildRules({ staples: { "cyber dragon": { specialSummon: false } } }, 1) });
+    const r = bot.choose(select("SELECT_IDLECMD", [], [mon(2800)], {
+      special_summons: [{ code: 2100, controller: 0, location: 2, sequence: 0 }],
+      activates: [{ code: 12580477, controller: 0, location: 2, sequence: 1 }], to_bp: true, to_ep: true,
+    }));
+    expect(r).toMatchObject({ action: "SELECT_ACTIVATE", index: 0 });
+  });
+
   it("cancels after Call of the Haunted introduces a stronger monster", () => {
     const bot = new HeuristicBot(0, cards);
     expect(bot.choose(battle())?.action).toBe("SELECT_BATTLE");
@@ -47,6 +58,37 @@ describe("NPC battle replays", () => {
     expect(bot.choose(select("SELECT_YESNO", undefined, [], { description: 31 }))?.yes).toBe(true);
   });
 
+  it("a card's pick rule chooses its target (and declines an optional pick under its min)", () => {
+    const REBORN = 83764718;
+    const named: CardInfo = { ...cards, name: (c) => (c === REBORN ? "monster reborn" : "") };
+    const rules = buildRules({ staples: { "monster reborn": { pick: { score: { "-": [0, "atk"] }, min: -1500 } } } }, 1);
+    const bot = new HeuristicBot(0, named, { rules });
+    bot.observe({ ev: "msg", type: "CHAINING", code: REBORN, controller: 0, location: 8, sequence: 0 });
+    bot.observe({ ev: "msg", type: "CHAIN_SOLVING", chain_size: 1 });
+    const grave = (atk: number) => ({ code: atk, controller: 0, location: 16, sequence: 0, position: 0 });
+    // lowest ATK first, as the (deliberately odd) rule says
+    expect(bot.choose(select("SELECT_CARD", undefined, undefined, { min: 1, max: 1, selects: [grave(2500), grave(1200), grave(1800)] }))?.indicies).toEqual([1]);
+    // optional, and every card under min (-1500): none taken
+    expect(bot.choose(select("SELECT_CARD", undefined, undefined, { min: 0, max: 1, selects: [grave(2500), grave(1800)] }))?.indicies).toEqual([]);
+  });
+
+  it("a boost (Rush Recklessly) goes on our own monster in the battle, never the player's", () => {
+    // production: Rush Recklessly's pick was read as removal and raised the player's Celestia
+    const RUSH = 70046172;
+    const bot = new HeuristicBot(0, { ...cards, name: (c) => (c === RUSH ? "rush recklessly" : "") });
+    // the player's 1800 attacks our 1500
+    bot.observe({ ev: "msg", type: "ATTACK", card: { controller: 1, location: 4, sequence: 0 }, target: { controller: 0, location: 4, sequence: 1 } });
+    const own = [mon(2000, 0), mon(1500, 1)], opp = [mon(1800, 0)];
+    const more = { turn_player: 1, phase: 0x20 };
+    expect(bot.choose(select("SELECT_CHAIN", own, opp, { ...more, forced: false,
+      selects: [{ code: RUSH, controller: 0, location: 8, sequence: 0, description: 0 }] }))?.index).toBe(0);
+    expect(bot.choose(select("SELECT_CARD", own, opp, { ...more, min: 1, max: 1, selects: [
+      { code: 1800, controller: 1, location: 4, sequence: 0, position: 1 },
+      { code: 2000, controller: 0, location: 4, sequence: 0, position: 1 },
+      { code: 1500, controller: 0, location: 4, sequence: 1, position: 1 },
+    ] }))?.indicies).toEqual([2]);
+  });
+
   it("does not declare a losing attack even at easy difficulty", () => {
     const bot = new HeuristicBot(0, cards, { blunder: 1 });
     expect(bot.choose({ ...battle(), ...select("SELECT_BATTLECMD", undefined, [mon(3000)]),
@@ -61,6 +103,11 @@ describe("NPC resource preservation", () => {
   it("holds Heavy Storm when it would destroy more friendly cards", () => {
     expect(STAPLE_RULES["heavy storm"]!.idleActivate!({ ...ctx, myBackrow: 4, oppBackrow: 2 })).toBe(false);
     expect(STAPLE_RULES["heavy storm"]!.idleActivate!({ ...ctx, myBackrow: 0, oppBackrow: 2 })).toBe(true);
+  });
+  it("preserves an active permanent steal while allowing Trunade with an inactive set copy", () => {
+    const ready = { ...ctx, myMaxAtk: 3000, oppBackrow: 3, myBackrow: 1, ext: { preBattle: true, effectGain: -3000, myStealEquips: 1 } };
+    expect(STAPLE_RULES["giant trunade"]!.idleActivate!(ready)).toBe(false);
+    expect(STAPLE_RULES["giant trunade"]!.idleActivate!({ ...ready, ext: { ...ready.ext, myStealEquips: 0 } })).toBe(true);
   });
   it("values the whole monster board before Dark Hole or Torrential Tribute", () => {
     const body = (atk: number) => ({ atk, def: 1000, attackPos: true, faceDown: false });
@@ -88,7 +135,7 @@ describe("NPC gaps found in duel traces", () => {
   const field = (code: number, sequence = 0, more = {}) => ({ code, controller: 0, location: 4, sequence, ...more });
   const set = (atk: number, sequence = 0) => ({ ...mon(atk, sequence), position: 8 });
   const idle = (own: unknown[], opp: unknown[], more: Record<string, unknown>, lp = [8000, 8000]) =>
-    select("SELECT_IDLECMD", own as never, opp as never, { to_bp: true, to_ep: true, phase: 4, lp, ...more });
+    select("SELECT_IDLECMD", own as never, opp as never, { turn: 3, to_bp: true, to_ep: true, phase: 4, lp, ...more });
 
   it("counts lethal on an open field: the set monsters turn up before anything weaker is summoned", () => {
     const bot = new HeuristicBot(0, cards);
@@ -141,7 +188,10 @@ describe("NPC gaps found in duel traces", () => {
     const stats: Record<number, { atk: number; def: number; level: number }> = { 2500: { atk: 2500, def: 1200, level: 6 } };
     const bot = new HeuristicBot(0, { ...cards, stat: (code) => stats[code] ?? { atk: code, def: 1000, level: 4 } });
     expect(bot.choose(idle([set(1000)], [], { summons: [hand(2500), hand(1700, 1)], monster_sets: [hand(1700, 1)] }))).toMatchObject({ action: "SELECT_SUMMON", index: 0 });
-    expect(bot.choose(idle([mon(1900)], [], { summons: [hand(2500), hand(1700, 1)], monster_sets: [hand(1700, 1)] }))).toMatchObject({ action: "SELECT_SUMMON", index: 1 });
+    // another position (a new bot: the turn's stored battle plan is the first position's); the 1900 is a planned
+    // attacker, so it is not tributed
+    const other = new HeuristicBot(0, { ...cards, stat: (code) => stats[code] ?? { atk: code, def: 1000, level: 4 } });
+    expect(other.choose(idle([mon(1900)], [], { summons: [hand(2500), hand(1700, 1)], monster_sets: [hand(1700, 1)] }))).toMatchObject({ action: "SELECT_SUMMON", index: 1 });
   });
 
   it("holds Mystical Space Typhoon until there is something to hit and a reason (it destroyed its own cards)", () => {
@@ -156,30 +206,31 @@ describe("NPC gaps found in duel traces", () => {
     expect(new HeuristicBot(0, named).choose(chain({ phase: 0x200 }, theirs))?.index).toBe(0);   // their End Phase
   });
 
-  it("answers one attack with one trap", () => {
+  it("answers one attack with one trap, the cheapest that does it (Sakuretsu Armor, not Mirror Force, on a lone attacker)", () => {
     const bot = new HeuristicBot(0, named);
     bot.observe({ ev: "msg", type: "ATTACK", card: { controller: 1, location: 4, sequence: 0 }, target: null });
     const chain = (codes: number[]) => select("SELECT_CHAIN", [], [mon(2000)], { turn_player: 1, phase: 8,
       selects: codes.map((code, sequence) => ({ code, controller: 0, location: 8, sequence, description: 0 })), forced: false });
-    expect(bot.choose(chain([103, 104]))?.index).toBe(0);
-    expect(bot.choose(chain([104]))?.index).toBe(null);
+    expect(bot.choose(chain([103, 104]))?.index).toBe(1);
+    expect(bot.choose(chain([103]))?.index).toBe(null);
     bot.observe({ ev: "msg", type: "CHAIN_END" });
     expect(bot.choose(chain([104]))?.index).toBe(0);
   });
 
-  it("does not spring a trap on a weak poke, but does to survive", () => {
+  it("springs an attack trap when the attack costs LP or a monster (Master Duel's generic attack check)", () => {
     const poke = (lp: number[]) => {
       const bot = new HeuristicBot(0, named);
       bot.observe({ ev: "msg", type: "ATTACK", card: { controller: 1, location: 4, sequence: 0 }, target: null });
       return bot.choose(select("SELECT_CHAIN", [], [mon(900)], { turn_player: 1, phase: 8, lp,
         selects: [{ code: 104, controller: 0, location: 8, sequence: 0, description: 0 }], forced: false }))?.index;
     };
-    expect(poke([8000, 8000])).toBe(null);
+    expect(poke([8000, 8000])).toBe(0);
     expect(poke([800, 8000])).toBe(0);
   });
 
   it("pays Messenger of Peace's upkeep (every card question was answered no)", () => {
-    const ask = (lp: number[]) => new HeuristicBot(0, named).choose(select("SELECT_YESNO", [], [], { description: 102 * 0x100000, lp }))?.yes;
+    // (the live rule since overlay v4: the upkeep is paid while the opponent has a 1500+ monster to stop)
+    const ask = (lp: number[]) => new HeuristicBot(0, named).choose(select("SELECT_YESNO", [], [mon(1800)], { description: 102 * 0x100000, lp }))?.yes;
     expect([ask([8000, 8000]), ask([500, 8000])]).toEqual([true, false]);
   });
 
@@ -240,10 +291,13 @@ describe("NPC decisions from the first production duel", () => {
   const atk = (a: number) => ({ atk: a, def: 0, faceDown: false, attackPos: true });
   // turn 3's Snatch Steal into face-down backrow (answered by Dust Tornado) stays: holding it for a bigger target
   // measured worse in the lab (2026-11-11, 1,152 duels: 44.2% -> 43.7%); the tempo matters more than the risk
-  it("turn 7: no Premature Burial of a 2500 into a 2800; yes when it holds the field", () => {
+  it("turn 7: Premature Burial of a 2500 into a 2800 only as a blocker on an empty field; yes when it holds the field", () => {
     const t7 = { ...ctx, myLp: 2500, oppMon: [atk(1700), atk(2800), atk(1700)], oppMaxAtk: 2800, myGraveMaxAtk: 2500 };
     const burial = STAPLE_RULES["premature burial"]!.idleActivate!, reborn = STAPLE_RULES["monster reborn"]!.idleActivate!;
-    expect([burial(t7), reborn(t7)]).toEqual([false, false]);
+    // (overlay v4 and Master Duel: a blocker for an empty field facing attackers; with a monster of mine out, no)
+    expect([burial(t7), reborn(t7)]).toEqual([true, true]);
+    const guarded = { ...t7, myMon: [atk(1000)], myMaxAtk: 1000 };
+    expect([burial(guarded), reborn(guarded)]).toEqual([false, false]);
     expect([burial({ ...t7, oppMon: [atk(1700)], oppMaxAtk: 1700 }), reborn({ ...t7, oppMon: [atk(1700)], oppMaxAtk: 1700 })]).toEqual([true, true]);
   });
   it("turn 1: Spiral Spear Strike waits for Gaia; a continuous spell tagged draw doesn't lead like Pot of Greed", () => {
@@ -264,8 +318,8 @@ describe("NPC decisions from the first day of production duels", () => {
     myGraveMaxAtk: 0, oppGraveMaxAtk: 0, oppHand: 3, myHand: 2, myHandTributes: 0, myRemoved: 0, myTurn: false, oppEndPhase: false,
     attackAtk: 0, attackLethal: false, attackOnDefense: false, oppChained: false, myNames: [] };
   const atk = (a: number) => ({ atk: a, def: 0, faceDown: false, attackPos: true });
-  const chain = (codes: number[], opp: { szone?: unknown[] } = {}) => {
-    const sel = select("SELECT_CHAIN", [], [mon(1800)], { turn_player: 1, phase: 4, forced: false,
+  const chain = (codes: number[], opp: { szone?: unknown[] } = {}, more: Record<string, unknown> = {}) => {
+    const sel = select("SELECT_CHAIN", [], [mon(1800)], { turn_player: 1, phase: 4, forced: false, ...more,
       selects: codes.map((code, sequence) => ({ code, controller: 0, location: 8, sequence, position: 10, description: 0 })) });
     (sel.view.players[0] as { szone: unknown[] }).szone = codes.map((code, sequence) => ({ code, position: 10, sequence }));
     if (opp.szone) (sel.view.players[1] as { szone: unknown[] }).szone = opp.szone;
@@ -278,10 +332,10 @@ describe("NPC decisions from the first day of production duels", () => {
     expect(ask("Destroy a card?")).toBe(false);
   });
 
-  it("Wall of Revealing Light pays over the strongest attacker, keeping 1000 LP", () => {
+  it("Wall of Revealing Light pays over the strongest attacker, at least 3000, keeping 1 LP (Master Duel)", () => {
     const pay = STAPLE_RULES["wall of revealing light"]!.number!, values = [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000];
     expect(values[pay({ ...ctx, myLp: 7400, oppMon: [atk(2300), atk(1700)], oppMaxAtk: 2300 }, values)]).toBe(3000);
-    expect(values[pay({ ...ctx, myLp: 2500, oppMon: [atk(2300)], oppMaxAtk: 2300 }, values)]).toBe(1000);
+    expect(values[pay({ ...ctx, myLp: 2500, oppMon: [atk(2300)], oppMaxAtk: 2300 }, values)]).toBe(2000);
   });
 
   it("Poison of the Old Man burns; it heals only when the NPC's own LP is in danger", () => {
@@ -308,8 +362,8 @@ describe("NPC decisions from the first day of production duels", () => {
     bot.observe({ ev: "msg", type: "CHAINING", code: C.pot, controller: 1, location: 8, sequence: 0 });
     const theirs = { szone: [{ code: C.pot, position: 5, sequence: 0 }] };
     expect(bot.choose(chain([C.mst], theirs))?.index).toBe(null);
-    // a set card of theirs beside it is still a target
-    expect(bot.choose(chain([C.mst], { szone: [...theirs.szone, { code: 0, position: 10, sequence: 1 }] }))?.index).toBe(0);
+    // a set card of theirs beside it is still a target (in their End Phase, the window MST answers a set card in)
+    expect(bot.choose(chain([C.mst], { szone: [...theirs.szone, { code: 0, position: 10, sequence: 1 }] }, { phase: 0x200 }))?.index).toBe(0);
   });
 
   it("does not activate a Field Spell over its own face-up copy", () => {

@@ -8,6 +8,9 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { NpcAi, TIERS, cardInfo, simStats, tierFor, type LoggedCmd, type Tier } from "../src/duel/ai/index.ts";
+import { HeuristicBot } from "../src/duel/ai/heuristicBot.ts";
+import { toPrompt } from "../src/duel/ai/prompt.ts";
+import { whatIf, type SearchAccess } from "../src/duel/ai/simSearch.ts";
 import { NpcBrain, loadNpcProfile } from "../src/duel/brain/index.ts";
 import { brainDb, npcDeck, NPC_PROFILES, toCodes } from "../src/duel/data.ts";
 import { PY_DUEL_RULE, type DuelCore, type Json, type NewOptions } from "../src/duel/engine/core.ts";
@@ -77,11 +80,11 @@ function duel(dc: DuelCore, npcId: number, tier: Tier, aiSeat: 0 | 1, first: 0 |
 }
 
 describe("tiers", () => {
-  it("NPC level -> tier (1-3 easy, 4-6 hard, 7-9 elite)", () => {
+  it("every NPC plays at the same strength (elite), whatever its level", () => {
     const at = (nivel: number) => tierFor(1, { 1: { nivel, perfil: {} } });
-    expect([1, 2, 3, 4, 5, 6, 7, 8, 9].map(at)).toEqual(["easy", "easy", "easy", "hard", "hard", "hard", "elite", "elite", "elite"]);
-    expect(tierFor(999, NPC_PROFILES)).toBe("easy"); // no profile: level 2
-    expect([tierFor(28, NPC_PROFILES), tierFor(35, NPC_PROFILES), tierFor(53, NPC_PROFILES)]).toEqual(["easy", "hard", "elite"]);
+    expect(new Set([1, 2, 3, 4, 5, 6, 7, 8, 9].map(at))).toEqual(new Set(["elite"]));
+    expect(tierFor(999, NPC_PROFILES)).toBe("elite"); // no profile
+    expect([tierFor(28, NPC_PROFILES), tierFor(35, NPC_PROFILES), tierFor(53, NPC_PROFILES)]).toEqual(["elite", "elite", "elite"]);
   });
 });
 
@@ -104,14 +107,46 @@ describe.skipIf(!haveData)("NPC AI duels", () => {
     expect(simStats.drift).toBe(before);
   }, 120_000);
 
-  // The duel host (OcgSession): the NPC AI by default, the parity brain with NPC_AI=py. The NPC (53, elite) goes first
+  it("a what-if plays one action out under the real rules, on a fork (the live duel is untouched)", () => {
+    const d = npcDeck(53)!;
+    const deck = { main: toCodes(d.main), extra: toCodes(d.extra) };
+    const decks = [deck, deck];
+    const opts: NewOptions = { first: 0, seed: 99, shuffle: true, rule: PY_DUEL_RULE, brain: [true, true], auto_chain: true };
+    const id = "whatif-1", log: LoggedCmd[] = [];
+    const cards = cardInfo(dc.cardDB, brainDb());
+    const access: SearchAccess = { link: () => ({ dc, decks, opts, log }), makePolicy: (seat, _own, peek) => new HeuristicBot(seat, cards, { peek }),
+      budgetMs: 1000, maxCandidates: 6, spy: false };
+    let evs = dc.new(id, decks, opts);
+    try {
+      for (let n = 0; n < 200; n++) {
+        const last = evs[evs.length - 1]!;
+        if (last.ev !== "select") break;
+        if (last.type === "SELECT_IDLECMD" && Number(last.player) === 0 && Array.isArray(last.summons) && last.summons.length > 0) {
+          const before = JSON.stringify(dc.query(id));
+          const mons = (st: Json) => ((st.players as Json[])[0]!.mzone as unknown[]).filter(Boolean).length;
+          const bot = new HeuristicBot(0, cards);
+          const st = whatIf(access, 0, last, toPrompt(last, 0, false), { type: "SELECT_IDLECMD", action: "SELECT_SUMMON", index: 0 }, bot);
+          expect(st).not.toBeNull();
+          expect(typeof st).toBe("object");
+          expect(mons(st as Json)).toBe(mons(JSON.parse(before)) + 1);
+          expect(JSON.stringify(dc.query(id))).toBe(before);
+          return;
+        }
+        log.push({});
+        evs = dc.auto(id);
+      }
+      throw new Error("no summon offered to seat 0");
+    } finally { dc.end(id); }
+  }, 120_000);
+
+  // The duel host (OcgSession): the NPC AI by default, the parity brain with NPC_AI=py. The NPC (66, elite) goes first
   // and plays its whole first turn through the host before the player's first decision.
   it.each([["", NpcAi], ["py", NpcBrain]] as const)("NPC_AI=%s: the host's NPC player", async (flag, cls) => {
     setDuelCore(dc);
     try {
       const srv = buildServer(configFrom({ PARITY_SEED: "1", DUEL_PAUSE: "0.0005", NPC_AI: flag }), { accounts: {} }, () => {});
       const conn = new Conn(srv.world, srv.world.seqTable, DUEL_PORT, "peer-ai", () => true, DUEL_PORT);
-      const s = new OcgSession(srv.game, conn, () => {}, 53, 0.0005);
+      const s = new OcgSession(srv.game, conn, () => {}, 66, 0.0005);
       const ids = (xs: number[]) => { const w = new W().u32(xs.length); for (const x of xs) w.u32(x); return w.bytes(); };   // passcodes
       s.clientDeck(0x6601, ids(NPC_DECKS["51"].main));
       s.clientDeck(0x6603, ids(NPC_DECKS["51"].extra ?? []));

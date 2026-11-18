@@ -1441,14 +1441,21 @@ export class YO2Duel {
     return mv;
   }
 
-  _m_CONFIRM_CARDS(ev: Ev): Out[] {
+  /** A confirm shows its cards. Deck cards (a private look at a deck: ygopro/EDOPro send that MSG_CONFIRM_CARDS only to
+   *  ev.player) reach only the view of the player who looks; every other view, the spectators' too, gets nothing for
+   *  them: the card keeps the form that client already had, and the deck's owner doesn't learn which card was looked at
+   *  (DESIGN.md "Deliberate changes from 2008"). Hand, field and extra deck confirms, and an excavation
+   *  (CONFIRM_DECKTOP, `pub`), are public. */
+  _m_CONFIRM_CARDS(ev: Ev, pub = false): Out[] {
     let out: Out[] = [];
     const cards = get(ev, "cards", []);
     const whole = this._whole_hand(cards);
+    const looker = this._own(get(ev, "player", -1));
     for (const cd of cards) {
       const uid = this.uid_at(cd.controller, cd.location, cd.sequence);
       if (uid === null) continue;
       this.card(uid).code = cd.code || this.card(uid).code;
+      if (!pub && !looker && cd.location === K.OCG_DECK) continue;   // someone else's look: this view learns nothing
       out = out.concat(this._identity(uid, true));
       if (cd.location === K.OCG_HAND && whole === null) out.push(engine(K.C_HAND_SHOW, cd.controller, uid));
     }
@@ -1460,7 +1467,7 @@ export class YO2Duel {
     return out;
   }
 
-  _m_CONFIRM_DECKTOP(ev: Ev): Out[] { return this._m_CONFIRM_CARDS(ev); }
+  _m_CONFIRM_DECKTOP(ev: Ev): Out[] { return this._m_CONFIRM_CARDS(ev, true); }
 
   _whole_hand(cards: any[]): number | null {
     if (!this.cfg.hand_open || cards.length < 2) return null;

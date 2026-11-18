@@ -298,12 +298,14 @@ describe("cosmetic offers are consented, escrowed and replay safe", () => {
 describe("every wearable comes from a box, one item per real design", () => {
   const SINGLE_BODY = ["hair:skinhead", "hair:quiff-1", "hair:quiff-2", "hair:quiff-3", "hair:ponytail", "accessory:plaster",
     "accessory:red-specs", "accessory:black-specs", "accessory:brown-specs", "accessory:blue-specs", "accessory:pink-specs", "accessory:frameless-specs",
-    "outfit:kaiba", "outfit:joey", "outfit:yugi", "outfit:tea", "outfit:tracksuit-red", "outfit:tracksuit-green", "outfit:tracksuit-yellow",
+    "outfit:kaiba", "outfit:joey", "outfit:tea", "outfit:tracksuit-red", "outfit:tracksuit-green", "outfit:tracksuit-yellow",
     "outfit:punk-red", "outfit:punk-yellow", "outfit:punk-blue"];
   const ACADEMY = ["outfit:jaden", "outfit:chazz", "outfit:jesse", "outfit:kaiser", "outfit:aster"];
+  const NPC_DROP_ONLY = ["outfit:yugi"]; // Yami Yugi's victory drop (npcDrops.ts), like Hell Kaiser's
   const pools = () => BOXES.flatMap((box) => cosmeticPool(box.id));
-  it("drops single-body items for everyone and withholds only Duel Academy outfits", () => {
-    expect([...DROP_EXCLUSIONS.keys()].sort()).toEqual([...ACADEMY].sort());
+  it("drops single-body items for everyone and withholds only Duel Academy outfits and NPC drops", () => {
+    expect([...DROP_EXCLUSIONS.keys()].sort()).toEqual([...ACADEMY, ...NPC_DROP_ONLY].sort());
+    for (const id of NPC_DROP_ONLY) expect(pools().some((i) => i.id === id), id).toBe(false);
     for (const id of SINGLE_BODY) {
       expect(pools().some((i) => i.id === id), id).toBe(true);
       expect(COSMETIC_BY_ID.get(id)!.variants.map((v) => v.gender)).toHaveLength(1);
@@ -445,7 +447,7 @@ describe("2026-11 owner rules: split pairs, single-body drops, rarities, worlds 
     expect(table).toEqual({
       head: { common: [10, 8], rare: [4, 3], super: [2, 1], ultra: [1, 0] },   // Afro I-III (c, c, r) are one Afro (c); Bald (single-body) is rare
       dueldisk: { common: [8, 0], rare: [6, 0], super: [6, 0], ultra: [7, 0] },
-      outfit: { common: [6, 6], rare: [2, 1], super: [2, 1], ultra: [3, 2] },
+      outfit: { common: [6, 6], rare: [2, 1], super: [2, 1], ultra: [2, 1] },  // Yami Yugi's Garms: his victory drop only
     });
     expect(boxDisclosure(BOXES.find((b) => b.id === "outfit")!).notice).toBe(BOX_BODY_NOTICE);
   });

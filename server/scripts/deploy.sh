@@ -30,7 +30,8 @@ fi
 d=$(api online | python3 -c 'import json, sys; print(json.load(sys.stdin).get("duels", 0))' 2>/dev/null || echo 0)
 if [ "${d:-0}" != 0 ]; then
   echo "ABORTED: $d duels in progress after the countdown, nothing deployed"
-  api announce '{"text":"Server update postponed: carry on."}' >/dev/null || true
+  # A quiet idle-gap attempt issued no warning; postponing it needs no player alert.
+  if [ "$W" -gt 0 ]; then api announce '{"text":"Server update postponed: carry on."}' >/dev/null || true; fi
   exit 3
 fi
 # First retire live duels without recording a result. This must happen on the OLD WorldDO, before a code update

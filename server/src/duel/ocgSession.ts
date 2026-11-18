@@ -1,3 +1,4 @@
+import { YUGI_HEART_POOL } from "./yugiHeartPool.ts";
 // py ocg_duel.py: the duel with real rules. OcgSession = a duel against an NPC (duelcore + the translator + the NPC
 // brain), PvpSession = two humans in one duelcore duel (two translator views, the second mirrored), Sender = the
 // paced send queue of a duel connection.
@@ -18,6 +19,7 @@ import { mirror, mirror_state, unmirror_response, is_end } from "./translator/mi
 import { timeup_warning } from "./translator/lockstep.ts";
 import { loadNpcProfile, NpcBrain } from "./brain/index.ts";
 import { NpcAi, NPC_AI_REV, cardInfo, tierFor, type LoggedCmd } from "./ai/index.ts";
+import { chooseYugiOpening } from "./ai/yugiOpening.ts";
 import { resultOf, type DuelArchiveEntry } from "./duelArchive.ts";
 import { brainDb, cardmap, duelCore, npcDeck, NPC_PROFILES, toCodes, type Deck } from "./data.ts";
 import { PyRandom } from "../util/pyrandom.ts";
@@ -168,6 +170,10 @@ const isEnd = (m: Msg) => is_end(m);
 // ================================================================================ NPC duel
 export type Finish = (c: Conn, winner: number | null, reason: unknown, turns: number) => void;
 
+/** The turn clock in NPC duels: off (owner, 2026-11-12: no clock against NPCs); `on` brings back the translator
+ *  config's turn_timer / tiempo_respuesta deadlines (a test of the mechanism turns it on). */
+export const NPC_CLOCK = { on: false };
+
 export class OcgSession {
   static nextId = Math.floor(Date.now() / 1000) % 1000000000;
   readonly id: number;
@@ -207,7 +213,7 @@ export class OcgSession {
   }
 
   private beginTimer(): void {
-    if (!DEFAULT_CFG.turn_limit || this.over) return;
+    if (!NPC_CLOCK.on || !DEFAULT_CFG.turn_limit || this.over) return;
     const limit = Number(this.timerTurn === 1 ? DEFAULT_CFG.tiempo_respuesta : DEFAULT_CFG.turn_timer);
     if (limit <= 0) return;
     this.stopTimer();
@@ -254,7 +260,7 @@ export class OcgSession {
   /** A batch to the client: the translator's messages, then (once they are out) its Duel Log lines on the lobby
    *  connection's chat as channel DUEL_LOG_CHANNEL, which a client without ovr/duellog.c drops. */
   private feed(evs: Json[], keep: (m: Msg) => boolean = () => true): void {
-    if (DEFAULT_CFG.turn_limit) for (const e of evs) if (e.ev === "msg" && e.type === "NEW_TURN") {
+    if (NPC_CLOCK.on && DEFAULT_CFG.turn_limit) for (const e of evs) if (e.ev === "msg" && e.type === "NEW_TURN") {
       this.stopTimer();
       this.timerTurn = Number(e.player);
       this.timerLeft = Number(this.timerTurn === 1 ? DEFAULT_CFG.tiempo_respuesta : DEFAULT_CFG.turn_timer);
@@ -302,7 +308,7 @@ export class OcgSession {
     const decks = [{ main: toCodes(this.player.main), extra: toCodes(this.player.extra) },
       { main: toCodes(this.npc!.main), extra: toCodes(this.npc!.extra) }];
     const place_order = this.g.cfg.placeOrder;
-    const d = (this.d = new YO2Duel(decks, { first, cardmap: cardmap(), cfg: { place_order, ...(DEFAULT_CFG.turn_limit ? { turn_timer: 0 } : {}) }, log: (s) => this.log(s), rng: this.g.rng }));
+    const d = (this.d = new YO2Duel(decks, { first, cardmap: cardmap(), cfg: { place_order, ...(!NPC_CLOCK.on || DEFAULT_CFG.turn_limit ? { turn_timer: 0 } : {}) }, log: (s) => this.log(s), rng: this.g.rng }));
     d.place_manual = !!this.placeManual;
     d.query = () => this.core().query(this.id);
     this.out.put(d.start());
@@ -320,6 +326,13 @@ export class OcgSession {
     const autoChain = !d.cfg.chain_none_prompt;
     const o = USE_BRAIN ? { first: first as 0 | 1, seed, shuffle: true, brain: "python", rule, auto_chain: autoChain, place_order }
       : { first: first as 0 | 1, seed, shuffle: true, rule, auto_chain: autoChain, place_order };
+    const yugi = [51, 52, 53].includes(this.npcId);
+    if (yugi) {
+      const skill = { heart_of_cards: 1 as const, heart_pool: [...YUGI_HEART_POOL], heart_copy_limit: 3 as const };
+      const engine = dc.eng.local!;
+      const opening = chooseYugiOpening(engine, decks, { ...o, ...skill }, this.npcId, cardInfo(engine.cardDB, brainDb()));
+      Object.assign(o, skill, opening.length === 5 ? { heart_opening: opening } : {});
+    }
     const log = dc.record(this.id);
     const py = this.g.cfg.npcAi === "py";
     this.rec = { decks, opts: o, cmds: log, t0: now(), tier: !USE_BRAIN ? "engine" : py ? "py" : tierFor(this.npcId, NPC_PROFILES) };
@@ -329,7 +342,8 @@ export class OcgSession {
       else {
         const engine = dc.eng.local!, id = this.id;
         this.brain = new NpcAi({ npcId: this.npcId, seat: 1, seed, cards: cardInfo(engine.cardDB, brainDb()), tier: tierFor(this.npcId, NPC_PROFILES),
-          spy: this.g.cfg.npcAiSpy, link: () => ({ dc: engine, decks, opts: o, log }), peek: () => engine.query(id) });
+          spy: this.g.cfg.npcAiSpy, handAwareDraw: yugi,
+          link: () => ({ dc: engine, decks, opts: o, log }), peek: () => engine.query(id) });
       }
     }
     const sess = this.c.sess as Session | undefined;

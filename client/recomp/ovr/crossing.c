@@ -1,6 +1,10 @@
 // One world (the server's block holds Domino's and the Academy's areas): the pier's ship sails to Duel Academy. Walking
-// onto the ship's gangway on Domino Pier (map 2, d03) lands on the Slifer Red dorm's grounds (map 7, a04), by the sea
-// cliff west of the dorm, and walking to that cliff's edge lands back beside the gangway.
+// to the far west end of the ship's upper deck on Domino Pier (map 2, d03) lands on the Slifer Red dorm's grounds
+// (map 7, a04), on the path below the sea cliff west of the dorm, and walking to the shore where that lawn meets the sea
+// lands back on the quay beside the gangway.
+// The boxes stay off every NPC's way: the gangway is the only way onto the deck, to Yami Marik (spot 214, by the cabin
+// door) and down the deck's stairs to the lower deck's NPC (spot 49), and Jaden (spot 203) and spot 25 stand at the
+// cliff's edge. Boxes there (the gangway's foot, the cliff's edge: 2fb09d2) sent everyone walking to them away.
 // A map's exit i is a hitmap colour (CChibiAvatarElm::moveStep, 0xff0000ff 0xff00ffff 0xff6400ff 0xff0064ff) and leads
 // to map g_fieldMaps[m].entries[i].from (DAT_00d2d4d0, 0x1a4 a map, entries at +0x104, 0x10 each: from, x, y, dir);
 // arriving from map f puts the avatar at the entry whose from is f. No new art: the wall probe (FUN_00a51e70, thiscall:
@@ -17,8 +21,8 @@ enum { MAPS = 0xd2d4d0, MAP_SIZE = 0x1a4, ENTRIES = 0x104, EXIT = 3, EXIT_COLOUR
 // per map: the box (avatar position, map pixels) that sails to the other map, and where in this map an arrival from
 // the other one stands
 static const struct { int map, x0, y0, x1, y1, to, ax, ay, adir; } kCross[] = {
-    {PIER, 420, 930, 600, 1045, BEACH, 700, 1110, 3},    // the ship's gangway (its foot); arrive beside it
-    {BEACH, 190, 730, 235, 1030, PIER, 330, 1100, 3},   // the cliff's edge over the sea; arrive on the path below
+    {PIER, 0, 120, 120, 185, BEACH, 700, 1110, 3},      // the upper deck's west tip; arrive beside the gangway's foot
+    {BEACH, 0, 1055, 100, 1170, PIER, 330, 1100, 3},    // the shore south of the cliff; arrive on the path below it
 };
 
 static void patch_table(void) {

@@ -43,7 +43,7 @@ describe("authenticated HTML card shop", () => {
     }
     const outfit = boxes.find((b: any) => b.id === "outfit");
     expect(outfit.poolByRarity.rare.ids).toEqual(["outfit:black-suit", "outfit:joey"]);
-    expect(outfit.poolByRarity.ultra.ids).toEqual(["outfit:yugi", "outfit:marik", "outfit:tea"]);
+    expect(outfit.poolByRarity.ultra.ids).toEqual(["outfit:marik", "outfit:tea"]); // Yami Yugi's Garms: his victory drop only
     expect(boxes.find((b: any) => b.id === "head").poolByRarity.common.ids).toContain("accessory:green-specs");
   });
   it("discloses which bodies can wear each pool item, with the work-in-progress notices", async () => {

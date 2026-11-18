@@ -1,0 +1,502 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { beforeAll, describe, expect, it } from "vitest";
+import type { DuelCore } from "../src/duel/engine/core.ts";
+import { createNodeDuelCore, ENGINE_DATA_DIR } from "../src/duel/engine/node.ts";
+import { brainDb, npcDeck, toCodes } from "../src/duel/data.ts";
+import { deckNpc } from "../src/duel/npcRules.ts";
+import { HeuristicBot, cardInfo } from "../src/duel/ai/index.ts";
+import { nrThreshold } from "../src/game/npcs.ts";
+import { check } from "../src/duel/deckCheck.ts";
+import { leftField, msgs, npcActivated, play, attacker, passive, activating, code } from "./npcScenario.ts";
+
+describe.skipIf(!existsSync(join(ENGINE_DATA_DIR, "scripts.pack")))("Hell Kaiser on the real engine", () => {
+  let dc: DuelCore;
+  beforeAll(async () => { dc = await createNodeDuelCore(); }, 60_000);
+
+  it("Edge follows its planned monster attack instead of bypassing Lyla (duel 2052)", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Cyberdark Edge"], grave: ["Hunter Dragon"], lp: 2750 },
+      player: { mzone: ["Lyla, Lightsworn Sorceress", "Garoth, Lightsworn Warrior"] } });
+    expect(leftField(p, "Lyla, Lightsworn Sorceress")).toBe(true);
+    expect(p.log.some(l => l.includes("attacks directly"))).toBe(false);
+  });
+
+  it("Edge takes a genuinely lethal half-strength direct attack past a stronger monster", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Cyberdark Edge"], grave: ["Hunter Dragon"] },
+      player: { mzone: ["Blue-Eyes White Dragon"], lp: 1200 } });
+    expect(p.end?.winner).toBe(1);
+  });
+
+  it("Edge's direct shortcut does not invent lethal damage at full ATK", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Cyberdark Edge"], grave: ["Hunter Dragon"] },
+      player: { mzone: ["Lyla, Lightsworn Sorceress"], lp: 1800 } });
+    expect(leftField(p, "Lyla, Lightsworn Sorceress")).toBe(true);
+    expect(p.end?.winner).not.toBe(1);
+  });
+
+  it("does not return Edge's winning equip to hand with Giant Trunade (duel 2066)", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 4,
+      npc: { hand: ["Cyberdark Edge"], grave: ["Hunter Dragon"],
+        deck: [...Array(18).fill("Petit Moth"), "Giant Trunade", "Petit Moth"] },
+      player: { mzone: ["Blue-Eyes White Dragon"], szone: ["Mirror Force"], lp: 2000 } });
+    expect(npcActivated(p, "Giant Trunade")).toBe(false);
+    expect(p.end?.winner).toBe(1);
+  });
+
+  it("still clears backrow with Trunade when the winning attack remains intact", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Giant Trunade"], mzone: ["Hunter Dragon"] },
+      player: { szone: ["Mirror Force", "Sakuretsu Armor"], lp: 1000 } });
+    expect(npcActivated(p, "Giant Trunade")).toBe(true);
+    expect(p.end?.winner).toBe(1);
+  });
+
+  it("keeps a defensive reserve rather than setting all four answers into one Storm (2052)", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Mirror Force", "Torrential Tribute", "Bottomless Trap Hole", "Mystical Space Typhoon"] },
+      player: { mzone: ["Lyla, Lightsworn Sorceress"] } });
+    const sets = p.npc.filter(x => x.resp?.action === "SELECT_SPELL_SET");
+    expect(sets).toHaveLength(2);
+    expect(sets.map(x => (x.sel.spell_sets as any[])[Number(x.resp!.index)].code)).toContain(code("Mirror Force"));
+    expect(sets.map(x => (x.sel.spell_sets as any[])[Number(x.resp!.index)].code)).toContain(code("Torrential Tribute"));
+  });
+
+  it("revives Disk Commander in defence while developing a stronger attacker (2064)", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Monster Reborn", "Cyberdark Keel"], grave: ["Destiny HERO - Disk Commander", "Hunter Dragon"] },
+      player: { mzone: ["Caius the Shadow Monarch"] } });
+    const choice = p.npc.find(x => x.sel.type === "SELECT_POSITION" && x.sel.code === code("Destiny HERO - Disk Commander"));
+    expect(choice?.resp?.position).toBe(4);
+    expect(npcActivated(p, "Destiny HERO - Disk Commander")).toBe(true);
+  });
+
+  it("still revives a weak body in attack for an immediate win on an open field", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Monster Reborn"], grave: ["Destiny HERO - Disk Commander"] }, player: { lp: 200 } });
+    expect(p.end?.winner).toBe(1);
+  });
+
+  it("waits for the attackers to finish before spending a weak Call revival (2066)", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 3,
+      npc: { mzone: [["Cyberdark Horn", "def"], ["Cyberdark Horn", "def"]], szone: ["Call of the Haunted"], grave: ["Hunter Dragon"] },
+      player: { mzone: ["Prime Material Dragon", "Raiza the Storm Monarch"] }, player_policy: attacker });
+    const battles = p.msgs.map((m, i) => m.type === "BATTLE" ? i : -1).filter(i => i >= 0);
+    const call = p.msgs.findIndex(m => m.type === "CHAINING" && m.code === code("Call of the Haunted"));
+    expect(battles).toHaveLength(2);
+    expect(call).toBeGreaterThan(battles[1]!);
+  });
+
+  it("uses Call's weak blocker when that revival saves lethal damage", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 3,
+      npc: { lp: 1000, szone: ["Call of the Haunted"], grave: ["Hunter Dragon"] },
+      player: { mzone: ["Raiza the Storm Monarch"] }, player_policy: attacker });
+    expect(npcActivated(p, "Call of the Haunted")).toBe(true);
+    expect(p.end?.winner).not.toBe(0);
+  });
+
+  it("blocks a lethal direct attack with Call after the opponent clears its defenders", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 3,
+      npc: { lp: 1000, mzone: [["Cyberdark Horn", "def"], ["Cyberdark Horn", "def"]],
+        szone: ["Call of the Haunted"], grave: ["Hunter Dragon"] },
+      player: { mzone: ["Raiza the Storm Monarch"], hand: ["Raigeki"] },
+      player_policy: sel => Number(sel.turn) === 3 ? activating("Raigeki", attacker)(sel) : passive(sel) });
+    const attack = p.msgs.findIndex(m => m.type === "ATTACK");
+    const call = p.msgs.findIndex(m => m.type === "CHAINING" && m.code === code("Call of the Haunted"));
+    expect(attack).toBeGreaterThan(-1);
+    expect(call).toBeGreaterThan(attack);
+    expect(p.end?.winner).not.toBe(0);
+  });
+
+  const rememberedBattle = () => ({ type: "SELECT_BATTLECMD", player: 1, turn: 2, turn_player: 1, phase: 8, lp: [8000, 8000],
+    view: { players: [
+      { mzone: [{ code: code("Lyla, Lightsworn Sorceress"), attack: 1700, defense: 200, position: 1 }], szone: [], hand_count: 2 },
+      { mzone: [{ code: code("Cyberdark Edge"), attack: 2500, defense: 800, position: 1 }], szone: [], hand: [] }] },
+    attacks: [{ code: code("Cyberdark Edge"), controller: 1, location: 4, sequence: 0, can_direct: false }], to_m2: true, to_ep: true });
+  const returnedHonest = () => ({ ev: "msg", type: "MOVE", card: code("Honest"),
+    from: { controller: 0, location: 4, sequence: 0, position: 1 }, to: { controller: 0, location: 2, sequence: 0, position: 0 } });
+
+  it("remembers a public Honest return and does not feed Edge into it", () => {
+    const bot = new HeuristicBot(1, cardInfo(dc.cardDB, brainDb()));
+    bot.observe(returnedHonest());
+    expect(bot.choose(rememberedBattle())?.action).toBe("TO_M2");
+    const fork = new HeuristicBot(1, cardInfo(dc.cardDB, brainDb())); fork.copyTurnState(bot);
+    expect(fork.choose(rememberedBattle())?.action).toBe("TO_M2");
+  });
+
+  it.each([1, 4])("does not learn a hidden Honest moved from location %i", location => {
+    const bot = new HeuristicBot(1, cardInfo(dc.cardDB, brainDb()));
+    const ev = returnedHonest(); ev.from.location = location; ev.from.position = 8;
+    bot.observe(ev);
+    expect(bot.choose(rememberedBattle())?.action).toBe("SELECT_BATTLE");
+  });
+
+  it("forgets a remembered hand card after an unidentifiable departure", () => {
+    const bot = new HeuristicBot(1, cardInfo(dc.cardDB, brainDb())); bot.observe(returnedHonest());
+    bot.observe({ ev: "msg", type: "MOVE", card: code("Honest"), from: { controller: 0, location: 2, sequence: 0 },
+      to: { controller: 0, location: 4, sequence: 1, position: 8 } });
+    expect(bot.choose(rememberedBattle())?.action).toBe("SELECT_BATTLE");
+  });
+
+  it("spends public Honest memory when the card visibly leaves the hand", () => {
+    const bot = new HeuristicBot(1, cardInfo(dc.cardDB, brainDb())); bot.observe(returnedHonest());
+    bot.observe({ ev: "msg", type: "MOVE", card: code("Honest"), from: { controller: 0, location: 2, sequence: 0 },
+      to: { controller: 0, location: 16, sequence: 0, position: 1 } });
+    expect(bot.choose(rememberedBattle())?.action).toBe("SELECT_BATTLE");
+  });
+
+  it("uses the public engine event when Honest returns to hand, then bypasses the LIGHT monster", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Cyberdark Edge"], grave: ["Hunter Dragon"] },
+      player: { mzone: ["Honest", "Lyla, Lightsworn Sorceress"] }, player_policy: activating("Honest") });
+    expect(p.msgs.some(m => m.type === "MOVE" && m.card === code("Honest") && (m.to as any)?.location === 2)).toBe(true);
+    expect(leftField(p, "Lyla, Lightsworn Sorceress")).toBe(false);
+    expect(p.log.some(l => l.includes("attacks directly"))).toBe(true);
+  });
+
+  it("learns an explicit hand reveal addressed to this seat without double-counting it", () => {
+    const bot = new HeuristicBot(1, cardInfo(dc.cardDB, brainDb()));
+    const reveal = { ev: "msg", type: "CONFIRM_CARDS", player: 1,
+      cards: [{ code: code("Honest"), controller: 0, location: 2, sequence: 0 }] };
+    bot.observe(reveal); bot.observe(reveal);
+    expect(bot.choose(rememberedBattle())?.action).toBe("TO_M2");
+    bot.observe({ ev: "msg", type: "MOVE", card: code("Honest"), from: { controller: 0, location: 2 }, to: { controller: 0, location: 16 } });
+    expect(bot.choose(rememberedBattle())?.action).toBe("SELECT_BATTLE");
+  });
+
+  it("ignores a reveal addressed only to the other seat", () => {
+    const bot = new HeuristicBot(1, cardInfo(dc.cardDB, brainDb()));
+    bot.observe({ ev: "msg", type: "CONFIRM_CARDS", player: 0,
+      cards: [{ code: code("Honest"), controller: 0, location: 2, sequence: 0 }] });
+    expect(bot.choose(rememberedBattle())?.action).toBe("SELECT_BATTLE");
+  });
+
+  it("reassesses an attack replay when Honest has become public", () => {
+    const bot = new HeuristicBot(1, cardInfo(dc.cardDB, brainDb()));
+    expect(bot.choose(rememberedBattle())?.action).toBe("SELECT_BATTLE");
+    bot.observe(returnedHonest());
+    expect(bot.choose({ ...rememberedBattle(), type: "SELECT_YESNO", description: 30 })?.yes).toBe(false);
+  });
+
+  it("a hidden hand shuffle does not reveal cards or erase a remembered public return", () => {
+    const bot = new HeuristicBot(1, cardInfo(dc.cardDB, brainDb()));
+    bot.observe({ ev: "msg", type: "SHUFFLE_HAND", player: 0, cards: [code("Honest"), code("Honest")] });
+    expect(bot.choose(rememberedBattle())?.action).toBe("SELECT_BATTLE");
+    bot.observe(returnedHonest());
+    bot.observe({ ev: "msg", type: "SHUFFLE_HAND", player: 0, cards: [0, 0] });
+    expect(bot.choose(rememberedBattle())?.action).toBe("TO_M2");
+  });
+
+  it.each([78, 79, 80])("recipe %i uses forty supported cards with only the owner's boss ban-list exceptions", (id) => {
+    const deck = npcDeck(id)!;
+    expect(deck.main).toHaveLength(40);
+    expect(toCodes([...deck.main, ...deck.extra])).toEqual([...deck.main, ...deck.extra]);
+    const trunk = Object.fromEntries([...deck.main, ...deck.extra].map(c => [String(c), 3]));
+    // Boss recipes may use forbidden/limited cards, but still obey zones and the three-copy maximum.
+    expect(check(deck.main, deck.extra, trunk, false)).toEqual([]);
+  });
+
+  it("keeps the tuned Cyberdark deck through every friendship stage", () => {
+    const points = new Map<number, number>();
+    const current = () => deckNpc(78, id => [0, 0, 0, points.get(id) ?? 0]);
+    const cyberdark = npcDeck(80)!;
+    for (const id of [78, 79, 80]) {
+      expect(current()).toBe(id);
+      const deck = npcDeck(current())!;
+      expect(deck).toEqual(cyberdark);
+      for (const c of [41230939, 77625948, 3019642]) expect(deck.main.filter(x => x === c)).toHaveLength(3);
+      expect(deck.main).toContain(96005454); // Hunter Dragon equips
+      expect(deck.main).toContain(80033124); // Cyberdark Impact!
+      expect(deck.extra).toContain(40418351); // Cyberdark Dragon
+      expect(deck.main).not.toContain(70095154); // Cyber Dragon
+      expect(deck.main).not.toContain(37630732); // Power Bond
+      expect(deck.extra).not.toContain(64599569); // Chimeratech Overdragon
+      points.set(id, nrThreshold(id));
+    }
+  });
+
+  it.each([78, 79, 80])("buries Hunter Dragon before summoning Cyberdark Horn (duel 786) at stage %i", npcId => {
+    const p = play(dc, {
+      npcId, first: "player", turns: 2,
+      npc: { hand: ["Foolish Burial", "Cyberdark Horn", "Masked Dragon"], deck: ["Hunter Dragon", ...Array(12).fill("Petit Moth")] },
+      player: { mzone: ["Jain, Lightsworn Paladin"] },
+    });
+    expect(npcActivated(p, "Foolish Burial")).toBe(true);
+    expect(msgs(p, "SUMMONING", "Cyberdark Horn")).toHaveLength(1);
+    expect(leftField(p, "Jain, Lightsworn Paladin")).toBe(true);
+  });
+
+  it.each([78, 79, 80])("Future Fusion sets up Cyberdark rather than Five-Headed Dragon at stage %i", npcId => {
+    const p = play(dc, { npcId, first: "player", turns: 2,
+      npc: { hand: ["Future Fusion", "Cyberdark Horn"],
+        extra: ["Five-Headed Dragon", "Cyberdark Dragon"],
+        deck: ["Hunter Dragon", "Hunter Dragon", "Hunter Dragon", "Masked Dragon", "Masked Dragon",
+          "Cyberdark Horn", "Cyberdark Edge", "Cyberdark Keel", ...Array(12).fill("Petit Moth")] },
+      player: {} });
+    expect(npcActivated(p, "Future Fusion")).toBe(true);
+    const dumped = p.msgs.filter(m => m.type === "MOVE" && Number((m.from as any)?.controller) === 1
+      && Number((m.from as any)?.location) === 1 && Number((m.to as any)?.location) === 16);
+    expect(dumped).toHaveLength(3);
+    const pick = p.npc.find(d => d.sel.type === "SELECT_CARD"
+      && (d.sel.selects as any[]).some(c => c.code === code("Five-Headed Dragon")))!;
+    expect(pick).toBeDefined();
+    const index = (pick.resp!.indicies as number[])[0]!;
+    expect((pick.sel.selects as any[])[index].code).toBe(code("Cyberdark Dragon"));
+  });
+
+  it.each(["Cyberdark Horn", "Cyberdark Edge", "Cyberdark Keel"])("chooses an equipped %s over a bare Hunter Dragon (duel 911)", cyberdark => {
+    const p = play(dc, {
+      npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Hunter Dragon", cyberdark, "Hunter Dragon"], grave: ["Hunter Dragon"] },
+      player: {},
+    });
+    expect(msgs(p, "SUMMONING", cyberdark)).toHaveLength(1);
+    expect(msgs(p, "SUMMONING", "Hunter Dragon")).toHaveLength(0);
+    expect(p.log.some(line => line.includes("LP 8000 -> 5500"))).toBe(true);
+  });
+
+  it.each([78, 79, 80])("uses Foolish Burial's setup with Horn even when Hunter Dragon is also summonable at stage %i", npcId => {
+    const p = play(dc, {
+      npcId, first: "player", turns: 2,
+      npc: { hand: ["Hunter Dragon", "Cyberdark Horn", "Foolish Burial"], deck: ["Hunter Dragon", "Hunter Dragon", ...Array(12).fill("Petit Moth")] },
+      player: { mzone: ["Lyla, Lightsworn Sorceress"] },
+    });
+    expect(npcActivated(p, "Foolish Burial")).toBe(true);
+    expect(msgs(p, "SUMMONING", "Cyberdark Horn")).toHaveLength(1);
+    expect(leftField(p, "Lyla, Lightsworn Sorceress")).toBe(true);
+  });
+
+  it("does not prefer an unequipped Cyberdark when no Dragon is in the graveyard", () => {
+    const p = play(dc, {
+      npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Hunter Dragon", "Cyberdark Horn"], grave: ["Sangan"] }, player: {},
+    });
+    expect(msgs(p, "SUMMONING", "Hunter Dragon")).toHaveLength(1);
+    expect(msgs(p, "SUMMONING", "Cyberdark Horn")).toHaveLength(0);
+  });
+
+  it("counts a legal Masked Dragon equip instead of relying on Hunter Dragon by name", () => {
+    const p = play(dc, {
+      npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Hunter Dragon", "Cyberdark Horn"], grave: ["Masked Dragon"] }, player: {},
+    });
+    expect(msgs(p, "SUMMONING", "Cyberdark Horn")).toHaveLength(1);
+    expect(p.log.some(line => line.includes("LP 8000 -> 5800"))).toBe(true);
+  });
+
+  it("sees lethal with the equipped Cyberdark instead of summoning the weaker Dragon", () => {
+    const p = play(dc, {
+      npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Hunter Dragon", "Cyberdark Horn"], grave: ["Hunter Dragon"] },
+      player: { lp: 2400 },
+    });
+    expect(msgs(p, "SUMMONING", "Cyberdark Horn")).toHaveLength(1);
+    expect(p.end?.winner).toBe(1);
+  });
+
+  it.each(["level four Dragon", "full backrow", "Skill Drain", "Necrovalley"])("does not count an unavailable equip: %s", blocked => {
+    const p = play(dc, {
+      npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Hunter Dragon", "Cyberdark Horn"],
+        grave: [blocked === "level four Dragon" ? "Luster Dragon" : "Hunter Dragon"],
+        szone: blocked === "full backrow" ? Array(5).fill(["Call of the Haunted", "up"])
+          : blocked === "Skill Drain" ? [["Skill Drain", "up"]]
+          : blocked === "Necrovalley" ? [["Necrovalley", "up"]] : [] },
+      player: {},
+    });
+    expect(msgs(p, "SUMMONING", "Hunter Dragon")).toHaveLength(1);
+    expect(msgs(p, "SUMMONING", "Cyberdark Horn")).toHaveLength(0);
+  });
+
+  it.each([78, 79, 80])("keeps its only graveyard Dragon for Cyberdark instead of reviving it first at stage %i", npcId => {
+    const p = play(dc, {
+      npcId, first: "player", turns: 2,
+      npc: { hand: ["Cyberdark Keel", "Premature Burial"], grave: ["Hunter Dragon", "Card Trooper"] },
+      player: { mzone: ["Wulf, Lightsworn Beast"] },
+    });
+    expect(msgs(p, "SPSUMMONING", "Hunter Dragon")).toHaveLength(0);
+    expect(leftField(p, "Wulf, Lightsworn Beast")).toBe(true);
+  });
+
+  it.each([false, true])("removes Lyla whichever attack Gardna stops: decline first attack = %s", saveGardna => {
+    let attackWindows = 0;
+    const p = play(dc, {
+      npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Cyberdark Horn"], mzone: ["Hunter Dragon"], grave: ["Hunter Dragon"], szone: ["Mirror Force"] },
+      player: { mzone: ["Lyla, Lightsworn Sorceress"], grave: ["Necro Gardna"] },
+      player_policy: sel => {
+        if (sel.type === "SELECT_CHAIN" && (Number(sel.hint_timing_other) & 4096)) {
+          const i = (sel.selects as any[]).findIndex(c => c.code === code("Necro Gardna"));
+          if (i >= 0 && (!saveGardna || attackWindows++ > 0)) return { type: "SELECT_CHAIN", index: i };
+        }
+        return passive(sel);
+      },
+    });
+    const first = p.npc.find(d => d.sel.type === "SELECT_BATTLECMD" && d.resp?.action === "SELECT_BATTLE")!;
+    expect(first).toBeDefined();
+    expect(leftField(p, "Lyla, Lightsworn Sorceress")).toBe(true);
+  });
+
+  it.each([false, true])("does not invent Lyla's removal threat with no usable effect: Skill Drain = %s", skillDrain => {
+    const p = play(dc, {
+      npcId: 80, first: "player", turns: 2,
+      npc: { mzone: ["Hunter Dragon"], szone: skillDrain ? [["Skill Drain", "up"]] : [] },
+      player: { mzone: ["Lyla, Lightsworn Sorceress"] },
+    });
+    expect(leftField(p, "Lyla, Lightsworn Sorceress")).toBe(false);
+  });
+
+  it("plays all three Pots of Greed even when another copy moves into the same hand slot", () => {
+    const p = play(dc, {
+      npcId: 79, first: "npc", turns: 1,
+      npc: { hand: ["Pot of Greed", "Pot of Greed", "Pot of Greed"] }, player: {},
+    });
+    expect(msgs(p, "CHAINING", "Pot of Greed")).toHaveLength(3);
+  });
+
+  it("sets up Chimeratech with Future Fusion instead of holding it (duel 807)", () => {
+    const p = play(dc, {
+      npcId: 79, first: "player", turns: 2,
+      npc: { hand: ["Future Fusion", "Overload Fusion"], extra: ["Chimeratech Overdragon"],
+        deck: ["Cyber Dragon", "Cyber Phoenix", "Drillroid", "Dekoichi the Battlechanted Locomotive", ...Array(16).fill("Petit Moth")] },
+      player: { mzone: ["Lyla, Lightsworn Sorceress"] },
+    });
+    expect(npcActivated(p, "Future Fusion")).toBe(true);
+    expect(npcActivated(p, "Overload Fusion")).toBe(true);
+    expect(msgs(p, "SPSUMMONING", "Chimeratech Overdragon")).toHaveLength(1);
+    expect(leftField(p, "Lyla, Lightsworn Sorceress")).toBe(true);
+  });
+
+  it("prepares a strong Chimeratech without dumping the entire deck", () => {
+    const p = play(dc, {
+      npcId: 79, first: "player", turns: 2,
+      npc: { hand: ["Future Fusion", "Overload Fusion"], extra: ["Chimeratech Overdragon"],
+        deck: ["Cyber Dragon", ...Array(12).fill("Cyber Phoenix"), ...Array(16).fill("Petit Moth")] },
+      player: { mzone: ["Jain, Lightsworn Paladin"] },
+    });
+    const dumped = p.msgs.filter(m => m.type === "MOVE" && Number((m.from as any)?.controller) === 1
+      && Number((m.from as any)?.location) === 1 && Number((m.to as any)?.location) === 16);
+    expect(dumped).toHaveLength(8);
+    expect(leftField(p, "Jain, Lightsworn Paladin")).toBe(true);
+  });
+
+  it("does not use Limiter Removal to defend a defence-position monster (duel 748)", () => {
+    const p = play(dc, {
+      npcId: 78, first: "player", turns: 3,
+      npc: { mzone: [["Reflect Bounder", "def"], "Cyber Dragon"], szone: ["Limiter Removal"] },
+      player: { mzone: ["Blue-Eyes White Dragon"] }, player_policy: attacker,
+    });
+    expect(npcActivated(p, "Limiter Removal")).toBe(false);
+  });
+
+  it("does not count a spent attack as Limiter Removal lethal", () => {
+    const p = play(dc, {
+      npcId: 78, first: "player", turns: 2,
+      npc: { mzone: ["Reflect Bounder", "Cyber Dragon"], szone: ["Limiter Removal"] },
+      player: { mzone: ["Lyla, Lightsworn Sorceress"] },
+    });
+    expect(npcActivated(p, "Limiter Removal")).toBe(false);
+  });
+
+  it("uses Limiter Removal when the remaining Machine attacks really win", () => {
+    const p = play(dc, {
+      npcId: 78, first: "player", turns: 2,
+      npc: { mzone: ["Cyber Dragon"], hand: ["Limiter Removal"] },
+      player: { lp: 4000 },
+    });
+    expect(npcActivated(p, "Limiter Removal")).toBe(true);
+    expect(p.end?.winner).toBe(1);
+  });
+
+  it("Power Bond chooses Cyber Twin for lethal rather than a smaller fusion", () => {
+    const p = play(dc, {
+      npcId: 78, first: "player", turns: 2,
+      npc: { hand: ["Power Bond", "Cyber Dragon", "Cyber Dragon"], extra: ["Cyber Twin Dragon", "Chimeratech Overdragon"] },
+      player: { lp: 8000 },
+    });
+    expect(npcActivated(p, "Power Bond")).toBe(true);
+    expect(p.end?.winner).toBe(1);
+  });
+
+  it("keeps Cyber Twin's two attacks instead of consuming it for Chimeratech", () => {
+    const p = play(dc, {
+      npcId: 78, first: "player", turns: 2,
+      npc: { mzone: ["Cyber Twin Dragon"], hand: ["Cyber Dragon", "Power Bond"],
+        extra: ["Cyber Twin Dragon", "Chimeratech Overdragon"] },
+      player: { lp: 2800, mzone: [["Petit Moth", "set"]] },
+    });
+    expect(npcActivated(p, "Power Bond")).toBe(false);
+    expect(p.end?.winner).toBe(1);
+  });
+
+  it("does not replace its own Cyber Dragon and Phoenix with a weaker Fortress (1124/1237)", () => {
+    const p = play(dc, { npcId: 78, first: "npc", turns: 1,
+      npc: { mzone: ["Cyber Dragon", ["Cyber Phoenix", "set"]], extra: ["Chimeratech Fortress Dragon"] }, player: {} });
+    expect(msgs(p, "SPSUMMONING", "Chimeratech Fortress Dragon")).toHaveLength(0);
+  });
+
+  it("still uses Fortress to absorb an opposing Machine", () => {
+    const p = play(dc, { npcId: 78, first: "player", turns: 2,
+      npc: { mzone: ["Cyber Phoenix"], extra: ["Chimeratech Fortress Dragon"] },
+      player: { mzone: ["Cyber Dragon"] } });
+    expect(msgs(p, "SPSUMMONING", "Chimeratech Fortress Dragon")).toHaveLength(1);
+    expect(leftField(p, "Cyber Dragon")).toBe(true);
+  });
+
+  it("can upgrade weak own Machines into a Fortress that wins the battle", () => {
+    const p = play(dc, { npcId: 78, first: "player", turns: 2,
+      npc: { mzone: ["Proto-Cyber Dragon", "Cyber Phoenix"], extra: ["Chimeratech Fortress Dragon"] },
+      player: { mzone: ["Gemini Elf"] } });
+    expect(msgs(p, "SPSUMMONING", "Chimeratech Fortress Dragon")).toHaveLength(1);
+    expect(leftField(p, "Gemini Elf")).toBe(true);
+  });
+
+  it("counts Brain Control's LP cost before the borrowed attacker returns (1206)", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Brain Control", "Solemn Judgment"], deck: Array(20).fill("Foolish Burial"), lp: 3100 },
+      player: { mzone: ["Sillva, Warlord of Dark World"], lp: 2400 } });
+    expect(npcActivated(p, "Brain Control")).toBe(false);
+  });
+
+  it("still pays for Brain Control when the stolen attack wins immediately", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Brain Control"], deck: Array(20).fill("Foolish Burial"), lp: 3100 },
+      player: { mzone: ["Sillva, Warlord of Dark World"], lp: 2300 } });
+    expect(npcActivated(p, "Brain Control")).toBe(true);
+    expect(p.end?.winner).toBe(1);
+  });
+
+  it("clears backrow before Snatch Steal and keeps the permanent steal (1237)", () => {
+    const p = play(dc, { npcId: 78, first: "player", turns: 2,
+      npc: { hand: ["Giant Trunade", "Brain Control", "Snatch Steal"], lp: 4700 },
+      player: { mzone: ["Blue-Eyes White Dragon"], szone: ["Mirror Wall", "Spellbinding Circle"] } });
+    const spells = p.log.filter(l => l.startsWith("NPC activated"));
+    expect(spells.findIndex(l => l.includes("Giant Trunade"))).toBeLessThan(spells.findIndex(l => l.includes("Snatch Steal")));
+    expect(npcActivated(p, "Brain Control")).toBe(false);
+  });
+
+  it("recycles graveyard Cyberdarks for Impact and attacks with the equipped fusion (1206)", () => {
+    const p = play(dc, { npcId: 80, first: "player", turns: 2,
+      npc: { hand: ["Cyberdark Impact!"], mzone: ["Cyberdark Horn", "Cyberdark Edge"],
+        grave: ["Cyberdark Horn", "Cyberdark Edge", "Cyberdark Keel", "Hunter Dragon"], extra: ["Cyberdark Dragon"] },
+      player: { mzone: ["Brron, Mad King of Dark World"] } });
+    expect(npcActivated(p, "Cyberdark Impact!")).toBe(true);
+    const recycledField = p.msgs.filter(m => m.type === "MOVE" && Number((m.from as any)?.controller) === 1
+      && Number((m.from as any)?.location) === 4 && Number((m.to as any)?.location) === 1);
+    expect(recycledField).toHaveLength(0);
+    expect(leftField(p, "Brron, Mad King of Dark World")).toBe(true);
+  });
+  it.each(["Snatch Steal", "Raigeki"])("special summons Cyber Dragon before %s closes its summon window (2056)", spell => {
+    const p = play(dc, { npcId: 5, first: "player", turns: 2,
+      npc: { hand: ["Cyber Dragon", spell], lp: 2400 },
+      player: { mzone: ["Cyber Twin Dragon"] } });
+    expect(msgs(p, "SPSUMMONING", "Cyber Dragon")).toHaveLength(1);
+    const summon = p.log.findIndex(l => l.includes("Special Summoned Cyber Dragon"));
+    const activation = p.log.findIndex(l => l.startsWith("NPC activated " + spell));
+    expect(activation).toBeGreaterThan(summon);
+    expect(p.log.some(l => l.includes("Cyber Dragon attacks"))).toBe(true);
+  });
+
+});

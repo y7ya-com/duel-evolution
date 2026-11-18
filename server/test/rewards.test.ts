@@ -227,6 +227,51 @@ describe("limited-time NPC event (REWARDS.events)", () => {
     expect(f.p().shards).toBe(24500);
     expect(f.p().rewards.beaten[ev.key]).toHaveLength(36);
   });
+  it("keeps the event claimed across UTC daily/weekly resets and D1 reloads", async () => {
+    const f = await eventSetup();
+    for (const n of f.map) f.win(n);
+    const requestId = f.view().nextRequestId;
+    expect(f.claim(id, requestId)).toMatchObject({ grant: { shards: 24000 } });
+    for (const days of [1, 7]) {
+      f.clock.mockReturnValue(opened + days * day + 3600);
+      f.h.game.store.saveRaw(rowsToState(stateToRows(f.h.state())));
+      expect(f.mission()).toMatchObject({ claimed: true, claimable: false });
+      expect(f.claim(id)).toMatchObject({ error: "not-claimable" });
+      expect(f.claim(id, requestId)).toMatchObject({ replayed: true });
+      expect(f.p().shards).toBe(24000);
+    }
+  });
+  it.each(["receipts", "audit"] as const)("repairs a recreated event from its saved %s", async evidence => {
+    const f = await eventSetup();
+    for (const n of f.map) f.win(n);
+    f.claim(id);
+    f.edit(p => {
+      p.rewards.missions = p.rewards.missions.filter((m: any) => m.id !== id);
+      if (evidence === "audit") p.rewards.receipts = {};
+      else p.rewards.audit = [];
+    });
+    f.clock.mockReturnValue(opened + day + 3600);
+    expect(f.mission()).toMatchObject({ claimed: true, claimable: false });
+    expect(f.claim(id)).toMatchObject({ error: "not-claimable" });
+    expect(f.p().shards).toBe(24000);
+  });
+  it.each([false, true])("honors a previous character's receipt after its event row was removed (archived %s)", async archived => {
+    const f = await eventSetup();
+    for (const n of f.map) f.win(n);
+    f.claim(id);
+    f.edit((p, account) => {
+      const previous = structuredClone(p);
+      previous.rewards.missions = previous.rewards.missions.filter((m: any) => m.id !== id);
+      if (archived) account.profiles_borrados = [{ perfil: previous }];
+      else account.profiles[1] = previous;
+      delete p.rewards;
+      p.shards = 0;
+    });
+    for (const n of f.map) f.win(n);
+    expect(f.mission()).toMatchObject({ claimed: true, claimable: false });
+    expect(f.claim(id)).toMatchObject({ error: "not-claimable" });
+    expect(f.p().shards).toBe(0);
+  });
   it("once per account: claimed on another character, it shows claimed here and can't be claimed", async () => {
     const f = await eventSetup();
     for (const n of f.map) f.win(n);
