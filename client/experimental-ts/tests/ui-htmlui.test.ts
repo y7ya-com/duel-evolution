@@ -126,6 +126,14 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
     expect(input.controls.find(c => c.cls === 'CWindowTaskText' && c.shown)?.text).toBe('Name');
     t.find('ignore-name')!.text!('Zed'); t.find('ignore-name-ok')!.click!(); expect(calls.at(-1)).toBe('find Zed');
     social.lookup = { name: 'Zed', pid: 77 }; t.windows(); expect(calls.at(-1)).toBe('ignore 77'); expect(t.ctx.ui.ignoreInput).toBe(null);
+    // an unknown name: live's "There are no Players with this name." in its 336 x 144 box, over the Ignore List
+    t.ctx.ui.lists = { kind: 'ignore', selected: -1 }; t.find('list-add')!.click!();
+    t.find('ignore-name')!.text!('Nobody'); t.find('ignore-name-ok')!.click!(); social.lookup = { name: 'Nobody', pid: 0 };
+    const shown = t.windows(), box = shown.find(s => s.win.cls === 'CWindowModelDialogOk')!.win, list = shown.find(s => s.win.cls === 'CWindowModelBlacklist')!.win;
+    expect([box.x, box.y, box.w, box.h]).toEqual([344, 312, 336, 144]);
+    expect(box.controls.find(c => c.cls === 'CWindowTaskTextField')?.text).toBe('There are no Players with this name.');
+    expect(box.z).toBeGreaterThan(list.z!);
+    t.find('dialog-ok')!.click!(); t.ctx.ui.lists = null; social.lookup = null;
     // Leave Team asks first (main's YesNo)
     t.ctx.ui.compose = null; t.ctx.ui.lists = { kind: 'team', selected: -1 }; t.find('team-leave')!.click!(); expect(calls.at(-1)).not.toBe('leave');
     t.find('team-leave-yes')!.click!(); expect(calls.at(-1)).toBe('leave');

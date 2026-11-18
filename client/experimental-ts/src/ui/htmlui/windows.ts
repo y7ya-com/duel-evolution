@@ -13,6 +13,7 @@ import { avatarSwitch, freeChoices, starterLook, FIRST_CATEGORY, type AvatarDeps
 import playerSelectLive from './templates/playerselect-live.json';
 import dialogInput1 from './templates/dialog-input1.json';
 import blacklistInput from './templates/blacklist-input.json';
+import dialogOkSmall from './templates/dialog-ok-336.json';
 import { wrapDialogText } from './dialog-text';
 import { spacing } from '@htmlui/controls/basic.js';
 export { wrapDialogText };
@@ -33,7 +34,7 @@ export type HtmlDialog =
   | { kind: 'delpw'; slot: number; name: string; value: string; checking?: boolean }
   | { kind: 'deleting'; slot: number }
   /** An OK box; `at`: the account task's own (uiOpenDialogOk: style 1, 360 x 120 there, Select Player hidden under it). */
-  | { kind: 'ok'; text: string; at?: [number, number] }
+  | { kind: 'ok'; text: string; at?: [number, number]; small?: boolean }
   | { kind: 'team'; name: string }
   /** A Yes / No question (the rewrite's confirmations: surrender, disconnect, a starter claim): main's YesNo. */
   | { kind: 'confirm'; text: string; yes: () => void; key?: string }
@@ -296,7 +297,13 @@ function deletionDone(ctx: BuildContext, dialog: Extract<HtmlDialog, { kind: 'de
   else if (ctx.state.error) ctx.ui.dialog = null;
 }
 export function okDialog(ctx: BuildContext, dialog: Extract<HtmlDialog, { kind: 'ok' }>): WindowSpec {
-  const spec = messageDialog(ctx, 'ok', dialogOk, dialog.text, { OK: ['dialog-ok', () => { ctx.ui.dialog = null; ctx.rerender(); }] });
+  // small: the engine's own 336 x 144 box at 344, 312 (live's capture: Ignore List's "There are no Players with this
+  // name."), over the Main Menu's windows
+  const spec = dialog.small
+    ? messageDialog(ctx, 'ok', dialogOkSmall as unknown as typeof dialogYesNo, dialog.text, { OK: ['dialog-ok', () => { ctx.ui.dialog = null; ctx.rerender(); }] }, 51703)
+    : messageDialog(ctx, 'ok', dialogOk, dialog.text, { OK: ['dialog-ok', () => { ctx.ui.dialog = null; ctx.rerender(); }] });
+  // (its one line as the engine lays it: it fits the box, wider than the column count wrapDialogText allows)
+  if (dialog.small) for (const c of spec.win.controls) if (c.cls === 'CWindowTaskTextField' || c.cls === 'CWindowTaskText' && c.h === 96) c.text = dialog.text;
   if (dialog.at) {
     // main's live capture of the wrong password's box: the blue frame (style 1) 360 x 120, the text field 8, 8, 344 x 72
     // (its plane 344 x 72, its text 328 wide, the scroll column at 328 hidden), OK 140, 88
@@ -862,7 +869,7 @@ function settleIgnore(ctx: BuildContext, lists: SocialLists): void {
   const d = ctx.ui.ignoreInput, look = lists.lookup; if (!d?.asked || look?.name !== d.asked) return;
   ctx.ui.ignoreInput = null;
   if (look.pid) lists.ignore?.(look.pid);
-  else ctx.ui.dialog = { kind: 'ok', text: `No player called "${look.name}" was found.` };
+  else ctx.ui.dialog = { kind: 'ok', text: 'There are no Players with this name.', small: true };   // live's words and box
 }
 
 /** D-Mail's (and Write Mail's) title: white over the engine's heavy black shadow, 2 px down and right (live). */
