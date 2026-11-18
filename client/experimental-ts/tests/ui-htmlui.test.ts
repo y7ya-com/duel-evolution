@@ -120,6 +120,10 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
     t.find('friend-offer-yes')!.click!(); expect(calls.at(-1)).toBe('reply 5 true');
     // Ignore List: Add by Name looks the name up, then ignores that player
     t.ctx.ui.lists = { kind: 'ignore', selected: -1 }; t.find('list-add')!.click!(); t.ctx.ui.lists = null;
+    // live's own name window (CWindowModelBlacklistInput): 362, 284, 300 x 200, "Name" over its field
+    const input = t.windows().find(s => s.win.cls === 'CWindowModelBlacklistInput')!.win;
+    expect([input.x, input.y, input.w, input.h]).toEqual([362, 284, 300, 200]);
+    expect(input.controls.find(c => c.cls === 'CWindowTaskText' && c.shown)?.text).toBe('Name');
     t.find('ignore-name')!.text!('Zed'); t.find('ignore-name-ok')!.click!(); expect(calls.at(-1)).toBe('find Zed');
     social.lookup = { name: 'Zed', pid: 77 }; t.windows(); expect(calls.at(-1)).toBe('ignore 77'); expect(t.ctx.ui.ignoreInput).toBe(null);
     // Leave Team asks first (main's YesNo)

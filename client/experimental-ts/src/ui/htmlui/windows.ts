@@ -12,6 +12,7 @@ import type { HtmlControl, WindowSpec } from './snapshot';
 import { avatarSwitch, freeChoices, starterLook, FIRST_CATEGORY, type AvatarDeps } from './avatar';
 import playerSelectLive from './templates/playerselect-live.json';
 import dialogInput1 from './templates/dialog-input1.json';
+import blacklistInput from './templates/blacklist-input.json';
 import { wrapDialogText } from './dialog-text';
 import { spacing } from '@htmlui/controls/basic.js';
 export { wrapDialogText };
@@ -844,13 +845,14 @@ export function invitationDialog(ctx: BuildContext, lists: SocialLists): WindowS
 // player it names, or says no such player was found (main's OK box).
 export function ignoreInputDialog(ctx: BuildContext, lists: SocialLists): WindowSpec | null {
   const d = ctx.ui.ignoreInput; if (!d) return null;
-  const t = dialogInput1.windows[0]!, b = new WindowBuilder(ctx.ids, 'blacklist-input', 'CWindowModelBlacklistInput', { x: t.x, y: t.y, w: t.w, h: t.h }, { modal: true, z: 51503 });
+  // live's own window (CWindowModelBlacklistInput, captured on live: 362, 284, 300 x 200, "Name" over the field, OK /
+  // Cancel), over the Ignore List; OK greyed while the name is looked up
+  const t = blacklistInput.windows[0]!, b = new WindowBuilder(ctx.ids, 'blacklist-input', t.cls, { x: t.x, y: t.y, w: t.w, h: t.h }, { modal: true, z: 51703 });
   const cs = b.fromTemplate(t, true);
   const ok = () => { const name = d.name.trim(); if (!name || d.asked || !lists.find) return; d.asked = name; lists.find(name); ctx.rerender(); };
-  const text = named(cs, 'CWindowTaskText'); if (text) Object.assign(text, { text: d.asked ? 'Looking up the player…' : 'Enter the name of the player to ignore', x: 0, y: 8, w: 336, align: 1 });
-  const input = named(cs, 'CWindowTaskInput'); if (input) Object.assign(input, { x: 8, y: 56, w: 320 });
+  const input = named(cs, 'CWindowTaskInput');
   const okButton = named(cs, 'CWindowTaskTextSwitch', 'OK'), cancel = named(cs, 'CWindowTaskTextSwitch', 'Cancel');
-  if (input) { Object.assign(input, { value: d.name, focused: true, maxLen: 15 }); b.on(input, { key: 'ignore-name', label: 'Player name', text: v => { d.name = v; ctx.rerender(); }, enter: ok }); }
+  if (input) { Object.assign(input, { value: d.name, focused: true }); b.on(input, { key: 'ignore-name', label: 'Player name', text: v => { d.name = v; ctx.rerender(); }, enter: ok }); }
   if (okButton) { okButton.state = d.name.trim() && !d.asked ? 'normal' : 'disabled'; b.on(okButton, { key: 'ignore-name-ok', click: ok }); }
   if (cancel) b.on(cancel, { key: 'ignore-name-cancel', click: () => { ctx.ui.ignoreInput = null; ctx.rerender(); } });
   return b.spec();
