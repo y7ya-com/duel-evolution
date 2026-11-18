@@ -1,6 +1,7 @@
 import type { CardView } from './ui/contracts';
 import type { CardDetailsCatalog } from './cards';
 import type { OriginalCardTextCatalog } from './cards/original-text';
+import type { GameLanguage } from './features/language';
 export interface CatalogEntry {
   passcode: number; name: string; description?: string; type?: string; level?: number;
   attack?: number; defense?: number; extra?: boolean; limit?: number; deckAllowed?: boolean; rarity?: string; mergePath?: string;
@@ -62,6 +63,16 @@ export class CardCatalog {
   installLocalizedTexts(texts: readonly { passcode: number; name: string; description: string }[], language: string): void {
     const next = new Map(this.cards), source = `original-${language.toLowerCase()}` as const;
     for (const c of texts) next.set(c.passcode,{...next.get(c.passcode),passcode:c.passcode,name:c.name,description:c.description,descriptionSource:source});
+    this.cards = next; this.declarableCache = null;
+  }
+  /** Live's 2008 printed wording of the legacy-effect cards (cards/era.ts), over every other source, in the language
+   * shown (else its English), as htmlui read/deck.js reads Module.yo2EraCards. Names are untouched. */
+  installEraTexts(era: { entries: readonly { passcode: number }[]; text(passcode: number, language?: GameLanguage): string | undefined }, language: GameLanguage = 'E'): void {
+    const next = new Map(this.cards), source = `original-${language.toLowerCase()}` as const;
+    for (const { passcode } of era.entries) {
+      const old = next.get(passcode), description = era.text(passcode, language);
+      if (old && description) next.set(passcode, { ...old, description, descriptionSource: source });
+    }
     this.cards = next; this.declarableCache = null;
   }
   get size(): number { return this.cards.size; }

@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 import { devAssetsPlugin, devOriginGate, localProxyOptions } from './tools/dev-assets.mjs';
 import { createRemoteAssetMiddleware } from './tools/remote-assets.mjs';
 import { createHtmlUiArtMiddleware, htmlUiModules, uiBase } from './tools/htmlui-art.mjs';
+import { createEraMiddleware, eraBase } from './tools/era-assets.mjs';
 // All trust rewriting is confined to this loopback-only development server.
 const upstream = process.env.DE_SERVER || 'http://127.0.0.1:8787';
 const publicOrigin = process.env.DE_PUBLIC_ORIGIN || 'http://localhost:8787';
@@ -12,6 +13,8 @@ const assetPlugin = process.env.YO2_ASSET_URL ? {
     server.middlewares.use(createRemoteAssetMiddleware({baseUrl:process.env.YO2_ASSET_URL,forwardValidators:true}));
     // main's Legacy HTML UI art (ui/ beside the game/ folder), for its screens (src/ui/htmlui)
     server.middlewares.use(createHtmlUiArtMiddleware({baseUrl:uiBase(process.env.YO2_ASSET_URL)}));
+    // live's yo2rc.html and the 2008 printed card faces it names (src/cards/era.ts), as v2's front forwards them
+    server.middlewares.use(createEraMiddleware({baseUrl:eraBase(process.env.YO2_ASSET_URL)}));
   },
 } : devAssetsPlugin({gameRoot:process.env.YO2_GAME,cardsRoot:process.env.YO2_CARDS});
 export default {

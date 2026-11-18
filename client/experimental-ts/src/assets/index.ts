@@ -1,11 +1,12 @@
 import { BudgetCache } from '../core/cache';
 import type { Lease } from '../core/cache';
-import { ArchiveReader, AssetNotFoundError, normalizeAssetPath } from './archive';
+import { ArchiveReader, AssetNotFoundError, DEFAULT_ARCHIVE_LIMITS, normalizeAssetPath } from './archive';
 import type { ArchiveLimits, AssetFetch } from './archive';
 import { checkAbort, SharedJobs, WorkQueue } from './async';
 import { imageBudget } from './image-bounds';
 import type { ImageLimits } from './image-bounds';
 import type { PersistentProvider } from './persistent';
+import type { EraCards } from '../cards/era';
 export { CacheApiPersistence } from './persistent';
 export type { PersistentProvider, PersistentStore } from './persistent';
 export { IdlePrefetcher } from './prefetch';
@@ -37,6 +38,8 @@ export interface AssetManagerOptions {
   persistent?: PersistentProvider;
   /** Every merge.dat path a caller loads (the prefetch manifest learns each scene's art from it). */
   onScene?: (path: string) => void;
+  /** Live's 2008 printed faces (cards/era.ts): they win over card.dat's modern art, as lazyfs.js mounts them over it. */
+  eraCards?: EraCards | null;
 }
 function passcodeName(passcode: string | number): string {
   const text = String(passcode);
@@ -65,6 +68,9 @@ export class AssetManager {
   private readonly imageLimits: Partial<ImageLimits>;
   private closed = false;
   private readonly onScene: ((path: string) => void) | undefined;
+  private readonly era: EraCards | null;
+  private readonly fetcher: AssetFetch;
+  private readonly maxEntryBytes: number;
   constructor(options: AssetManagerOptions) {
     const base = options.baseUrl.replace(/\/+$/, '') + '/';
     const queue = new WorkQueue(options.limits?.concurrency ?? 4);
@@ -73,6 +79,9 @@ export class AssetManager {
     this.card = new ArchiveReader(cards + 'merge/data/card.dat', options.fetch, options.limits, queue, options.persistent);
     this.mini = new ArchiveReader(cards + 'merge/data/mini.dat', options.fetch, options.limits, queue, options.persistent);
     this.onScene = options.onScene;
+    this.era = options.eraCards ?? null;
+    this.fetcher = options.fetch ?? globalThis.fetch.bind(globalThis);
+    this.maxEntryBytes = options.limits?.maxEntryBytes ?? DEFAULT_ARCHIVE_LIMITS.maxEntryBytes;
     this.fallback = { ...options.mergeCardPaths };
     this.imageLimits = { ...options.imageLimits };
     // A card's 2x art charges ~1 MiB (its decoded RGBA estimate): a full deck screen (main, extra, side and the trunk's
@@ -119,6 +128,8 @@ export class AssetManager {
   prefetchCard(passcode: string | number, signal?: AbortSignal): Promise<void> {
     const pc = passcodeName(passcode);
     return this.warm(`card:${pc}`, async s => {
+      const era = this.eraFace(pc, 'face', s);
+      if (era) return era;
       const path = pc + '.jpg';
       try { return { bytes: await this.card.read(path, s), path }; }
       catch (error) {
@@ -160,6 +171,8 @@ export class AssetManager {
   loadCard(passcode: string | number, signal?: AbortSignal): Promise<AssetLease> {
     const pc = passcodeName(passcode);
     return this.load(`card:${pc}`, async s => {
+      const era = this.eraFace(pc, 'face', s);
+      if (era) return era;
       const path = pc + '.jpg';
       try { return { bytes: await this.card.read(path, s), path }; }
       catch (error) {
@@ -173,6 +186,8 @@ export class AssetManager {
    * entry (`<passcode>.jpg`); without card.dat, merge.dat's data/card/list_card.txt and data/card/<name>. */
   async readCardArt(id: number, signal?: AbortSignal): Promise<Uint8Array | null> {
     this.check(signal);
+    const era = this.era?.byId(id);
+    if (era) return (await this.eraFace(String(era.passcode), 'face', signal)!).bytes;
     const names = async (read: () => Promise<Uint8Array>) => new TextDecoder('latin1').decode(await read()).split(/\r?\n/).map(x => x.trim().toLowerCase());
     try {
       this.cardNames ??= names(() => this.card.read('list_card.txt', signal)).catch(e => { this.cardNames = null; throw e; });
@@ -187,7 +202,21 @@ export class AssetManager {
   private mergeNames: Promise<string[]> | null = null;
   loadMini(passcode: string | number, signal?: AbortSignal): Promise<AssetLease> {
     const pc = passcodeName(passcode), path = pc + '.jpg';
-    return this.load(`mini:${pc}`, async s => ({ bytes: await this.mini.read(path, s), path }), signal);
+    return this.load(`mini:${pc}`, async s => (await this.eraFace(pc, 'mini', s)) ?? { bytes: await this.mini.read(path, s), path }, signal);
+  }
+  /** A legacy card's printed face or thumbnail from live's published folder (null: not one of them). */
+  private eraFace(pc: string, kind: 'face' | 'mini', signal?: AbortSignal): Promise<{ bytes: Uint8Array; path: string }> | null {
+    const card = this.era?.byPasscode(Number(pc));
+    if (!card) return null;
+    const url = card[kind];
+    return (async () => {
+      const res = await this.fetcher(url, { credentials: 'same-origin', ...(signal ? { signal } : {}) });
+      if (!res.ok) throw new Error(`2008 card face ${pc}: ${res.status}`);
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      if (!bytes.byteLength || bytes.byteLength > this.maxEntryBytes) throw new Error(`2008 card face ${pc}: bad size`);
+      // (era2008_assets.py writes each original under both extensions: the bytes say which it is)
+      return { bytes, path: `${new URL(url).pathname.replace(/\.\w+$/, '')}.${bytes[0] === 0xff && bytes[1] === 0xd8 ? 'jpg' : 'png'}` };
+    })();
   }
   readScene(path: string, signal?: AbortSignal): Promise<AssetLease> {
     path = normalizeAssetPath(path);
