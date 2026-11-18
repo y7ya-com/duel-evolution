@@ -2,7 +2,7 @@ import { beforeAll, expect, it } from "vitest";
 import { createNodeDuelCore } from "../src/duel/engine/node.ts";
 import type { DuelCore, Json } from "../src/duel/engine/core.ts";
 import { YUGI_HEART_POOL } from "../src/duel/yugiHeartPool.ts";
-import { code, play, npcActivated, leftField, activating, passive } from "./npcScenario.ts";
+import { code, play, npcActivated, leftField, activating, passive, attacker, summoning } from "./npcScenario.ts";
 let dc: DuelCore;
 beforeAll(async () => { dc = await createNodeDuelCore(); }, 60000);
 it.each([0, 1] as const)("silently materialises a missing card before Yugi's normal draw, first seat %i", first => {
@@ -254,4 +254,16 @@ it("a materialised Normal Monster has no effect left from the deck card it repla
     .flatMap(x => ((x.sel.activates ?? []) as { code: number }[]).map(a => a.code));
   expect(offered.filter(c => drawn.includes(c))).toEqual([]);
   expect(npcActivated(p, "Summoned Skull") || npcActivated(p, "Beta The Magnet Warrior")).toBe(false);
+});
+
+it("draws an off-brand card once a duel and his own cards up to three times", () => {
+  // Owner: no Raigeki three times; Dark Hole and Yugi's own cards can repeat.
+  const drawn = (removal: string) => play(dc, { npcId: 53, heart_of_cards: 1, handAwareDraw: true, first: "player", turns: 10,
+    heart_pool: [removal, "Kuriboh"].map(code),
+    npc: { deck: Array(20).fill("Petit Moth") },
+    player: { hand: Array(6).fill("Gladiator Beast Darius"), mzone: ["Gladiator Beast Laquari", "Gladiator Beast Darius"],
+      deck: Array(20).fill("Gladiator Beast Laquari") },
+    player_policy: summoning(attacker) }).npc.filter(x => x.sel.heart_of_cards).map(x => dc.cardDB.name(Number(x.resp?.card)));
+  expect(drawn("Raigeki").filter(n => n === "Raigeki")).toHaveLength(1);
+  expect(drawn("Dark Hole").filter(n => n === "Dark Hole").length).toBeGreaterThan(1);
 });

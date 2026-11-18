@@ -45,11 +45,11 @@ it("materialises Obelisk when Sanctuary plus two existing bodies can summon it i
   expect(summoned(p)).toBe(true);
 });
 
-it("materialises the third Sanctuary within the three-copy cap to finish an empty-field Obelisk line", () => {
+it("does not materialise a second copy of the off-brand Sanctuary for an Obelisk line", () => {
+  // Owner: an off-brand card is a one-of for Yugi (and three Sanctuaries for Obelisk looked wrong).
   const p = play(dc, {npcId: 52, heart_of_cards: 1, first: "player", turns: 2,
-    npc: {hand: [god, sanctuary, sanctuary]}, player: {mzone: ["Gladiator Beast Gyzarus"]}});
-  expect(p.npc.filter(d => d.sel.heart_of_cards).map(d => d.resp?.card)).toContain(code(sanctuary));
-  expect(summoned(p)).toBe(true);
+    npc: {hand: [god, sanctuary]}, player: {mzone: ["Gladiator Beast Gyzarus"]}});
+  expect(p.npc.filter(d => d.sel.heart_of_cards).map(d => d.resp?.card)).not.toContain(code(sanctuary));
 });
 
 it("uses the existing Valkyrion as its single three-body generator", () => {

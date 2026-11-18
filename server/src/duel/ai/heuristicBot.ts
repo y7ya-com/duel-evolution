@@ -45,6 +45,7 @@ import {
 } from "./prompt.ts";
 import { rolloutScore, searchable, whatIf, type SearchAccess } from "./simSearch.ts";
 import { yugiPlaybook } from "./yugiMatchups.ts";
+import { yugiCopyLimit } from "./yugiBrand.ts";
 import type { CardDB as BrainDB } from "../brain/index.ts";
 import { zoneOrder } from "../zones.ts";
 
@@ -332,6 +333,8 @@ export class HeuristicBot {
   #hate: number | undefined;
   /** Yugi has used his one draw spell this duel (#locked). */
   #drawSpent = false;
+  /** Copies Yugi has had this duel, by name: his opening hand, then every skill draw (yugiCopyLimit). */
+  #heartDuel: Map<string, number> | null = null;
   #heartPending: number[] = [];
   #obeliskDiscard: string | undefined;
   #obeliskRevive: string | undefined;
@@ -487,6 +490,12 @@ export class HeuristicBot {
     }
     this.#board = (this.#vision && this.#peek ? boardFromState(this.#peek(), this.seat, true) : null) ?? boardFromView(sel, this.seat) ?? this.#board;
     if (this.#heartSkill && !this.#drawSpent && this.#me()?.grave.some(c => this.#isDrawCard(c))) this.#drawSpent = true;
+    if (this.#heartSkill && !this.#heartDuel && this.#me()) {
+      this.#heartDuel = new Map();
+      const me = this.#me()!;
+      for (const c of [...me.hand, ...me.grave, ...me.removed, ...[...me.mzone, ...me.szone].flatMap(x => x ? [x.code] : [])])
+        if (c) this.#heartDuel.set(this.#nameOf(c), (this.#heartDuel.get(this.#nameOf(c)) ?? 0) + 1);
+    }
     if (this.#opp()?.hand.length === 0) this.#knownOppHand.clear();
     if (turn !== this.#heldTurn) {
       this.#heldTurn = turn;
@@ -499,6 +508,7 @@ export class HeuristicBot {
     this.#turn = from.#turn;
     this.#hate = from.#oppBackrowHate();
     this.#drawSpent = from.#drawSpent;
+    this.#heartDuel = from.#heartDuel ? new Map(from.#heartDuel) : null;
     this.#normalSummoned = from.#normalSummoned;
     this.#oppNormalSummoned = from.#oppNormalSummoned;
     this.#idleActions = from.#idleActions;
@@ -1913,9 +1923,11 @@ export class HeuristicBot {
     const handBeater = this.#normalSummoned ? 0 : Math.max(0, ...(me?.hand ?? []).map(beater));
     const graveBody = Math.max(ctx.myGraveMaxAtk ?? 0, ctx.oppGraveMaxAtk ?? 0);
     const reach = myAttack + handBeater;
+    // One copy a duel of a card that is not Yugi's own (yugiCopyLimit): no third Raigeki (owner).
+    const brandAllowed = (code: number) => (this.#heartDuel?.get(this.#nameOf(code)) ?? 0) < yugiCopyLimit(this.#nameOf(code));
     const finisherKind = (c: CardRef): number => {
       const name = this.#nameOf(c.code), k = this.#cards.brain.get(c.code);
-      if (this.#locked(c.code) || !k) return 0;
+      if (this.#locked(c.code) || !k || !brandAllowed(c.code)) return 0;
       const open = !(foe?.mzone ?? []).some(Boolean);
       if (BURN_SPELL[name] !== undefined) return name === "tremendous fire" && ctx.myLp <= 500 ? 0
         : BURN_SPELL[name]! >= oppLp ? 4 : open && BURN_SPELL[name]! + reach >= oppLp ? 3 : 0;
@@ -1937,8 +1949,11 @@ export class HeuristicBot {
       ...(me?.szone ?? []).flatMap(c => c ? [c.code] : [])];
     const potSpent = this.#drawSpent || [...this.#heartMade].some(([code, n]) => n > 0 && this.#nameOf(code) === "pot of greed")
       || mine.some(c => this.#nameOf(c) === "pot of greed");
-    const drawAllowed = (code: number) => !drawCard(code) || (this.#nameOf(code) === "pot of greed" && !potSpent && !drawUsed);
-    const ranked = cards.map((c, i) => ({ c, i })).filter(({c}) => drawAllowed(c.code))
+    const drawAllowed = (code: number) => brandAllowed(code) && (!drawCard(code) || (this.#nameOf(code) === "pot of greed" && !potSpent && !drawUsed));
+    // A draw must name a card: when every legal one is over its limit (a tiny test pool), the best of them.
+    const allowed = cards.some(c => drawAllowed(c.code)) ? drawAllowed
+      : cards.some(c => brandAllowed(c.code) || !drawCard(c.code)) ? (code: number) => !drawCard(code) || brandAllowed(code) : () => true;
+    const ranked = cards.map((c, i) => ({ c, i })).filter(({c}) => allowed(c.code))
       .map(({c, i}) => ({ i, score: rank(c) })).sort((a, b) => b.score - a.score || a.i - b.i).map(x => x.i);
     // Reserve slots for genuinely different plans. Six similar removal spells
     // must not crowd every resource/protection line out of native lookahead.
@@ -1979,6 +1994,7 @@ export class HeuristicBot {
 
   #heartChosen(code: number): void {
     this.#heartMade.set(code, (this.#heartMade.get(code) ?? 0) + 1);
+    if (this.#heartDuel) this.#heartDuel.set(this.#nameOf(code), (this.#heartDuel.get(this.#nameOf(code)) ?? 0) + 1);
     this.#heartPending.push(code);
   }
 
