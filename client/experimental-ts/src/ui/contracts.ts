@@ -271,6 +271,8 @@ export type ClientCommand =
   | { type: 'surrender' }
   | { type: 'settings'; settings: Partial<SettingsView> };
 export interface ClientController {
+  /** Set by the UI: true while the duel's opening movie waits to begin (the board's clock waits with it). */
+  duelOpeningHold?: (() => boolean) | null;
   getState(): ClientView;
   subscribe(listener: (state: ClientView) => void): () => void;
   dispatch(command: ClientCommand): void | Promise<void>;

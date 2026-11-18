@@ -166,6 +166,8 @@ export class ClientApp implements ClientController {
   /** Process-lifetime, like the original's never-cleared result category global; never reset with a session. */
   private npcResult = createNpcResultContext();
   private timeline = new DuelTimeline(this.duelState);
+  /** ClientController.duelOpeningHold (the UI's START DUEL still waiting to play). */
+  duelOpeningHold: (() => boolean) | null = null;
   private duelCues = new DuelCueQueue({ cardKind: pc => { const t = this.catalog.card(pc).type?.toLowerCase() ?? ''; return t.startsWith('spell') ? 'spell' : t.startsWith('trap') ? 'trap' : t ? 'monster' : undefined; },
     fieldKind: pc => { try { return fieldThemeKindForPasscode(pc, id => this.options.cardDetails?.get(id)?.internalId); } catch { return null; } } });
   private duelPortraits: [Uint8Array | undefined, Uint8Array | undefined] = [undefined, undefined];
@@ -940,7 +942,10 @@ export class ClientApp implements ClientController {
       // the timeline counts the original's frames: its duel scene steps at 30 Hz (live's engine logs 30.3 fps; a card's
       // 8-frame glide from the hand to its zone takes 267 ms on live, a hand card's lift 10 frames in 333 ms)
       const delta = this.lastFrame === null ? 1 : Math.max(0, Math.min(30, (time - this.lastFrame) * 30 / 1000));
-      this.lastFrame = time; this.timeline.advance(delta); this.renderDuelFrame();
+      // the board's clock stands while the duel screen is not up yet (the janken scene still shows): START DUEL plays
+      // once the field is shown, and the opening hands are dealt after it, as live's
+      const shown = this.view.scene === 'duel' && !this.view.preparation && !this.duelOpeningHold?.();
+      this.lastFrame = time; this.timeline.advance(shown ? delta : 0); this.renderDuelFrame();
       if (this.timeline.pending) this.scheduleAnimation(); else { this.lastFrame = null; this.duelSettled(); }
     });
   }

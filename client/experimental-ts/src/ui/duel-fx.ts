@@ -53,7 +53,7 @@ const PHASE_MS = 770, TURN_MS = 840, FIELD_MS = 1260;
 
 interface Anim { cue: DuelCue; start: number; duration: number; draw(ctx: PixiPainter, t: number): void;
   /** Held at its first frame while this says its art is still loading (at most ART_HOLD ms after it was cued). */
-  ready?: () => boolean; cued?: number; begun?: boolean }
+  ready?: () => boolean; cued?: number; begun?: boolean; /** when it was cued (never shifted) */ born?: number }
 /** How long a cue whose whole picture matters (START DUEL) waits for its art before it plays with what it has. */
 const ART_HOLD = 2500;
 /** The duel's opening (CDuelStartTask: data/y/duel/effect/duel_ef_start_a01_j, 48 frames at 30 fps on the 1024 x 768
@@ -202,6 +202,15 @@ export class DuelFx {
         ...Array.from({ length: 8 }, (_, i) => `data/y/duel/phase_name/nex_e_${c}${i + 1}.png`)]));
   }
   /** Preload what an effect needs so its first frame is not lost. */
+  /** The opening's art (START DUEL and the first turn's titles), fetched while the janken scene shows: the movie then
+   *  starts with the field instead of waiting for its download while the duel's clock already runs (the hands dealt
+   *  under START DUEL). */
+  preloadOpening(): void {
+    if (this.preloaded || this.reduced) return; this.preloaded = true;
+    const titles = (['draw', 'standby', 'main1'] as const).flatMap(p => ['b', 'r'].map(side => `data/y/duel/phase_name/e_${PHASE_ART[p]}_${side}.png`));
+    this.want(START_MOVIE, ...titles);
+  }
+  private preloaded = false;
   private want(...paths: string[]): void { for (const p of paths) p.endsWith('.txt') ? this.movie(p) : this.image(p); }
 
   // ---- geometry ----
@@ -226,7 +235,7 @@ export class DuelFx {
       if (this.bannerFree - start > 1600) { this.anims = this.anims.filter(a => !BANNERS.has(a.cue.kind)); this.bannerFree = start; }
       start = Math.max(start, this.bannerFree); this.bannerFree = start + duration;
     }
-    this.anims.push({ cue, start, duration, draw });
+    this.anims.push({ cue, start, duration, draw, born: this.now() });
     if (this.anims.length > MAX_ANIMS) this.anims.splice(0, this.anims.length - MAX_ANIMS);
   }
   private play(cue: DuelCue): void {
@@ -391,6 +400,8 @@ export class DuelFx {
     this.schedule();
   }
   get thinking(): 0 | 1 | null { return this.thinkingSide; }
+  /** START DUEL is cued but not playing yet (its layer not on the page, its art still coming): the duel's clock waits. */
+  get openingPending(): boolean { const now = this.now(); return !this.disposed && this.anims.some(a => a.cue.kind === 'start' && !a.begun && now - (a.born ?? now) < 6000); }
   private draw(): void {
     const ctx = this.ctx; if (this.disposed) return;
     const now = this.now();
@@ -452,11 +463,7 @@ export class DuelFx {
     const inT = 220, outT = 260, x = 512 - img.width / 2;
     if (this.reduced) { ctx.globalAlpha = 1 - clamp((t - duration + 200) / 200); ctx.drawImage(img, x, y - img.height / 2); return; }
     const k = ease(clamp(t / inT)), out = clamp((t - duration + outT) / outT);
-    for (const ghost of [2, 1]) {
-      const g = ease(clamp((t - ghost * 40) / inT));
-      if (g >= 1) continue;
-      ctx.globalAlpha = 0.35 / ghost; ctx.drawImage(img, x - (1 - g) * 420, y - img.height / 2);
-    }
+    // (no trailing copies as it slides in: live's title comes in alone; two ghosts read as the text doubled)
     ctx.globalAlpha = k * (1 - out);
     ctx.drawImage(img, x - (1 - k) * 420 + out * 120, y - img.height / 2);
     if (frames.length && t > inT && out === 0) {

@@ -1019,6 +1019,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // a famous NPC (Yami Yugi, Alexis Rhodes...) stands in its own picture in the janken, the duel and the result, as live
   const duelNpcSets = (): void => { const id = state.npc?.stage === 'duel' || state.npc?.stage === 'after-duel' ? state.npc.npc?.id : undefined; duelScene.npcSets = [null, id === undefined ? null : npcWaistUpSet(id)]; };
   duelScene.fx.speed = loadDuelSpeed();
+  controller.duelOpeningHold = () => duelScene.fx.openingPending;
   const avatarNodes = new Map<number, HTMLElement>();
   let effectsLayer: HTMLElement | null = null;
   let sideboardClock: ReturnType<typeof setInterval> | null = null;
@@ -1451,7 +1452,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     // before the field: rock-paper-scissors and who goes first, live's own scene (no field, plates, bar or chat)
     const jv = jankenView();
     if (jv) {
-      duelNpcSets(); const portraits = duelScene.jankenPortraits(state.duel?.players ?? null);
+      duelNpcSets(); duelScene.fx.preloadOpening(); const portraits = duelScene.jankenPortraits(state.duel?.players ?? null);
       // (live's janken timer plate stands on the asking side of a duel request: livetour2 60 / 73)
       stage.append(jankenScene({ ...jv, timer: challenger && state.npc?.stage !== 'duel' && !state.relay }, { hand: (hand, raised) => { if (jk) jk.pick = { hand, at: Date.now(), raised }; send({ type: 'chooseHand', hand }); requestRender(); }, first: first => { if (jk) jk.choice = { first, at: Date.now() }; send({ type: 'chooseFirst', first }); requestRender(); } },
         controller.loadArchiveImage ? loadArchiveArt : null, portraits));
