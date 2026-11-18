@@ -275,7 +275,9 @@ export function applyTimeline(view: DuelView, sample: TimelineSample, catalog: C
   });
   // While the board is still animating, its choices (and what they ask) wait with it.
   const { instruction: _instruction, ...settled } = view;
-  return { ...(sample.pending ? settled : view), cards, effects, players: [
+  // the phase bar and turn counter go with the board (live's engine moves them as it plays each command)
+  const timing = sample.pending ? { turn: sample.turn, turnPlayer: sample.turnPlayer, phase: sample.phase ?? 'Preparing' } : {};
+  return { ...(sample.pending ? settled : view), ...timing, cards, effects, players: [
     { ...view.players[0], lp: sample.lp[0] }, { ...view.players[1], lp: sample.lp[1] },
   ], ...(sample.pending ? { prompt: null, actions: EMPTY_ACTIONS, ...(view.waiting ? { waiting: view.waiting } : {}) } : {}) };
 }
