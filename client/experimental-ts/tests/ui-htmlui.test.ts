@@ -89,7 +89,12 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
     expect(win().win.controls.find(c => c.cls === 'CWindowTaskListbox')!.items).toEqual(['Cy']);
     [...win().handlers.values()].find(h => h.label === 'Ignore List')!.click!([100, 282 + 32 + 8]);
     t.find('list-remove')!.click!(); expect(calls).toEqual(['unignore 3']);
-    t.ctx.ui.lists = { kind: 'team', selected: -1 }; t.find('team-form')!.click!(); t.find('team-name')!.text!('Aces'); t.find('team-name-ok')!.click!();
+    t.ctx.ui.lists = { kind: 'team', selected: -1 }; t.find('team-form')!.click!();
+    // live: the Team List put away under the engine's "Enter Team Name." window
+    const asked = t.windows();
+    expect(asked.some(s => s.win.cls === 'CWindowModelTeamlist')).toBe(false);
+    expect(asked.find(s => s.win.cls === 'CWindowModelInput1')!.win.controls.find(c => c.cls === 'CWindowTaskText')?.text).toBe('Enter Team Name.');
+    t.find('team-name')!.text!('Aces'); t.find('team-name-ok')!.click!();
     expect(calls.at(-1)).toBe('team Aces');
     t.ctx.ui.mail = { top: 0, selected: -1 }; t.find('mail-row:0')!.click!();
     expect(t.windows().find(s => s.win.cls === 'CWindowModelDMail')!.win.controls.find(c => c.name === 'body')!.text).toBe('Duel later?');

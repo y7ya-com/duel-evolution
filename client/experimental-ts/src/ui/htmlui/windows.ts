@@ -828,7 +828,9 @@ export function teamNameDialog(ctx: BuildContext, dialog: Extract<HtmlDialog, { 
   const t = dialogInput1.windows[0]!, b = new WindowBuilder(ctx.ids, 'team-name', t.cls, { x: t.x, y: t.y, w: t.w, h: t.h }, { modal: true, z: 51503 });
   const cs = b.fromTemplate(t, true);
   const ok = () => { const name = dialog.name.trim(); if (!name) return; ctx.ui.dialog = null; lists.formTeam(name); ctx.rerender(); };
-  const text = named(cs, 'CWindowTaskText'); if (text) Object.assign(text, { text: 'Enter your Team Name', x: 0, y: 8, w: 336, align: 1 });
+  // the engine's words (live's snapshot: "Enter Team Name." at 0, 8, 336 wide, centred; live's HTML UI leaves this window
+  // undrawn, a live bug: the player sees nothing after Form Team)
+  const text = named(cs, 'CWindowTaskText'); if (text) Object.assign(text, { text: 'Enter Team Name.', x: 0, y: 8, w: 336, align: 1 });
   const input = named(cs, 'CWindowTaskInput'); if (input) Object.assign(input, { x: 8, y: 56, w: 320 });
   const okButton = named(cs, 'CWindowTaskTextSwitch', 'OK'), cancel = named(cs, 'CWindowTaskTextSwitch', 'Cancel');
   if (input) { Object.assign(input, { value: dialog.name, focused: true, maxLen: 16 }); b.on(input, { key: 'team-name', label: 'Team name', text: v => { dialog.name = v; ctx.rerender(); }, enter: ok }); }
@@ -968,7 +970,8 @@ export function htmlWindows(ctx: BuildContext): WindowSpec[] {
   // the Main Menu's social windows belong to the character's session: Return to Title closes them (a Friend List left
   // open over the title stood over Go Online)
   const social = state.scene === 'title' || state.scene === 'characters' ? undefined : ctx.social;
-  const lists = social ? listWindow(ctx, social) : null; if (lists) out.push(lists); else if (!social) ui.lists = null;
+  // (live puts the Team List away while its team name is asked: the name window alone, the list back after it)
+  const lists = social && ui.dialog?.kind !== 'team' ? listWindow(ctx, social) : null; if (lists) out.push(lists); else if (!social) ui.lists = null;
   const invitation = social && state.scene === 'lobby' && !ui.dialog ? invitationDialog(ctx, social) : null; if (invitation) out.push(invitation);
   if (social) settleIgnore(ctx, social);
   const ignoreInput = social ? ignoreInputDialog(ctx, social) : null; if (ignoreInput) out.push(ignoreInput); else if (!social) ui.ignoreInput = null;
