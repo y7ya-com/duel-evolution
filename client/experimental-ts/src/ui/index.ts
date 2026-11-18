@@ -25,7 +25,7 @@ import { duellogQuery, duellogUi, duellogWindow, duellogServerPicker, fetchDuell
 import type { TitleConfigUi } from './htmlui/title-config';
 import { bracketWindow, duelHelpStrip, eventKey, informationWindow, joinGunslingWindow, resultWindow, tournamentUi } from './htmlui/tournament';
 import { discordWire } from './htmlui/discord-wire';
-import { lobbyLocal, lobbyList, lobbyWindows, duelKey, moveKey, waitingMessage, LOBBY_TEXT, AREA_TEXT, WORLD_TEXT } from './htmlui/lobby';
+import { lobbyLocal, lobbyList, lobbyWindows, duelKey, moveKey, waitingMessage, ownRoom, LOBBY_TEXT, AREA_TEXT, WORLD_TEXT } from './htmlui/lobby';
 import type { CardActions, MailBox, MenuEntry, MenuView, SocialLists } from './htmlui/windows';
 import type { HtmlUiLayer } from './htmlui/layer';
 import { GameCursor } from './htmlui/cursor';
@@ -550,12 +550,15 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // the menu bar's notice icon (windows.ts menuBar CNoticeIconDuel): live's crossed swords in their blue disc
   // (menuicon_03_05, 32 x 32 drawn ~36 at 247, 731) pulsing as its movie (menuicon_03_a05) does, while a duel request
   // waits on this player's answer
+  // (and, while this player's created duel waits for an opponent, live's CNoticeIconDuelroom: the cyan sword in its disc,
+  // menuicon_03_04, pulsing as its movie menuicon_03_a04 does, in the same place)
   const noticeIconSpecs = (): WindowSpec[] => {
     if (!menuView?.notice || !menuView.keys || menuView.room) return [];
+    const room = menuView.notice === 'room', key = room ? 'notice:room' : 'notice:duel';
     const b = new WindowBuilder(htmlIds, 'menubar-notice', 'CEnginePictures', { x: 0, y: 0, w: 1024, h: 768 }, { z: 51204,
-      pics: [{ key: 'notice:duel', source: { archive: 'data/common/window/icon/menuicon_03_05.png' }, x: 247, y: 731, w: 36, h: 36, z: 0, shown: true, label: 'Duel request' }] });
+      pics: [{ key, source: { archive: `data/common/window/icon/menuicon_03_0${room ? 4 : 5}.png` }, x: 247, y: 731, w: 36, h: 36, z: 0, shown: true, label: room ? 'Waiting for an opponent' : 'Duel request' }] });
     const spec = b.spec();
-    spec.after = root => { const el = root.querySelector<HTMLElement>('[data-picture="notice:duel"]'); if (el && !el.style.animation) el.style.animation = 'de-notice-pulse 0.87s ease-in-out infinite alternate'; };
+    spec.after = root => { const el = root.querySelector<HTMLElement>(`[data-picture="${key}"]`); if (el && !el.style.animation) el.style.animation = 'de-notice-pulse 0.87s ease-in-out infinite alternate'; };
     return [spec];
   };
   const sceneWindows = (): WindowSpec[] => { duelSpeedButton.show(state.scene === 'duel' && (!!state.duel || !!state.preparation)); return [...loginSpecs(), ...tradeSpecs(), ...swapSpecs(), ...avatarListSpecs(), ...npcTalkSpecs(), ...npcPackSpecs(), ...cardGetSpecs(), ...npcItemSpecs(), ...noticeIconSpecs(), ...rewardBarSpecs(), ...unlockSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs()]; };
@@ -1890,11 +1893,11 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       menuView = state.scene === 'title' && !showsLogin() || state.scene === 'duel' || state.scene === 'shop' || reward ? null : { entries, fieldShift, keys: !!state.player && !['deck', 'shop', 'characters'].includes(state.scene) && !trading && !reward, room: !!world && state.location === 'my-room',
         // live's bar message is blank but for a pending request's wait (no "Online in Duel Academy.")
         message: reward ? (pickedPack !== undefined ? state.packInfo?.[pickedPack]?.description ?? '' : '') : state.player ? (world && waitingMessage({ state, text: id => gameTexts.get(id) })) || '' : '',
-        ...(world && state.location !== 'my-room' && state.lobby?.invitation ? { notice: 'duel' as const } : {}),
+        ...(world && state.location !== 'my-room' && state.lobby?.invitation ? { notice: 'duel' as const } : world && state.location !== 'my-room' && ownRoom(state) ? { notice: 'room' as const } : {}),
         mainOpen: () => { const p = state.profileDetail; return !!(htmlUiState.mail || htmlUiState.compose || htmlUiState.lists || htmlUiState.comment || optionsUi?.kind === 'options' || duellog || titleUi
           || p && p.selectedPid !== null && p.selectedPid === p.selfPid); },
         // My Room's bar has Main Menu, Wardrobe and Missions only (no Duel, no Move), as live
-        ...(world && state.location !== 'my-room' ? { duel: () => { duelKey(state, lobbyUi); showHtml(); }, move: () => { moveKey(lobbyUi); showHtml(); }, duelOpen: () => ['duel', 'find', 'wait'].includes(lobbyUi.open ?? ''), moveOpen: () => lobbyUi.open === 'move' } : {}) };
+        ...(world && state.location !== 'my-room' ? { duel: () => { duelKey(state, lobbyUi); showHtml(); }, move: () => { moveKey(lobbyUi); showHtml(); }, duelOpen: () => ['duel', 'find', 'wait'].includes(lobbyUi.open ?? '') || lobbyUi.cancel, moveOpen: () => lobbyUi.open === 'move' } : {}) };
       nav.replaceChildren(status);
       // Extension panels also get stable keyboard focus when their data changes.
       for (const tag of ['button', 'input', 'textarea', 'select']) for (const [i, control] of Array.from(host.querySelectorAll<HTMLElement>(tag)).entries()) {

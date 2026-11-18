@@ -266,6 +266,9 @@ function joinPrompt(ctx: BuildContext, deps: LobbyDeps): WindowSpec {
 }
 function cancelPrompt(ctx: BuildContext, deps: LobbyDeps): WindowSpec {
   const { b, cs } = start(ctx, 'room-close', dialogYesNo, 51503), field = cs.find(c => c.cls === 'CWindowTaskTextField');
+  // live's capture: the lobby's translucent blue box (frame style 1, the frame and the text's plane at 0.7), not the
+  // template's white one
+  for (const c of cs) if (c.cls === 'CWindowTaskFrameBottomThick') Object.assign(c, { style: 1, alpha: 0.7 }); else if (c.cls === 'CWindowTaskBackPlane') c.alpha = 0.7;
   const inner = cs.find(c => c.parent === field?.id && c.cls === 'CWindowTaskText');
   const text = wrapDialogText(say(ctx, 'cancelRoom'), inner?.w ?? field?.w ?? 320); if (field) field.text = text;
   for (const c of cs) if (c.parent === field?.id && c.cls === 'CWindowTaskText') c.text = text;
@@ -287,7 +290,7 @@ export function duelKey(state: ClientView, ui: LobbyLocal): void {
 export function moveKey(ui: LobbyLocal): void { ui.open = ui.open === 'move' ? null : 'move'; }
 /** The bar's message while this player waits for a duel (the original's "Seeking Opponents" / "Searching…"). */
 export function waitingMessage(ctx: Pick<BuildContext, 'state' | 'text'>): string | null {
-  if (ownRoom(ctx.state)) return ctx.text?.(LOBBY_TEXT.seeking) ?? LOBBY_FALLBACK.seeking;
+  // (a created duel waiting: live's bar has no words, its notice icon says it: index.ts noticeIconSpecs)
   if (ctx.state.matchmaking?.status === 'searching') return ctx.text?.(LOBBY_TEXT.searching) ?? LOBBY_FALLBACK.searching;
   return null;
 }
