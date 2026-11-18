@@ -39,4 +39,10 @@ describe('HTML lobby state', () => {
     // live's Show all: the players here, no NPCs
     expect(listRows(view(), 'all', []).map(r => r.kind)).toEqual(['player', 'player']);
   });
+  it('lists the players of the world\'s other areas too (live: the whole lobby block), the area\'s nearest first by Proximity', () => {
+    const v = view(); (v.lobby as { players?: unknown }).players = [{ id: 2, name: 'Zed', level: 1 }, { id: 3, name: 'Amy', level: 1 }, { id: 7, name: 'Bea', level: 4 }];
+    expect(listRows(v, null, []).map(r => r.name).sort()).toEqual(['Amy', 'Bea', 'Zed']);
+    expect(listRows(v, 'all', []).find(r => r.id === 7)).toMatchObject({ kind: 'player', name: 'Bea', level: 4 });
+    expect(listRows(v, 'near', []).map(r => r.id)).toEqual([3, 2, 7]);
+  });
 });

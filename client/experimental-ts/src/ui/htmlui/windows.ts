@@ -463,6 +463,8 @@ export function chatWindow(ctx: BuildContext, deck?: DeckChat, world = false): W
   }
   b.add('CWindowTaskInput', 'input', { x: 0, y: h - 32, w: 776, h: 32 }, { shown: !duelsOn, focused: !duelsOn, value: ctx.ui.chatDraft, password: false, caret: null, caretOn: false, maxLen: 128, multiLine: false },
     { key: 'chat', label: 'Chat message', text: v => { ctx.ui.chatDraft = v; }, enter: send });
+  // (what the panel shows is on the window too: main's layer redraws a window only when its snapshot changes)
+  if (duelsOn) b.win.duels = { rows: duelRows(ctx.ui.duels), loaded: !!ctx.ui.duels, status: ctx.ui.duelsStatus ?? null };
   const spec = b.spec();
   spec.after = root => duelsPanel(root, duelsOn ? { ui: ctx.ui, list: { x: 8, y: 24, w: 760, h: size.rows * 16 }, status: { x: 8, y: h - 24, w: 760, h: 16 } } : null);
   return spec;

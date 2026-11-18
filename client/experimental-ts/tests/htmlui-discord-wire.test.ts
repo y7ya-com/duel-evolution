@@ -54,6 +54,10 @@ describe('discord wire (chat Duels tab, Discord rows, ?duel= link)', () => {
     expect(r.calls).toContain('/api/de/duels/join');
     expect(r.sent).toEqual([{ type: 'duelChallenge', playerId: 42 }]);
     expect(r.ui.duelsStatus).toMatchObject({ kind: 'info' }); expect(r.ui.duelsStatus!.text).toMatch(/^Duel request sent to .+\. Waiting for their answer\.$/);
+    // the creator in another area (the lobby's whole player list) with their open room listed: the room is challenged
+    const far = rig(world({ lobby: { connected: true, avatars: [], players: [{ id: 42, name: 'Kaiba' }], rooms: [{ id: 7, owner: 42, name: 'Kaiba', state: 0 }] } } as unknown as Partial<ClientView>));
+    far.ui.onJoinDuel!(7); await flush();
+    expect(far.sent).toEqual([{ type: 'challengeRoom', roomId: 7 }]);
     const n = rig(world(), { join: { ok: false, error: 'gone', message: 'That duel is gone.' } }); n.ui.onJoinDuel!(7); await flush();
     expect(n.sent).toEqual([]); expect(n.ui.duelsStatus).toMatchObject({ text: 'That duel is gone.', kind: 'error' }); expect(n.ui.dialog ?? null).toBeNull();
   });

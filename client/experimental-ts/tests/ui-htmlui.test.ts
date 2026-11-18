@@ -52,6 +52,8 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
     const open = t.windows().find(s => s.win.cls === 'CChatWindow')!;
     expect(open.win.controls.filter(c => c.cls === 'CWindowTaskTextlist' || c.cls === 'CWindowTaskInput').every(c => !c.shown)).toBe(true);
     expect(open.after).toBeTypeOf('function');
+    // (the rows ride on the window, so main's layer redraws the panel when only the duels change)
+    expect((open.win as unknown as { duels: { rows: { name: string }[] } }).duels.rows.map(r => r.name)).toEqual(['Bo', 'Me']);
     t.find('chat-tab:all')!.click!(); expect(duelsTab().label).toBe('Duels');
     t.find('chat-tab:trade')!.click!(); t.find('chat')!.text!('selling'); t.find('chat')!.enter!();
     expect(t.sent.at(-1)).toEqual({ type: 'chat', channel: 'trade', text: 'selling' });

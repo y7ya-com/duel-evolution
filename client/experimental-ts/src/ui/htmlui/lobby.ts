@@ -195,14 +195,17 @@ const seenOrder = new Map<number, number>();
 export function listRows(state: ClientView, search: Search | null, friends: readonly number[]): ListRow[] {
   const lobby = state.lobby; if (!lobby) return [];
   const seen = (id: number) => { let n = seenOrder.get(id); if (n === undefined) { n = seenOrder.size; seenOrder.set(id, n); } return n; };
-  const players = lobby.avatars.filter(a => !a.self && !a.npc).sort((a, b) => seen(a.id) - seen(b.id)), self = lobby.avatars.find(a => a.self);
+  // (live lists every player of the lobby's block, those in the world's other areas too; the map draws this area's)
+  const here = lobby.avatars.filter(a => !a.self && !a.npc), at = new Map(here.map(a => [a.id, a]));
+  const players = [...here, ...(lobby.players ?? []).filter(p => !at.has(p.id))].sort((a, b) => seen(a.id) - seen(b.id)), self = lobby.avatars.find(a => a.self);
   const rooms = lobby.rooms ?? [], room = (pid: number) => rooms.find(r => r.owner === pid && !r.opponent);
   const row = (a: { id: number; name: string; level?: number }): ListRow => ({ kind: 'player', id: a.id, name: a.name, ...(a.level ? { level: a.level } : {}) });
   switch (search) {
     case 'single': case 'match': return players.filter(a => { const r = room(a.id); return r && (search === 'match' ? r.style === 4 : r.style !== 4); }).map(row);
     case 'name': return [...players].sort((a, b) => a.name.localeCompare(b.name)).map(row);
     case 'friends': return players.filter(a => friends.includes(a.id)).map(row);
-    case 'near': return self ? [...players].sort((a, b) => Math.hypot(a.x - self.x, a.y - self.y) - Math.hypot(b.x - self.x, b.y - self.y)).map(row) : players.map(row);
+    // (the players in this area by their distance, the world's others after them)
+    case 'near': { const d = (p: { id: number }) => { const a = at.get(p.id); return a && self ? Math.hypot(a.x - self.x, a.y - self.y) : Infinity; }; return [...players].sort((a, b) => d(a) - d(b)).map(row); }
     case 'all': return players.map(row);
     // the levels are not in the lobby's list: the players here, as listed
     default: return players.map(row);
