@@ -137,7 +137,8 @@ describe('bounded streamed field physics runtime', () => {
   });
   it('uses the opt-in source crossing patch independently of walk masks', async () => {
     const f = fixture(), runtime = new WorldRuntime({ assets: { readScene: f.readScene }, decodeMask: async bytes => f.makeMask(bytes), crossings: true });
-    const p = { x: 440, y: 1000, direction: 6 }; await runtime.load({ ...map, id: 2 }, p);
+    // (the upper deck's west tip, live 617da3d's box: 0..120 x 120..185)
+    const p = { x: 40, y: 150, direction: 6 }; await runtime.load({ ...map, id: 2 }, p);
     expect(runtime.step(p, { x: 1, y: 0 }, { x: 6, y: 0 }).exit).toMatchObject({ destination: 7, source: 'crossing', index: 3 }); runtime.dispose(); f.runtime.dispose();
   });
 });
