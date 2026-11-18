@@ -19,6 +19,16 @@ export interface CardGetDeps {
 export const isCardGet = (w: HtmlWindow): boolean => w.cardGet === true;
 export const CARD_GET_CARD = { x: 512, y: 271, w: 100, h: 144 } as const;
 export const CARD_GET_BACK = { x: 800, y: 680, w: 162, h: 42 } as const;
+/** The Back plate's look per state (normal / hover / pressed): live's measured colours (cardget_btn_01 as the engine
+ * draws it), the hovered one lighter and the pressed one darker. */
+export function CARD_GET_BACK_LOOK(state: string | undefined): Partial<CSSStyleDeclaration> {
+  const body = state === 'hover' ? '#f4dd86' : state === 'pressed' ? '#d9b452' : '#e6c961';
+  return {
+    background: `linear-gradient(to bottom, #d26b16 0 2px, #ebedab 2px 5px, ${body} 5px calc(100% - 8px), #e5b24e calc(100% - 8px) calc(100% - 6px), #de8a2a calc(100% - 6px) calc(100% - 4px), #d77816 calc(100% - 4px) calc(100% - 2px), #d26b16 calc(100% - 2px))`,
+    boxShadow: 'inset 2px 0 #d26b16, inset 5px 0 #ebedab, inset -2px 0 #d26b16, inset -4px 0 rgba(222,138,42,.5)',
+    clipPath: 'inset(0 round 5px)', filter: 'none',
+  };
+}
 
 export class CardGetScene implements DeckDomScene {
   readonly ui = deckUi();
@@ -49,7 +59,12 @@ export class CardGetScene implements DeckDomScene {
     b.on(back, { key: 'card-get-back', label: 'Back', click: () => { this.at++; this.d.rerender(); } });
     // the word black, about 22 px (result.js draws a plate's words as its ShadowText; live's has no edge)
     b.add('CWindowTaskShadowText', 'word', { x: 0, y: 8, w, h: 26 }, { text: 'Back', align: 1, fontSize: 22, color: [0, 0, 0, 1] });
-    out.push(b.spec());
+    // live's plate is the card get's own (cardget_btn_01, a muted gold edged in orange, a cream highlight inside the top
+    // and left edges, an orange foot; v2r3 duelui back-crop: 210,107,22 / 235,237,171 / 230,201,97 / 220,119,32), not
+    // the result's bright yellow Next plate that result.js draws for this class
+    const spec = b.spec(), look = CARD_GET_BACK_LOOK;
+    spec.after = root => { const btn = root.querySelector<HTMLElement>('.yo2r-next'); if (btn && btn.dataset.look !== btn.dataset.state) { btn.dataset.look = btn.dataset.state ?? ''; Object.assign(btn.style, look(btn.dataset.state)); } };
+    out.push(spec);
     for (const s of out) s.win.cardGet = true;
     return out;
   }

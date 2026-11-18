@@ -1,6 +1,6 @@
 /** The duel's life point plates (CDuelScene, FUN_00791c50 / FUN_007dec10 / FUN_007da4d0 in yo2.exe): the player's at
  * the top left, the opponent's mirrored at the top right. Art:
- * - data/y2/duel_window_01_c01.png: the plates, 288×64 each, row 0 the player's (blue), row 1 the opponent's (pink);
+ * - data/y/duel/field/duel_window_{a01,n02}_c0{1,2}: the plates (see turnPlate below);
  * - data/y2/duel_font_02_c01.png: the 'LP' (x 0..32) and 'TIME' (x 32..64) labels;
  * - data/y2/duel_gauge_02_c0{0,1}.png: the empty track, 32×16 (c00 the player's, c01 the opponent's, mirrored);
  * - data/y2/duel_gauge_01_c0{0,1}.png: the fill, 4 colour bands of 16 rows (green, orange, yellow, red);
@@ -9,12 +9,21 @@
  * Gauge spots are measured from the live game. Everything is in % of the 1024×768 board. */
 
 const BOARD_W = 1024, BOARD_H = 768, PLATE_W = 288, PLATE_H = 64, FULL_LP = 8000;
-const PLATE = 'data/y2/duel_window_01_c01.png', LABELS = 'data/y2/duel_font_02_c01.png';
+const LABELS = 'data/y2/duel_font_02_c01.png';
 const DIGITS = 'data/y/duel/life/duel_font_01_c01.png', DIGITS_RED = 'data/y/duel/life/duel_font_01_c02.png';
 const track = (side: 0 | 1) => `data/y2/duel_gauge_02_c0${side}.png`;
 const fill = (side: 0 | 1) => `data/y2/duel_gauge_01_c0${side}.png`;
+/** The plate itself as live's duel screen draws it (CDuelScene, data/y/duel/field, 320 x 96 with a 16 px margin round
+ * the 288 x 64 plate, c01 the player's, c02 the opponent's): the side whose turn it is on duel_window_a01 (its base
+ * _0_, the n01 light colour, at alpha 230; its glow _1_ fading in and out over its 40 frames at 30 fps: alpha 0 → 243
+ * → 0), the other side on the deeper n02 (livetour v2r3 duelui opp1 / f1: live's off-turn plates 80,158,246 and
+ * 219,74,113, the turn's pulsing 92,204,252 ↔ 150,235,255). */
+const turnPlate = (side: 0 | 1, active: boolean) => `data/y/duel/field/duel_window_${active ? 'a01' : 'n02'}_c0${side + 1}${active ? '_0_j' : ''}.png`;
+const turnGlow = (side: 0 | 1) => `data/y/duel/field/duel_window_a01_c0${side + 1}_1_j.png`;
+/** The glow's period: 40 frames at 30 fps. */
+export const PLATE_PULSE_MS = 4000 / 3;
 /** Every picture the two plates draw: the duel's field waits for them, as live's comes with its plates up. */
-export const LP_PLATE_ART = [PLATE, LABELS, DIGITS, track(0), track(1), fill(0), fill(1)] as const;
+export const LP_PLATE_ART = [LABELS, DIGITS, track(0), track(1), fill(0), fill(1), turnPlate(0, true), turnPlate(0, false), turnPlate(1, true), turnPlate(1, false), turnGlow(0), turnGlow(1)] as const;
 
 /** Player-side spots in plate px; the opponent's are mirrored (x → 288 - x - w). */
 const LP_BAR = { x: 40, y: 24, w: 218 }, TIME_BAR = { x: 40, y: 40, w: 202 };
@@ -81,10 +90,10 @@ class SlicedBar {
 export const LP_PLATE_CSS = `
 .de-lpp{position:absolute;top:0;z-index:6;width:${pct(PLATE_W, BOARD_W)};height:${pct(PLATE_H, BOARD_H)};container-type:inline-size;pointer-events:none;user-select:none}
 .de-lpp[data-side="0"]{left:0}.de-lpp[data-side="1"]{right:0}
-.de-lpp-plate,.de-lpp-crop,.de-lpp-bar,.de-lpp-digits,.de-lpp-name{position:absolute}
-.de-lpp-plate{inset:0;opacity:.6}
+.de-lpp-crop,.de-lpp-bar,.de-lpp-digits,.de-lpp-name{position:absolute}
+.de-lpp-turn{position:absolute;left:${pct(-16, PLATE_W)};top:${pct(-16, PLATE_H)};width:${pct(320, PLATE_W)};height:${pct(96, PLATE_H)};max-width:none;opacity:.9}
+.de-lpp-glow{opacity:0;animation:de-lpp-glow ${PLATE_PULSE_MS}ms linear infinite}
 .de-lpp-crop{overflow:hidden;top:0;height:100%}
-.de-lpp-plate.de-lpp-crop{height:100%}
 .de-lpp-sheet{position:absolute;max-width:none;image-rendering:pixelated}
 .de-lpp-label,.de-lpp-gauge{position:absolute;height:${pct(16, PLATE_H)}}
 .de-lpp-label{width:${pct(32, PLATE_W)}}
@@ -104,14 +113,19 @@ export const LP_PLATE_CSS = `
 export interface LpPlate { root: HTMLElement; setLp(lp: number): void; setTime(fraction: number | null, seconds?: number | null): void }
 
 /** One side's plate. `image` makes an <img> of an archive file (null: no original art, a plain fallback is drawn). */
-export function lpPlate(opts: { side: 0 | 1; name: string; lp: number; time: number | null; seconds?: number | null; image: Image | null }): LpPlate {
+export function lpPlate(opts: { side: 0 | 1; name: string; lp: number; time: number | null; seconds?: number | null; image: Image | null; active?: boolean; now?: number }): LpPlate {
   const { side, name } = opts, image = opts.image;
   const root = document.createElement('div'); root.className = 'de-lpp'; root.dataset.side = String(side); root.setAttribute('role', 'group');
   const mirror = (x: number, w: number) => side ? PLATE_W - x - w : x;
   const at = (el: HTMLElement, x: number, y: number, w: number) => { el.style.left = pct(mirror(x, w), PLATE_W); el.style.top = pct(y, PLATE_H); el.style.width = pct(w, PLATE_W); };
 
   const visual = document.createElement('div'); visual.setAttribute('aria-hidden', 'true');
-  if (image) { const plate = crop(image, PLATE, PLATE_W, 128, 0, side * PLATE_H, PLATE_W, PLATE_H); plate.className += ' de-lpp-plate'; visual.append(plate); }
+  if (image) {
+    // the turn's plate glows; the glow keeps its phase across re-renders (a fresh plate joins the running pulse)
+    const active = !!opts.active, base = image(turnPlate(side, active), 'de-lpp-turn');
+    if (base) visual.append(base);
+    if (active) { const glow = image(turnGlow(side), 'de-lpp-turn de-lpp-glow'); if (glow) { glow.style.animationDelay = `${-((opts.now ?? performance.now()) % PLATE_PULSE_MS)}ms`; visual.append(glow); } }
+  }
   const nameEl = document.createElement('div'); nameEl.className = 'de-lpp-name'; nameEl.textContent = name; visual.append(nameEl);
 
   // 'LP' and 'TIME' are not mirrored, only placed.

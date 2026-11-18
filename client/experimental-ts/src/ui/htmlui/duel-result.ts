@@ -66,11 +66,10 @@ export function npcResultWindow(ctx: DuelResultContext, record = npcResultRecord
 const TITLE_ART = { WIN: 'winner', LOSE: 'loser', DRAW: 'draw' } as const;
 
 /** live's Next plate (result_btn_01 stretched, measured on live's result screen, 2026-11-12): 150 x 54 centred at
- * 437, 512, its word white in a black edge, about 30 px (the engine's CWindowTaskResultNext label). */
-export const NEXT_PLATE = { x: 437, y: 512, w: 150, h: 54, px: 30 } as const;
+ * 437, 512; its word (the engine's CWindowTaskResultNext label) white, regular weight, its caps 24 px tall (476-548 x
+ * 527-551 on live, 2026-11-18 v2r3 duelui next-crop): 33 px, with the ShadowText's 1, 1 black shadow alone. */
+export const NEXT_PLATE = { x: 437, y: 512, w: 150, h: 54, px: 33 } as const;
 const BLACK = [0, 0, 0, 1];
-/** The black edge round the Next plate's word (the engine draws it outlined; result.js's ShadowText takes one offset). */
-const OUTLINE = '-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 1px 0 #000, 1px 0 0 #000, 0 -1px 0 #000, -1px 0 0 #000, 2px 2px 0 #000';
 
 export function duelResultWindows(ctx: DuelResultContext): WindowSpec[] {
   const { duel, match } = ctx, out: WindowSpec[] = [];
@@ -117,9 +116,6 @@ export function duelResultWindows(ctx: DuelResultContext): WindowSpec[] {
   }
   const t = b.add('CWindowTaskShadowText', 'word', { x: 0, y: ty, w: W, h: px + 4 }, { text: word, align: 1, fontSize: ctx.next ? px : 16, color: WHITE });
   b.add('CWindowTaskText', 'word/shadow', { x: 1, y: ty + 1, w: W, h: px + 4 }, { parent: t.id, text: word, color: BLACK });
-  const spec = b.spec();
-  // the word's black edge all round, as live's
-  spec.after = root => { for (const el of root.querySelectorAll<HTMLElement>('.txt')) if (el.textContent?.trim().startsWith('Next') && el.style.textShadow !== OUTLINE) el.style.textShadow = OUTLINE; };
-  out.push(spec);
+  out.push(b.spec());
   return out;
 }

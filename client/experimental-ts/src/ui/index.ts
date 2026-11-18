@@ -85,8 +85,10 @@ function button(text: string, action: () => void, disabled = false, gold = false
 function textField(key: string, value: string, placeholder = ''): HTMLInputElement {
   const i = el('input'); i.dataset.key = key; i.name = key; i.value = value; i.placeholder = placeholder; return i;
 }
-const CARD_BACK = 'data/card/0000.png', FIELD_SHEET = 'data/y/duel/field/duelfield_01_c01.png';
+const CARD_BACK = 'data/card/0000.png', FIELD_SHEET = 'data/y/duel/field/duelfield_01_c01.png', FIELD_LINES = 'data/y2/duelfield_02_c01.png';
 /** A drawing for a CSS background (fills its box as a stretched 1024 x 768 screen). */
+/** The current phase key's pulse (live's CDuelPhaseButton). */
+const PHASE_PULSE_MS = 1000;
 const svgBackground = (body: string) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="768" viewBox="0 0 1024 768" preserveAspectRatio="none">${body}</svg>`)}")`;
 /** Under the world while its map art loads (live's loader veil is over it then, scene-loading.ts): the engine's black. */
 const LOBBY_BACKDROP = '#000';
@@ -594,7 +596,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       // and it stays until the field's pictures are in (live holds its plate until the duel's scene has loaded, 0.7 to
       // 4 s on its films; the field had come bare, its art seconds later), the LP plates' too: live's first field frame
       // has both plates up at 8000 (v2hand-me l66), where v2's field stood without them until START DUEL had played
-      const fieldIn = !until || !duel || [duel.background, FIELD_SHEET, CARD_BACK, ...LP_PLATE_ART].every(path => !path || warmArt(path));
+      const fieldIn = !until || !duel || [duel.background, FIELD_SHEET, FIELD_LINES, CARD_BACK, ...LP_PLATE_ART].every(path => !path || warmArt(path));
       if (jk && !state.sideboarding && (now < until || !fieldIn && now < until + FIELD_WAIT_MS)) { wakeAt(now < until ? until : now + 100); return { phase: 'wait', busy: true, thinking: false, times: jk, now: clock }; }
       jk = null; jkRound = 0; return null;
     }
@@ -1461,7 +1463,12 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       // The original backdrop, then the plain halves of the zone sheet: the opponent's red half above (at 54: live's red lines
       // at 65 / 170 / 273), the player's blue half below.
       if (duel.background) board.append(archive(duel.background, 'de-duel-bg'));
-      for (const [half, top] of [[1, 54], [0, 282]] as const) { const frames = el('div', 'de-duel-frames'); frames.style.top = `${top / 768 * 100}%`; const sheet = archive(FIELD_SHEET); sheet.style.top = half ? '-100%' : '0'; frames.append(sheet); board.append(frames); }
+      // over the five columns of both halves, under the frames: live's scan lines (data/y2/duelfield_02_c01, 384 x 464 at
+      // 322, 58, half see-through: white lines, pale blue behind the phase bar; v2r3 duelui stripes-f1)
+      board.append(archive(FIELD_LINES, 'de-duel-lines'));
+      // the turn's half lit: the sheet's left column (a white core in a soft glow), the other half its plain right column
+      // (live: the turn player's frames 128,193,255 / 255,255,255; the other's 240,71,115 / 228,103,110; v2r3 duelui f1 / opp1)
+      for (const [half, top] of [[1, 54], [0, 282]] as const) { const frames = el('div', 'de-duel-frames'); frames.style.top = `${top / 768 * 100}%`; const sheet = archive(FIELD_SHEET); sheet.style.top = half ? '-100%' : '0'; if (duel.turn > 0 && !duel.ended && duel.turnPlayer === half) sheet.style.left = '0'; frames.append(sheet); board.append(frames); }
     }
     const hud = el('div', 'de-duel-hud');
     duelClockNode = null;
@@ -1485,7 +1492,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       for (const i of [0, 1] as const) {
         // (an NPC duel's TIME bar stays empty on live, though the turn still times out)
         const [t, seconds] = plateTime(i);
-        const plate = lpPlate({ side: i, name: duel.players[i].name, lp: shownLp(duel, i), time: t, seconds, image: archive });
+        const plate = lpPlate({ side: i, name: duel.players[i].name, lp: shownLp(duel, i), time: t, seconds, image: archive, active: !duel.ended && duel.turn > 0 && duel.turnPlayer === i });
         plate.root.setAttribute('aria-hidden', 'true'); board.append(plate.root); lpPlates[i] = plate;
       }
     }
@@ -1513,7 +1520,13 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (act) { cell.dataset.key = `duel-phase:${key}`; cell.setAttribute('aria-label', act.label); }
       // duel_pbutton_01: c01 for the player's turn (yellow, the current phase lit cyan: column 3), c02 the opponent's (red),
       // as live
-      if (archive) { const sheet = archive(`data/y/duel/phase/duel_pbutton_01_c0${duel.turnPlayer ? 2 : 1}.png`); sheet.style.left = key === duel.phase ? '-300%' : '0'; sheet.style.top = `-${row * 100}%`; cell.append(sheet, el('span', 'de-sr', act ? act.label : short)); }
+      if (archive) {
+        const path = `data/y/duel/phase/duel_pbutton_01_c0${duel.turnPlayer ? 2 : 1}.png`, sheet = archive(path); sheet.style.left = '0'; sheet.style.top = `-${row * 100}%`; cell.append(sheet);
+        // the current phase: its lit look (column 3) fades in and out over the plain one, about once a second, as live's
+        // (v2r3 duelui zp: 20 → 152 → 20 blue in 1 s); the pulse keeps its phase across re-renders
+        if (key === duel.phase) { const lit = archive(path, 'de-phase-lit'); lit.style.left = '-300%'; lit.style.top = `-${row * 100}%`; lit.style.animationDelay = `${-(performance.now() % PHASE_PULSE_MS)}ms`; cell.append(lit); }
+        cell.append(el('span', 'de-sr', act ? act.label : short));
+      }
       else cell.textContent = act ? act.label : short;
       bar.append(cell);
     });

@@ -131,7 +131,9 @@ button.de-field-card.de-card-target { z-index:3; outline:2px solid rgba(255,255,
 /* the Battle Phase's swords on the monsters that can still attack: pointing up, at alpha 0xa0 (index.ts idleSwordsFrame) */
 .de-duel-board>.de-attack-idle { position:absolute; z-index:21; pointer-events:none; max-width:none; transform:translate(-50%,-50%); opacity:.627; }
 @keyframes de-zone-pulse { from { box-shadow:0 0 6px #ffe14a; } to { box-shadow:0 0 18px #fff38a; } }
-.de-duel-board { position:absolute; left:0; top:0; width:100%; aspect-ratio:4/3; overflow:hidden; }
+/* clipped, not a scroll box: the opponent's hand above the top edge made it one, and a focus or scrollIntoView on a card
+   near the edge scrolled the whole board (every card, plate and portrait jumping by 13-160 px; v2r3 duelui __mv) */
+.de-duel-board { position:absolute; left:0; top:0; width:100%; aspect-ratio:4/3; overflow:hidden; overflow:clip; }
 .de-duel-board>.de-duel-field { position:absolute; inset:0; background:center/100% 100% no-repeat; }
 .de-duel-bg { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; pointer-events:none; }
 .de-duel-frames { position:absolute; left:25%; width:50%; height:33.3333%; overflow:hidden; pointer-events:none; }
@@ -153,6 +155,16 @@ button.de-field-card.de-card-target { z-index:3; outline:2px solid rgba(255,255,
 .de-phase-bar.opponent .de-phase:not(:has(img)) { background:linear-gradient(#ffc0cf,#ec4a6d); border-color:#a31f43; color:#fff; }
 .de-phase.current:not(:has(img)) { opacity:1; box-shadow:0 0 8px #fff9a5; }
 .de-phase img { position:absolute; left:0; top:0; width:400%; height:600%; max-width:none; }
+/* the current phase's lit look pulsing over its plain one (index.ts PHASE_PULSE_MS); without motion it stays lit */
+.de-phase img.de-phase-lit { animation:de-phase-pulse 1s linear infinite; }
+@keyframes de-phase-pulse { 0%, 12% { opacity:0; } 70% { opacity:1; } 100% { opacity:0; } }
+@media (prefers-reduced-motion: reduce) { .de-phase img.de-phase-lit { animation:none; } }
+/* the turn's LP plate glow (duel-plate.ts .de-lpp-glow: duel_window_a01's 40 frames, alpha 0 → 243 → 0) */
+@keyframes de-lpp-glow { 0% { opacity:0; } 47.5%, 50% { opacity:.95; } 100% { opacity:0; } }
+@media (prefers-reduced-motion: reduce) { .de-lpp-glow { animation:none; } }
+[data-motion="reduced"] .de-phase img.de-phase-lit, [data-motion="reduced"] .de-lpp-glow { animation:none; }
+/* live's scan lines over the field's five columns (index.ts FIELD_LINES) */
+.de-duel-board>img.de-duel-lines { position:absolute; left:${322 / 1024 * 100}%; top:${58 / 768 * 100}%; width:${384 / 1024 * 100}%; height:${464 / 768 * 100}%; max-width:none; opacity:.5; pointer-events:none; }
 .de-sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
 .de-card-back>img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
 .de-field-cards { position:absolute; inset:0; pointer-events:none; }
@@ -191,8 +203,9 @@ html:has(.yo2r-board) .de-duel-info { display:none; }
 @media (prefers-reduced-motion: reduce) { .de-duel-help-run { padding-left:8px; animation:none; } }
 .de-phase-bar>button.de-phase { pointer-events:auto; cursor:pointer; padding:0; border:0; background:none; }
 /* the phase keys are the art alone (no button look); the pointer's look is the art's hover column (1), as live */
-.de-client .de-phase-bar>button.de-phase { box-shadow:none; filter:none; border-radius:0; min-height:0; }
+.de-client .de-phase-bar>button.de-phase, .de-client .de-phase-bar>button.de-phase:is(:hover,:active,:focus-visible) { box-shadow:none; filter:none; border-radius:0; min-height:0; background:none; transform:none; }
 .de-phase-bar>button.de-phase:not(.current):hover img { left:-100% !important; }
+.de-phase-bar>button.de-phase:not(.current):hover img.de-phase-lit { display:none; }
 /* the card whose command menu is open (live's CUSummonDialogSp card): framed black / white / yellow outside, a cyan line
    inside its edge, its picture a quarter brighter (de-scratch/hand at1 / hs: 486 #000, 487 #fff, 488 #ff1, 489 #3ff) */
 .de-client button.de-field-card.de-cmd-open[data-side] { box-shadow:0 0 0 1px #ffff16, 0 0 0 2px #fff, 0 0 0 3px #000, var(--de-pile, 0 0 0 0 transparent); filter:brightness(1.25); }
