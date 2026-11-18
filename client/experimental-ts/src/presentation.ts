@@ -1,4 +1,4 @@
-import { visibleCards, ZONE_IDS } from './duel/model';
+import { COMMAND_LABELS, visibleCards, ZONE_IDS } from './duel/model';
 import type { DuelState, DuelResponse as EngineResponse, LegalAction, Zone } from './duel/types';
 import type { DuelView, DuelPromptView, DuelOption, DuelResponse, FieldZone } from './ui/contracts';
 import { CardCatalog } from './catalog';
@@ -88,8 +88,13 @@ export function boardInstruction(state: DuelState, p: NonNullable<DuelState['pro
   if (p.kind !== 'actions' || p.buttons.length || !choices.length) return null;
   const line = (id: number) => texts?.dialog(id) ?? INSTRUCTIONS[id]!;
   // Attack actions on the player's own monsters declare an attack (the Battle Phase's idle choice): nothing to explain;
-  // on the opponent's monsters they pick the attack's target.
-  if (choices.every(a => a.command === 0)) return choices.every(a => a.player === 1 && a.zone <= 4) ? line(222) : null;
+  // on the opponent's monsters they pick a target: the attack's, right after the player declared one, else a card's
+  // (isTargetPick: the translator asks every Battle Phase pick among the opponent's monsters with the Attack bit).
+  if (choices.every(a => a.command === 0)) {
+    if (!choices.every(a => a.player === 1 && a.zone <= 4)) return null;
+    const attacked = lastAction?.type === 'action' && lastAction.command === 0 && lastAction.player === 0 && lastAction.zone <= 4;
+    return line(attacked ? 222 : 274);
+  }
   if (!choices.every(a => a.command === 11)) return null;
   if (choices.every(a => uidFor(state, a) === null)) {
     const monster = choices.every(a => a.zone <= 4), spell = choices.every(a => a.zone >= 5 && a.zone <= 10);
@@ -104,10 +109,13 @@ export function boardInstruction(state: DuelState, p: NonNullable<DuelState['pro
 export function projectDuel(state: DuelState, catalog: CardCatalog, names: [string, string], submittedPrompt: number | null = null, texts?: DuelTextCatalog, lastAction?: EngineResponse | null): DuelView {
   const p = state.prompt, blocked = submittedPrompt === p?.id;
   const boardPrompt = p && ['actions', 'field-selection', 'discard', 'ritual'].includes(p.kind);
+  // (a target the server asks for with the Attack bit is chosen on the card itself, as any other board selection)
+  const targetPick = !!p && isTargetPick(state, p);
   const actions: DuelOption[] = p && boardPrompt && state.acceptingInput && !blocked ? p.actions.map(a => {
     const uid = uidFor(state, a), card = uid === null ? null : state.cards[uid];
     const place = uid === null && a.zone <= 10 ? { controller: (a.player === 0 ? 0 : 1) as 0 | 1, zone: (a.zone <= 4 ? 'monster' : 'spell') as 'monster' | 'spell', index: a.zone <= 4 ? a.zone : a.zone - 5 } : null;
-    return { id: actionId(a), label: actionLabel(state, catalog, a), ...(uid === null ? {} : { cardId: String(uid) }), ...(place ? { place } : {}) };
+    const label = actionLabel(state, catalog, targetPick && a.command === 0 ? { ...a, label: COMMAND_LABELS[11] } : a);
+    return { id: actionId(a), label, ...(uid === null ? {} : { cardId: String(uid) }), ...(place ? { place } : {}) };
   }) : [];
   if (p?.kind === 'actions' && state.acceptingInput && !blocked) for (const b of p.buttons) actions.push({ id: `phase:${b}`, label: phases[b] ?? `Phase ${b}` });
   // A card selection on the board (tributes, a target) can be backed out of, as with the original's right click; the
@@ -178,7 +186,21 @@ export function projectDuel(state: DuelState, catalog: CardCatalog, names: [stri
     ...(latestIssue ? { waiting: `Unsupported gameplay: ${latestIssue}`, issue: `A duel message could not be used (${latestIssue}); the board shows the last good state.` } : blocked ? { waiting: 'Waiting for the server…' } : {}),
   };
 }
-const isBoardSelection = (state: DuelState, p: NonNullable<DuelState['prompt']>) => p.kind === 'actions' && !p.buttons.length && p.actions.some(a => a.command === 11 && uidFor(state, a) !== null);
+const isBoardSelection = (state: DuelState, p: NonNullable<DuelState['prompt']>) => p.kind === 'actions' && !p.buttons.length &&
+  (p.actions.some(a => a.command === 11 && uidFor(state, a) !== null) || isTargetPick(state, p));
+/** A card pick among the opponent's monsters asked with the Attack bit (no phase keys; Look and Surrender riding along):
+ * the translator's target_bit, which it uses for any pick in the Battle Phase whose candidates are all the opponent's
+ * monsters (_pick: a trap's target during the opponent's attack, a flip effect's), and for an attack's target only when
+ * it cannot aim (its own aim asks with the Select bit). Declaring an attack is a command on the player's own monsters,
+ * never this. Either way it is a selection made on the card: the candidates are lit and a click picks one, as any other
+ * target; the right button backs out (the server re-asks a pick that cannot be cancelled). Drawn as an "Attack" command
+ * in the opponent's card's menu it lit nothing, the help line said "target for attack" during the opponent's attack, and
+ * the player (and the bots) found no way on until the turn clock ran out. */
+function isTargetPick(state: DuelState, p: NonNullable<DuelState['prompt']>): boolean {
+  if (p.kind !== 'actions' || p.buttons.length) return false;
+  const choices = p.actions.filter(a => a.command !== 1 && a.command !== 10);
+  return choices.length > 0 && choices.every(a => a.command === 0 && a.player === 1 && a.zone <= 4 && uidFor(state, a) !== null);
+}
 /** A chain's response window (the original's mode "chain": Yes to "Activate the effect of a card?", or a forced chain
  * choice): an action list of Activates alone, no phase keys. Live backs out of it with the right button on the field
  * (the duel goes on, as a No), so it is cancellable here too; the server refuses a forced one (re-sends it). */

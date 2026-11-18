@@ -42,6 +42,39 @@ describe('duel presentation adapter preserves server choices', () => {
     idle = reduce(idle, request_input(3));
     expect(view(idle).actions?.map(a => a.id)).not.toContain('cancel');
   });
+  it("lights a target the server asks with the Attack bit (a trap's target during the opponent's attack) and lets the right button back out", () => {
+    // The 11-14 / 11-18 stall: during the opponent's Battle Phase the player's trap asked for its target among the
+    // opponent's monsters; the translator asks any Battle Phase pick among the opponent's monsters with the Attack bit
+    // (target_bit), the piles' Look riding along. Drawn as an "Attack" row in the opponent's card's menu, nothing was lit
+    // and the duel sat until the turn clock ran out.
+    const d = translator(); d.phase = 3;
+    let s = reduce(reduce(initial(), set_card(1, 0, 1, 123, 9)), set_card(1, 0, 3, 123, 11));
+    s = reduce(s, set_card(1, 14, 0, 123, 13));
+    for (const [id, data] of norm(d._on_select({ type: 'SELECT_CARD', player: 0, min: 1, max: 1, can_cancel: true,
+      selects: [{ controller: 1, location: 4, sequence: 1 }, { controller: 1, location: 4, sequence: 3 }] }))) s = reduceDuelMessage(s, { id, data });
+    expect(s.prompt?.actions.filter(a => a.command !== 1 && a.command !== 10).map(a => [a.player, a.zone, a.command])).toEqual([[1, 1, 0], [1, 3, 0]]);
+    const v = view(s), targets = v.actions!.filter(a => a.cardId);
+    // each candidate is a selection on the card (the board lights it and a click picks it), none an Attack command
+    expect(targets.map(a => a.label)).toEqual(['Select: opponent’s monster zone 2', 'Select: opponent’s monster zone 4']);
+    expect(targets.map(a => a.cardId)).toEqual(['19', '23']);
+    expect(v.instruction).toBe('Select a target card from the Field.');
+    expect(v.actions!.map(a => a.id)).toContain('cancel');
+    // the pick reaches the translator as the candidate's index; the right button as the pick's cancel
+    const pick = encodeDuelResponse(s, interpretAction(s, targets[1]!.id));
+    expect(d.on_client(pick[0]!.id, pick[0]!.data)[0]).toEqual({ cmd: 'respond', response: { type: 'SELECT_CARD', indicies: [1] } });
+    const d2 = translator(); d2.phase = 3; let s2 = s;
+    for (const [id, data] of norm(d2._on_select({ type: 'SELECT_CARD', player: 0, min: 1, max: 1, can_cancel: true,
+      selects: [{ controller: 1, location: 4, sequence: 1 }] }))) s2 = reduceDuelMessage(s2, { id, data });
+    const cancel = encodeDuelResponse(s2, interpretAction(s2, 'cancel'));
+    expect(d2.on_client(cancel[0]!.id, cancel[0]!.data)[0]).toEqual({ cmd: 'respond', response: { type: 'SELECT_CARD', indicies: null } });
+    // the same pick right after the player's own attack declaration is the attack's target
+    expect(projectDuel(s, cat, ['You', 'Rival'], null, undefined, { type: 'action', player: 0, zone: 2, index: 0, command: 0 }).instruction)
+      .toBe('Select monster as target for attack.');
+    // the player's own attack declarations (the Battle Phase's commands, with or without the phase keys) stay commands
+    const own = reduce(reduceDuelMessage(reduce(initial(), set_card(0, 0, 2, 123, 4)), { id: 0x6611, data: comid_field(new Map([['0,2', 1 << 0]])) }), request_input(3));
+    expect(view(own).actions!.map(a => a.label)).toContain('Attack: Reference card');
+    expect(view(own).actions!.map(a => a.id)).not.toContain('cancel');
+  });
   it('keeps own deck identity hidden while allowing inspection of own face-down field cards', () => {
     let s = reduce(initial(), set_card(0, 13, 0, 123, 1));
     s = reduce(s, set_card(0, 0, 1, 123, 2));
@@ -181,8 +214,11 @@ describe('board selection instructions', () => {
     // Empty zones: the original's zone names.
     expect(view(ask(initial(), [['0,1', 1 << 11], ['0,2', 1 << 11]])).instruction).toBe('Select a Monster Card Zone.');
     expect(view(ask(initial(), [['0,6', 1 << 11]])).instruction).toBe('Select a Spell & Trap Card Zone.');
-    // An attack target (command 0 on the opponent's monsters).
-    expect(view(ask(reduce(initial(), set_card(1, 0, 2, 123, 9)), [['1,2', 1 << 0]])).instruction).toBe('Select monster as target for attack.');
+    // An attack target (command 0 on the opponent's monsters, right after the player's Attack); any other pick asked so
+    // (the translator's Battle Phase target_bit) is a card's target.
+    const aimed = ask(reduce(initial(), set_card(1, 0, 2, 123, 9)), [['1,2', 1 << 0]]);
+    expect(projectDuel(aimed, cat, ['You', 'Rival'], null, undefined, { type: 'action', player: 0, zone: 0, index: 0, command: 0 }).instruction).toBe('Select monster as target for attack.');
+    expect(view(aimed).instruction).toBe('Select a target card from the Field.');
     // Attack actions on the player's own monsters declare an attack: no instruction.
     expect(view(ask(reduce(initial(), set_card(0, 0, 1, 123, 4)), [['0,1', 1 << 0]])).instruction).toBeUndefined();
   });
