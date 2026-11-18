@@ -516,13 +516,14 @@ export class HeuristicBot {
 
   /** The value of a duelcore `state` from this seat (masked for it unless spy): evaluate(), counting what the
    *  opponent's next Battle Phase would take (a rollout ends with the NPC's own turn: that reply comes next). */
-  valueOf(state: Json): number {
+  valueOf(state: Json, opponentTurnPlayed = false): number {
     const b = boardFromState(state, this.seat, this.#vision);
     if (b) this.#board = b;
     const p = this.#boardPosition();
-    const score = this.#style.light ? evaluate(p) : valueWithReply(p, this.#planOpts().replyWeight);
+    const score = this.#style.light || opponentTurnPlayed ? evaluate(p) : valueWithReply(p, this.#planOpts().replyWeight);
     return !this.#heartSkill || Math.abs(score) >= 1e9 ? score
-      : score + this.#heartHandQuality(this.#me()?.hand ?? []) - this.#crystalResources();
+      : score + this.#heartHandQuality(this.#me()?.hand ?? []) - this.#crystalResources()
+        - (opponentTurnPlayed ? (this.#opp()?.hand.length ?? 0) * 450 : 0);
   }
 
   /** A resource draw, rather than every card that can eventually draw (Underdog
@@ -1513,7 +1514,8 @@ export class HeuristicBot {
     const uncertainDraw = ev.kind === "announceCard" && ev.heart && this.#heartSkill && !this.#trapLock()
       && this.#opp()?.szone.some(c => c && isFaceDown(c.position));
     try {
-      const limit = Math.max(2, search.maxCandidates);
+      const handForecast = !!search.opposingHand && ev.kind === "announceCard" && ev.heart;
+      const limit = handForecast ? 10 : Math.max(2, search.maxCandidates);
       // Keep the phase-exit lines (the last two) in the pool: a busy hand can offer many summons/effects.
       const pool = cands.length <= limit ? cands : ev.kind === "selectIdleCmd"
         ? [...cands.slice(0, limit - 2), ...cands.slice(-2)] : cands.slice(0, limit);
@@ -1568,8 +1570,8 @@ export class HeuristicBot {
     }
   }
 
-  /** The private draw skill ranks its eligible pool using our hand and public board.
-   * Whole-turn engine rollouts compare the leading distinct draws; no opponent hand is read. */
+  /** Rank legal draws from the current position, then compare different
+   * answers in the engine. Only this skill can consult the opposing hand. */
   #heartDrawCandidates(ev: P<"announceCard">): Candidate[] | null {
     const cards = ev.cards ?? [];
     if (!ev.heart || !cards.length || cards.some(c => c.controller !== this.seat || c.location !== LOCATION.DECK)) return null;
@@ -1585,6 +1587,19 @@ export class HeuristicBot {
     const magnets = ["alpha the magnet warrior", "beta the magnet warrior", "gamma the magnet warrior"];
     const has = (name: string) => present.includes(name);
     const hiddenBackrow = this.#opp()?.szone.filter(c => c && isFaceDown(c.position)).length ?? 0;
+    const opposingHand = this.#search?.opposingHand?.();
+    const opposingNames = opposingHand?.map(c => this.#nameOf(c)) ?? [];
+    const storm = opposingNames.some(n => /^(heavy storm|giant trunade|harpie's feather duster)$/.test(n));
+    const effectPressure = opposingNames.some(n => /^(celestia, lightsworn angel|judgment dragon|lyla, lightsworn sorceress|ryko, lightsworn hunter|breaker the magical warrior|gladiator beast bestiari|gladiator beast gyzarus)$/.test(n));
+    const gravePressure = opposingNames.some(n => /^(lumina, lightsworn summoner|judgment dragon|monster reborn|premature burial|call of the haunted|pot of avarice|dark armed dragon)$/.test(n));
+    const fragileDefense = /^(mirror force|swords of revealing light|sakuretsu armor|widespread ruin|gravity bind|magic cylinder)$/;
+    const effectCounter = /^(divine wrath|pulling the rug|light-imprisoning mirror|effect veiler|solemn judgment|bottomless trap hole)$/;
+    const graveCounter = /^(d\.d\. crow|kycoo the ghost destroyer|banisher of the radiance|macro cosmos|dimensional fissure|soul release)$/;
+    const pressure = (c: CardRef) => {
+      const k = this.#cards.brain.get(c.code);
+      return !!k && ((k.type & TYPE_SPELL) !== 0 && k.any(REMOVAL)
+        || (k.type & TYPE_MONSTER) !== 0 && k.tributes() === 0 && this.#stat(c.code).atk >= Math.max(1600, ctx.oppMaxAtk));
+    };
     const crystalFoes = this.#opp()?.mzone.filter(c => c && !isFaceDown(c.position) && /^crystal beast /.test(this.#nameOf(c.code))).length ?? 0;
     const publicNegate = this.#ruinsNegateReady();
     const clutter = this.#heartHandQuality(me?.hand ?? []) < -500;
@@ -1644,6 +1659,12 @@ export class HeuristicBot {
           score -= crystalFoes * 3000 + (publicNegate ? 5000 : 0);
       }
       if (this.#locked(c.code)) score -= 1e6;
+      if (opposingHand) {
+        if (fragileDefense.test(name)) score -= storm ? 10000 : effectPressure ? 6500 : 0;
+        if (effectPressure && effectCounter.test(name)) score += 9500;
+        if (gravePressure && graveCounter.test(name)) score += 9000;
+        if ((storm || effectPressure) && pressure(c)) score += 3500;
+      }
       if (finishesObelisk.has(name)) score += 45000;
       score -= this.#heartDrawRisk(c.code);
       score -= (this.#heartMade.get(c.code) ?? 0) * 500;
@@ -1658,6 +1679,11 @@ export class HeuristicBot {
       (c: CardRef) => /^(giant trunade|heavy storm|royal decree|spiritualism)$/.test(this.#nameOf(c.code)),
       (c: CardRef) => /^(marshmallon|spirit reaper|swords of revealing light|mirror force)$/.test(this.#nameOf(c.code)),
     ];
+    if (opposingHand) {
+      categories.push(pressure);
+      if (effectPressure) categories.push(c => effectCounter.test(this.#nameOf(c.code)));
+      if (gravePressure) categories.push(c => graveCounter.test(this.#nameOf(c.code)));
+    }
     const diverse = [ranked[0], ...categories.map(test => ranked.find(i => test(cards[i]!))), ...ranked]
       .filter((i): i is number => i !== undefined);
     const seen = new Set<number>();
@@ -1670,7 +1696,8 @@ export class HeuristicBot {
       const name = this.#nameOf(code);
       const singleSpell = /^(raigeki|dark hole|lightning vortex|snatch steal|brain control|smashing ground|fissure)$/.test(name);
       const risk = (finishesObelisk.has(name) ? -6000 : completesFusion(name) || completesMagnets(name) ? -4000 : YUGI_SIGNATURE.test(name) ? -1500 : 1500)
-        + this.#heartDrawRisk(code) + (singleSpell ? Math.min(2, hiddenBackrow) * 1300 : 0);
+        + this.#heartDrawRisk(code) + (singleSpell ? Math.min(2, hiddenBackrow) * 1300 : 0)
+        + (fragileDefense.test(name) ? storm ? 3000 : effectPressure ? 1800 : 0 : 0);
       return [{ resp: { type: "ANNOUNCE_CARD", card: code }, risk, commit: () => this.#heartChosen(code) }];
     });
   }

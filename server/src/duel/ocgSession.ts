@@ -325,7 +325,8 @@ export class OcgSession {
     const autoChain = !d.cfg.chain_none_prompt;
     const o = USE_BRAIN ? { first: first as 0 | 1, seed, shuffle: true, brain: "python", rule, auto_chain: autoChain, place_order }
       : { first: first as 0 | 1, seed, shuffle: true, rule, auto_chain: autoChain, place_order };
-    if ([51, 52, 53].includes(this.npcId)) Object.assign(o, { heart_of_cards: 1, heart_pool: [...YUGI_HEART_POOL], heart_copy_limit: 3 });
+    const yugi = [51, 52, 53].includes(this.npcId);
+    if (yugi) Object.assign(o, { heart_of_cards: 1, heart_pool: [...YUGI_HEART_POOL], heart_copy_limit: 3 });
     const log = dc.record(this.id);
     const py = this.g.cfg.npcAi === "py";
     this.rec = { decks, opts: o, cmds: log, t0: now(), tier: !USE_BRAIN ? "engine" : py ? "py" : tierFor(this.npcId, NPC_PROFILES) };
@@ -335,7 +336,8 @@ export class OcgSession {
       else {
         const engine = dc.eng.local!, id = this.id;
         this.brain = new NpcAi({ npcId: this.npcId, seat: 1, seed, cards: cardInfo(engine.cardDB, brainDb()), tier: tierFor(this.npcId, NPC_PROFILES),
-          spy: this.g.cfg.npcAiSpy, link: () => ({ dc: engine, decks, opts: o, log }), peek: () => engine.query(id) });
+          spy: this.g.cfg.npcAiSpy, handAwareDraw: yugi,
+          link: () => ({ dc: engine, decks, opts: o, log }), peek: () => engine.query(id) });
       }
     }
     const sess = this.c.sess as Session | undefined;

@@ -39,6 +39,7 @@ export interface Side {
 
 export interface Scene {
   heart_of_cards?: 0 | 1;
+  handAwareDraw?: boolean;
   heart_pool?: number[];
   npcId: number;
   npc: Side;
@@ -114,7 +115,8 @@ export function play(dc: DuelCore, scene: Scene): Played {
   const opts: NewOptions = { first: scene.first === "npc" ? NPC : PLAYER, seed: 1, shuffle: false, rule: PY_DUEL_RULE, brain: [true, true], auto_chain: true, heart_of_cards: scene.heart_of_cards, heart_pool: scene.heart_pool, heart_copy_limit: scene.heart_of_cards === undefined ? undefined : 3, setup: setupOf(scene) };
   const id = `scene-${++seq}`;
   const log: LoggedCmd[] = [];
-  const ai = new NpcAi({ npcId: scene.npcId, seat: NPC, seed: 1, cards: cardInfo(dc.cardDB, brainDb()), tier: "elite", link: () => ({ dc, decks, opts, log }), peek: () => dc.query(id) });
+  const ai = new NpcAi({ npcId: scene.npcId, seat: NPC, seed: 1, cards: cardInfo(dc.cardDB, brainDb()), tier: "elite",
+    handAwareDraw: scene.handAwareDraw, link: () => ({ dc, decks, opts, log }), peek: () => dc.query(id) });
   const policy = scene.player_policy ?? passive;
   const out: Played = { npc: [], msgs: [], log: [], end: null };
   const text = new DuelLog(["Player", "NPC"], { name: (c) => (dc.cardDB.get(c) ? dc.cardDB.name(c) : ""), stats: (c) => ({ atk: dc.cardDB.get(c)?.attack ?? 0, def: dc.cardDB.get(c)?.defense ?? 0 }) });

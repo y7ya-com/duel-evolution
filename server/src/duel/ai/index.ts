@@ -20,6 +20,7 @@ import FLIP_SUMMON_JSON from "./flipSummon.json";
 import { HeuristicBot, type BotStyle, type CardInfo } from "./heuristicBot.ts";
 import { activeRules, type RuleSet } from "./ruleSet.ts";
 import type { ForkLink, SearchAccess } from "./simSearch.ts";
+import { boardFromState } from "./prompt.ts";
 
 export { HeuristicBot, type BotStyle, type CardInfo } from "./heuristicBot.ts";
 export { simStats, type ForkLink, type LoggedCmd } from "./simSearch.ts";
@@ -28,7 +29,7 @@ export { activeRules, buildRules, setActiveRules, type RuleSet } from "./ruleSet
 export type Tier = "easy" | "hard" | "elite";
 
 /** Which AI played, in the duel record (npcDuelLog.ts): one more whenever the AI's play changes. */
-export const NPC_AI_REV = 27;
+export const NPC_AI_REV = 28;
 
 /** Per-NPC personalities (NPC id -> style). */
 export const STYLE_BY_NPC: Record<number, BotStyle> = {};
@@ -98,6 +99,8 @@ export interface NpcAiOptions {
   tier: Tier;
   /** Spy vision + spy horizon (elite). Off by default: honest play. */
   spy?: boolean;
+  /** Read the opposing hand for Heart of the Cards decisions. */
+  handAwareDraw?: boolean;
   /** The live duel for the elite's forks (null/absent = no search). */
   link?: () => ForkLink | null;
   /** The live duel's full state (duelcore `query`), for spy vision only. */
@@ -133,6 +136,9 @@ export class NpcAi {
         maxCandidates: cfg.maxCandidates,
         spy,
         publicReplies: o.link?.()?.opts.heart_of_cards === o.seat,
+        opposingHand: o.handAwareDraw && o.peek && o.link()?.opts.heart_of_cards === o.seat
+          ? () => boardFromState(o.peek!(), 1 - o.seat, false)?.players[1 - o.seat]?.hand ?? []
+          : undefined,
       };
     }
     // its own deck list (the duel it plays: inMyDeck in the rules)

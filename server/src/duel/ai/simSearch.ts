@@ -49,6 +49,8 @@ export interface SearchAccess {
   spy: boolean;
   /** Yugi's public negation forecasts; never reveals or activates a hidden set card. */
   publicReplies?: boolean;
+  /** Yugi can use the opposing hand to shortlist and forecast a skill draw. */
+  opposingHand?: () => readonly number[];
 }
 
 const PUBLIC_COUNTERS = new Set([34487429, 48229808, 93016201]); // Rainbow Ruins, Horus LV8, Royal Oppression
@@ -108,7 +110,7 @@ type Horizon = (sel: Json, events: Json[], live: Json) => boolean;
  * Fork + replay + inject + play forward to the horizon. The fork's state at the horizon (duelcore `query`), a number
  * (+-1e9: the duel ended), or null when the fork failed structurally (the replay did not reach the live select).
  */
-function forkPlay(access: SearchAccess, seat: number, live: Json, prompt: Prompt, inject: Json, liveBot: HeuristicBot, stopAt: Horizon, reply: "first" | "payoff" = "first"): Json | number | null {
+function forkPlay(access: SearchAccess, seat: number, live: Json, prompt: Prompt, inject: Json, liveBot: HeuristicBot, stopAt: Horizon, reply: "first" | "payoff" = "first", playOpponent = false): Json | number | null {
   const t0 = performance.now();
   const L = access.link();
   if (!L) return null;
@@ -156,7 +158,8 @@ function forkPlay(access: SearchAccess, seat: number, live: Json, prompt: Prompt
         && costs.every(c => Number(c.controller) === p && Number(c.location) === LOCATION.MZONE && (Number(c.position) & 5) !== 0)
         ? { type: "SELECT_CARD", indicies: costs.map((c, i) => ({i, atk: dc.cardDB.get(Number(c.code))?.attack ?? 0}))
           .sort((a, b) => a.atk - b.atk || a.i - b.i).slice(0, Number(last.min)).map(c => c.i) } : null;
-      const r = last.retry ? null : publicReply ?? crystalReplacement ?? publicCost ?? (!access.spy && p !== seat ? passive(pol[p]!, last) : pol[p]!.choose(last));
+      const r = last.retry ? null : publicReply ?? crystalReplacement ?? publicCost
+        ?? (!access.spy && !playOpponent && p !== seat ? passive(pol[p]!, last) : pol[p]!.choose(last));
       evs = r ? dc.respond(id, r, p) : dc.auto(id);
     }
     // A passed attack window can reach damage before the next prompt; a revival can stop at its replay.
@@ -174,14 +177,17 @@ function forkPlay(access: SearchAccess, seat: number, live: Json, prompt: Prompt
  */
 export function rolloutScore(access: SearchAccess, seat: number, live: Json, prompt: Prompt, inject: Json, liveBot: HeuristicBot): number | null {
   const pilot = access.makePolicy(seat, true, () => ({}));
+  const forecast = !!access.opposingHand && prompt.kind === "announceCard" && prompt.heart;
   // honest: the end of the NPC's own turn (spy: its next turn, stopped in forkPlay)
   const scores: number[] = [];
   const replies = access.publicReplies && !access.spy && hasPublicCounter(live, seat) ? ["first", "payoff"] as const : ["first"] as const;
   for (const reply of replies) {
-    const r = forkPlay(access, seat, live, prompt, inject, liveBot, (sel, _events, l) => !access.spy && sel.turn !== l.turn, reply);
+    const r = forkPlay(access, seat, live, prompt, inject, liveBot, (sel, _events, l) => forecast
+      ? Number(sel.turn) >= Number(l.turn) + (Number(l.turn_player) === seat ? 2 : 1)
+      : !access.spy && sel.turn !== l.turn, reply, forecast);
     if (r === null) return null;
     pilot.copyTurnState(liveBot);
-    scores.push(typeof r === "number" ? r : pilot.valueOf(r));
+    scores.push(typeof r === "number" ? r : pilot.valueOf(r, forecast));
   }
   return Math.min(...scores);
 }
