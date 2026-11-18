@@ -228,8 +228,15 @@ export function interpretResponse(state: DuelState, id: string, response?: DuelR
 }
 export function interpretAction(state: DuelState, id: string): EngineResponse { return actionResponse(id, state); }
 
+/** A packet's counters as the view lists them, one list per packet's card (the duel screen compares them by identity). */
+const counterLists = new WeakMap<object, { kind: number; count: number }[]>();
+function counterList(counters: CardPlacement['counters']): { kind: number; count: number }[] {
+  let list = counterLists.get(counters);
+  if (!list) { list = Object.entries(counters).filter(([, count]) => count > 0).map(([kind, count]) => ({ kind: Number(kind), count })); counterLists.set(counters, list); }
+  return list;
+}
 function timedCard(catalog: CardCatalog, at: CardPlacement): Omit<DuelView['cards'][number], 'controller' | 'zone' | 'index' | 'faceUp'> {
-  const counters = Object.entries(at.counters).filter(([, count]) => count > 0).map(([kind, count]) => ({ kind: Number(kind), count }));
+  const counters = counterList(at.counters);
   return { ...catalog.card(at.passcode!), ...(at.attack !== null ? { attack: at.attack } : {}), ...(at.defence !== null ? { defense: at.defence } : {}),
     ...(at.faceUp && counters.length ? { counters } : {}), ...(at.faceUp && at.turns > 0 ? { turnCounter: at.turns } : {}) };
 }

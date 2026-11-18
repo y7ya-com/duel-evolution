@@ -655,8 +655,8 @@ export class ClientApp implements ClientController {
     // (a duel called off before it began says so in its own box: duelCalledOff)
     if (!this.game?.state.duelCalledOff) for (const event of fresh) if (event.type === 'server-notice') { const text = serverInfoText(event.params[0] ?? 0, event.player === 1, names[1], names[0]); if (text) { fact.notice = { id: ++this.noticeIds, text }; lines.push(text); } }
     if (lines.length) fact.log = lines;
-    // the clock runs on the server from when its message came (0x6461)
-    if (message.id === 0x6461 && this.duelState.timer !== previous.timer) fact.timer = this.duelState.timer ? { ...this.duelState.timer, at: Date.now() } : null;
+    // the clock runs on the server from when its message came (0x6461; a match's sideboard clock, 3, is not the board's)
+    if (message.id === 0x6461 && message.data[0] !== 3) fact.timer = this.duelState.timer ? { ...this.duelState.timer, at: Date.now() } : null;
     if (Object.keys(fact).length) this.duelPaced.push(previous.sequence, fact);
     this.timeline.enqueue(previous, this.duelState, this.duelCues.collect(previous, this.duelState));
     if (this.duelState.sequence > previous.sequence) this.duelAudio.enqueue(previous,this.duelState);

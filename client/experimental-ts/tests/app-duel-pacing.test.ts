@@ -56,6 +56,9 @@ describe('the duel screen follows the board, not the latest packet', () => {
     expect(seen.ended).toBeGreaterThanOrEqual(seen.notice!);
     expect(duel()).toMatchObject({ ended: 'Victory', notice: { text: 'Opponent has disconnected.' }, timer: { player: 0, seconds: 90 } });
     expect(duel().log.at(-1)).toBe('The duel is over.');
+    // a match's sideboard clock (3) leaves the board's alone
+    const clock = duel().timer; f.send(0x6461, timer(3, 60)); while (f.tick()) { /* settle */ }
+    expect(duel().timer).toBe(clock);
     f.app.dispose();
   });
   it('shows everything at once with reduced motion', async () => {
