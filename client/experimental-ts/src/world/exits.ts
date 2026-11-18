@@ -6,10 +6,12 @@ export interface CrossingRegion {
   readonly x0: number; readonly y0: number; readonly x1: number; readonly y1: number;
   readonly arrival: WorldPosition;
 }
-/** Recomp crossing.c override; opt-in, separate from the original mask. */
+/** Recomp crossing.c override (live 617da3d): the ship sails from its upper deck's west tip, the beach back from the
+ * shore south of the cliff, so the gangway (the only way to Yami Marik and the lower deck) and the cliff's edge (Jaden)
+ * stay walkable; opt-in, separate from the original mask. */
 export const CROSSING_REGIONS: readonly CrossingRegion[] = Object.freeze([
-  Object.freeze({ mapId: 2, destination: 7, x0: 420, y0: 930, x1: 600, y1: 1045, arrival: Object.freeze({ x: 700, y: 1110, direction: 3 }) }),
-  Object.freeze({ mapId: 7, destination: 2, x0: 190, y0: 730, x1: 235, y1: 1030, arrival: Object.freeze({ x: 330, y: 1100, direction: 3 }) }),
+  Object.freeze({ mapId: 2, destination: 7, x0: 0, y0: 120, x1: 120, y1: 185, arrival: Object.freeze({ x: 700, y: 1110, direction: 3 }) }),
+  Object.freeze({ mapId: 7, destination: 2, x0: 0, y0: 1055, x1: 100, y1: 1170, arrival: Object.freeze({ x: 330, y: 1100, direction: 3 }) }),
 ]);
 function mapId(id: number): void { if (!Number.isInteger(id) || id < 0 || id > 9) throw new RangeError('Invalid field map id'); }
 function validPoint(p: Point): void { if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) throw new RangeError('Invalid exit position'); }

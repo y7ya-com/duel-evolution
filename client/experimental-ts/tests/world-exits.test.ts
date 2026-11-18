@@ -20,11 +20,13 @@ describe('source-backed exit/entrance helpers', () => {
     expect(detectExit({id:0,entries:[]},EXIT_HIT_PIXELS[0],{x:0,y:0})).toBeNull();
   });
   it('uses half-open override boxes and current avatar position, opt-in only', () => {
-    for (const p of [{x:420,y:930},{x:599.9,y:1044.9}]) expect(crossingAt(2,p)?.destination).toBe(7);
-    for (const p of [{x:419.9,y:930},{x:600,y:930},{x:420,y:1045}]) expect(crossingAt(2,p)).toBeNull();
-    expect(crossingAt(7,{x:190,y:730})?.destination).toBe(2); expect(crossingAt(0,{x:420,y:930})).toBeNull();
-    expect(detectExit(map,null,{x:420,y:930})).toBeNull();
-    expect(detectExit(map,null,{x:420,y:930},{crossings:true})).toMatchObject({index:3,destination:7,source:'crossing'});
+    for (const p of [{x:0,y:120},{x:119.9,y:184.9}]) expect(crossingAt(2,p)?.destination).toBe(7);
+    for (const p of [{x:120,y:120},{x:0,y:119.9},{x:0,y:185}]) expect(crossingAt(2,p)).toBeNull();
+    // the gangway's foot (the only way onto the deck) is walkable ground again, not a crossing (live 617da3d)
+    expect(crossingAt(2,{x:500,y:1000})).toBeNull(); expect(crossingAt(7,{x:200,y:900})).toBeNull();
+    expect(crossingAt(7,{x:0,y:1055})?.destination).toBe(2); expect(crossingAt(0,{x:0,y:120})).toBeNull();
+    expect(detectExit(map,null,{x:0,y:120})).toBeNull();
+    expect(detectExit(map,null,{x:0,y:120},{crossings:true})).toMatchObject({index:3,destination:7,source:'crossing'});
   });
   it('stops at END, patches crossing arrival entry 3, and draws facing independently', () => {
     expect(arrivalEntries(map,8)).toHaveLength(2);
