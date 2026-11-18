@@ -4,7 +4,8 @@ import { NpcAi, type CardInfo } from "./index.ts";
 import { yugiPlaybook, type YugiMatchup } from "./yugiMatchups.ts";
 
 const poolByName = new WeakMap<DuelCore["cardDB"], Map<string, number>>();
-const fallback = ["pot of greed", "breaker the magical warrior", "solemn judgment", "raigeki", "book of moon"];
+// No draw spells beyond one signature Pot of Greed: Yugi already chooses every card he draws.
+const fallback = ["breaker the magical warrior", "solemn judgment", "raigeki", "book of moon", "mystical space typhoon"];
 const themes: Record<number, readonly (readonly string[])[]> = {
   51: [["gaia the fierce knight", "curse of dragon", "polymerization"]],
   52: [["dark magician", "buster blader", "polymerization"], ["dark magician", "ancient rules", "dark magic attack"]],
@@ -16,10 +17,10 @@ const openingCounters: Record<YugiMatchup, readonly [string, string]> = {
   lightsworn: ["light-imprisoning mirror", "dimensional fissure"],
   "dark-world": ["shadow-imprisoning mirror", "dimensional fissure"],
   "gladiator-beast": ["dimensional prison", "royal oppression"],
-  hero: ["royal oppression", "dark bribe"],
+  hero: ["dark bribe", "magic jammer"],
   "crystal-beast": ["pulling the rug", "giant trunade"],
   "cyber-dragon": ["system down", "royal oppression"],
-  "dark-gaia": ["royal oppression", "dimensional fissure"],
+  "dark-gaia": ["dark bribe", "dimensional fissure"],
   "apprentice-control": ["nobleman of crossout", "royal decree"],
 };
 const finalists = 3;
@@ -80,11 +81,11 @@ export function chooseYugiOpening(dc: DuelCore, decks: Deck[], opts: NewOptions,
     ["pot of greed", body, counter, "solemn judgment", removal],
     ["pot of greed", "breaker the magical warrior", alternate, "solemn judgment", "raigeki"],
     // Every recipe brings an attacker: production opened with five reactive cards and no monster.
-    ["graceful charity", graveDeck ? "banisher of the radiance" : body, counter, "compulsory evacuation device", "book of moon"],
-    ["graceful charity", body, alternate, "giant trunade", "monster reborn"],
+    [graveDeck ? "banisher of the radiance" : body, counter, "compulsory evacuation device", "book of moon", "monster reborn"],
+    [body, alternate, "giant trunade", "monster reborn", "raigeki"],
     // Proactive hands: removal that resolves on Yugi's own turn instead of set cards waiting for a backrow-heavy deck.
     ["pot of greed", "heavy storm", "raigeki", body, "monster reborn"],
-    ["graceful charity", "breaker the magical warrior", body, "dark hole", counter],
+    ["breaker the magical warrior", body, "dark hole", counter, "heavy storm"],
     ...(themes[npcId] ?? []).map(line => [...line, counter, "pot of greed"]),
     ...(matchup?.id === "gladiator-beast" ? [[
       "obelisk the tormentor", "valkyrion the magna warrior", "alpha the magnet warrior", "beta the magnet warrior", "gamma the magnet warrior",

@@ -54,6 +54,8 @@ const TAG_RULES = new Map<number, CardRule | null>();
 const MAX_IDLE_ACTIONS = 24; // hard safety cap on plays per turn (prevents pathological loops)
 const YUGI_SIGNATURE = /^(dark magician(?: girl| of chaos)?|skilled dark magician|apprentice magician|buster blader|summoned skull|gaia the fierce knight|swift gaia the fierce knight|curse of dragon|gazelle the king of mythical beasts|berfomet|kuriboh|big shield gardna|obnoxious celtic guard|alpha the magnet warrior|beta the magnet warrior|gamma the magnet warrior|valkyrion the magna warrior|king's knight|queen's knight|jack's knight|slifer the sky dragon|obelisk the tormentor|the winged dragon of ra|black luster soldier(?: - envoy of the beginning)?|gandora the dragon of destruction|polymerization|ancient rules|magical dimension|dark magic attack|thousand knives|swords of revealing light|mirror force|magic cylinder|monster reborn)$/;
 
+/** Spells whose resolution is a Fusion or Ritual Summon (ritual spells are also found by type). */
+const SUMMON_SPELL = /^(polymerization|dark fusion|dark calling|miracle fusion|power bond|overload fusion|fusion gate|super polymerization|contract with the abyss|advanced ritual art)$/;
 /** Burn spells Yugi's draw skill can finish with: their damage to the opponent. */
 const BURN_SPELL: Record<string, number> = { "poison of the old man": 1200, "tremendous fire": 1000, ookazi: 800, "final flame": 600, hinotama: 500, sparks: 200 };
 /** Opposing cards that remove, negate or play around set Spells/Traps. Counted in the opponent's whole submitted
@@ -326,6 +328,8 @@ export class HeuristicBot {
   #heartMade = new Map<number, number>();
   /** #oppBackrowHate's count, once per duel. */
   #hate: number | undefined;
+  /** Yugi has used his one draw spell this duel (#locked). */
+  #drawSpent = false;
   #heartPending: number[] = [];
   #obeliskDiscard: string | undefined;
   #obeliskRevive: string | undefined;
@@ -405,6 +409,7 @@ export class HeuristicBot {
         this.#oppSummonAtk = 0;
         this.#chainTop = Number(ev.controller);
         const code = Number(ev.code);
+        if (this.#heartSkill && Number(ev.controller) === this.seat && this.#isDrawCard(code) && (Number(ev.location) & (LOCATION.HAND | LOCATION.SZONE)) !== 0) this.#drawSpent = true;
         const k = this.#cards.brain.get(code);
         const clears = CLEARS_BACKROW.test(this.#nameOf(code)) || !!k?.has("storm_all") || (!!k?.has("storm_opp") && Number(ev.controller) !== this.seat);
         this.#links.push({ code, controller: Number(ev.controller), location: Number(ev.location), sequence: Number(ev.sequence),
@@ -479,6 +484,7 @@ export class HeuristicBot {
       if (this.#turnPlayer === this.seat) { this.#idleActions = 0; this.#activatedThisTurn.clear(); this.#allIn = false; this.#attackSetupSummon = 0; }
     }
     this.#board = (this.#vision && this.#peek ? boardFromState(this.#peek(), this.seat, true) : null) ?? boardFromView(sel, this.seat) ?? this.#board;
+    if (this.#heartSkill && !this.#drawSpent && this.#me()?.grave.some(c => this.#isDrawCard(c))) this.#drawSpent = true;
     if (this.#opp()?.hand.length === 0) this.#knownOppHand.clear();
     if (turn !== this.#heldTurn) {
       this.#heldTurn = turn;
@@ -490,6 +496,7 @@ export class HeuristicBot {
   copyTurnState(from: HeuristicBot): void {
     this.#turn = from.#turn;
     this.#hate = from.#oppBackrowHate();
+    this.#drawSpent = from.#drawSpent;
     this.#normalSummoned = from.#normalSummoned;
     this.#oppNormalSummoned = from.#oppNormalSummoned;
     this.#idleActions = from.#idleActions;
@@ -981,6 +988,17 @@ export class HeuristicBot {
         return (oppTurn && !!deniesTag) || (existing?.(ctx) ?? false);
       } };
     }
+    if (name === "solemn judgment" || name === "dark bribe" || name === "magic jammer") {
+      // A fusion or ritual spell is the summon itself: negate it there (the lab let Dark Fusion and Dark Calling
+      // resolve into two Dark Gaias with Solemn Judgment set, because neither spell hit Yugi's own cards).
+      const existing = this.#rules[name]?.chainReact;
+      return { chainReact: ctx => {
+        const link = this.#links.at(-1);
+        const k = link && link.controller !== this.seat ? this.#cards.brain.get(link.code) : undefined;
+        const summons = !!k && (k.type & TYPE_SPELL) !== 0 && ((k.type & TYPE_RITUAL) !== 0 || SUMMON_SPELL.test(this.#nameOf(link!.code)));
+        return summons || (existing?.(ctx) ?? false);
+      } };
+    }
     if (name === "book of moon") {
       // A Gladiator Beast flipped face-down mid-attack cannot tag out; a direct
       // attack of 1200+ is worth the card (production held it through a 1700
@@ -1415,10 +1433,29 @@ export class HeuristicBot {
 
   /** A Spell / Trap that a face-up lock would negate (Master Duel tests "would this be negated" before any activation:
    *  md-ai/port/E-chains.md §5): never activated, never set to wait. */
+  /** A card that draws or cycles cards. */
+  #isDrawCard(code: number): boolean {
+    return !!this.#cards.brain.get(code)?.has("draw")
+      || /^(reload|magical mallet|card destruction|hand destruction)$/.test(this.#nameOf(code));
+  }
+
+  /** One of Yugi's draw effects he may not use (#locked). */
+  #lockedDraw(code: number): boolean {
+    return this.#heartSkill && this.#isDrawCard(code) && this.#locked(code);
+  }
+
   #locked(code: number): boolean {
     const type = this.#cards.brain.get(code)?.type ?? 0;
     const b = this.#board;
     if (!b) return false;
+    // Yugi's one draw spell per duel (a Pot of Greed) is spent once one is in his graveyard or banished: a second Pot (recovered by
+    // Dark Magician of Chaos in the lab) is a dead card, not a play, and his recovery effects stop choosing one.
+    // Any other draw effect (a revived Cyber Valley in the lab) is never his to use.
+    if (this.#heartSkill && this.#isDrawCard(code)) {
+      const me = this.#me();
+      if ([...(me?.grave ?? []), ...(me?.removed ?? [])].some(c => this.#isDrawCard(c))) this.#drawSpent = true;
+      if (this.#drawSpent || this.#nameOf(code) !== "pot of greed") return true;
+    }
     if ((type & TYPE_TRAP) !== 0) return this.#trapLock();
     if ((type & TYPE_SPELL) !== 0) return b.players.some((p) => [...p.szone, ...p.mzone].some((c) => c && c.code && !isFaceDown(c.position) && SPELL_LOCK.test(this.#nameOf(c.code))));
     return false;
@@ -1632,7 +1669,7 @@ export class HeuristicBot {
       }
       case "selectEffectYN": {
         const key = this.#effKey(ev);
-        if (this.#activatedThisTurn.has(key)) return null;
+        if (this.#activatedThisTurn.has(key) || this.#lockedDraw(ev.card.code)) return null;
         return [
           { resp: respEffectYN(true), commit: () => { this.#activatedThisTurn.add(key); } },
           { resp: respEffectYN(false) },
@@ -1652,8 +1689,7 @@ export class HeuristicBot {
     const present = [...hand, ...this.#heartPending.map(c => this.#nameOf(c))];
     // A draw spell can support a signature play; it must not become a virtual
     // draw engine. One materialised draw/cycle card per turn, including a pending batch.
-    const drawCard = (code: number) => !!this.#cards.brain.get(code)?.has("draw")
-      || /^(reload|magical mallet|card destruction|hand destruction)$/.test(this.#nameOf(code));
+    const drawCard = (code: number) => this.#isDrawCard(code);
     const drawUsed = [...this.#heartMade].some(([code, n]) => n > 0 && drawCard(code))
       || (me?.hand ?? []).some(c => this.isResourceDraw(c)) || this.#heartPending.some(drawCard);
     const magnets = ["alpha the magnet warrior", "beta the magnet warrior", "gamma the magnet warrior"];
@@ -1785,7 +1821,14 @@ export class HeuristicBot {
     };
     const finishers = cards.map((c, i) => ({ i, kind: finisherKind(c) })).filter(f => f.kind > 0)
       .sort((a, b) => b.kind - a.kind || rank(cards[b.i]!) - rank(cards[a.i]!)).slice(0, 6).map(f => f.i);
-    const ranked = cards.map((c, i) => ({ c, i })).filter(({c}) => !drawUsed || !drawCard(c.code))
+    // Choosing every draw makes draw spells pointless, and a chain of them looks rigged. Yugi's one is a signature
+    // Pot of Greed, once per duel, counting one dealt in his opening (owner): no other draw or cycling card.
+    const mine = [...(me?.hand ?? []), ...(me?.grave ?? []), ...(me?.removed ?? []), ...this.#heartPending,
+      ...(me?.szone ?? []).flatMap(c => c ? [c.code] : [])];
+    const potSpent = this.#drawSpent || [...this.#heartMade].some(([code, n]) => n > 0 && this.#nameOf(code) === "pot of greed")
+      || mine.some(c => this.#nameOf(c) === "pot of greed");
+    const drawAllowed = (code: number) => !drawCard(code) || (this.#nameOf(code) === "pot of greed" && !potSpent && !drawUsed);
+    const ranked = cards.map((c, i) => ({ c, i })).filter(({c}) => drawAllowed(c.code))
       .map(({c, i}) => ({ i, score: rank(c) })).sort((a, b) => b.score - a.score || a.i - b.i).map(x => x.i);
     // Reserve slots for genuinely different plans. Six similar removal spells
     // must not crowd every resource/protection line out of native lookahead.
@@ -2768,6 +2811,15 @@ export class HeuristicBot {
   #chain(ev: P<"selectChain">): Json {
     if (ev.chains.length === 0) return respChain(null);
     if (ev.forced) return respChain(0);
+    // Yugi's locked draw effects are not options (a revived Cyber Valley drew him cards when attacked).
+    if (this.#heartSkill) {
+      const keep = ev.chains.flatMap((c, i) => this.#lockedDraw(c.code) ? [] : [i]);
+      if (keep.length < ev.chains.length) {
+        if (!keep.length) return respChain(null);
+        const r = this.#chain({ ...ev, chains: keep.map(i => ev.chains[i]!) });
+        return r.index === null || r.index === undefined ? r : respChain(keep[Number(r.index)]!);
+      }
+    }
     // a my-turn-only player never answers on the opponent's turn
     if (this.#style.myTurnOnly && this.#turnPlayer !== this.seat) return respChain(null);
     // A set card the opponent's chain is taking: used now if it does anything (production: Scapegoat, Raigeki Break,
@@ -3263,6 +3315,8 @@ export class HeuristicBot {
    *  listed), more still with the opponent's attackers on the field; a second lasting copy of a card already face-up
    *  on my field (another Field Spell, a lock already running) is worth little. */
   #worth(code: number, inHand = false): number {
+    // Yugi's spent draw spell: the first card to discard, the last to recover.
+    if (this.#lockedDraw(code)) return 0;
     if (this.#ruleFor(code)?.keepInHand) return 9000;
     const k = this.#cards.brain.get(code);
     if (!k) return this.#stat(code).atk || 1000;
@@ -3347,7 +3401,7 @@ export class HeuristicBot {
   #effectYN(ev: P<"selectEffectYN">): Json {
     // A card's optional effect once per turn (yes again on a re-trigger would loop).
     const key = this.#effKey(ev);
-    if (this.#activatedThisTurn.has(key)) return respEffectYN(false);
+    if (this.#activatedThisTurn.has(key) || this.#lockedDraw(ev.card.code)) return respEffectYN(false);
     // a card rule's own answer (yesNo), else yes
     const rule = this.#ruleFor(ev.card.code);
     if (rule?.yesNo && !rule.yesNo(this.#withSelf(this.#ctx(), ev.card.code, ev.card))) return respEffectYN(false);

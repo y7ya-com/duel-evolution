@@ -16,7 +16,7 @@ it.each([
   ["hero", { hand: ["elemental hero avian", "miracle fusion"] }, "D.D. Crow"],
   ["crystal-beast", { backrow: ["ancient city - rainbow ruins", "crystal beast amber mammoth"] }, "Giant Trunade"],
   ["cyber-dragon", { hand: ["power bond"], monsters: ["cyber dragon"] }, "System Down"],
-  ["dark-gaia", { hand: ["dark calling", "dark master - zorc"] }, "Royal Oppression"],
+  ["dark-gaia", { hand: ["dark calling", "dark master - zorc"] }, "Dark Bribe"],
   ["apprentice-control", { hand: ["apprentice magician", "old vindictive magician"], setMonsters: 1 }, "Nobleman of Crossout"],
 ] as const)("offers a legal %s counter from current evidence", (id, input, counter) => {
   const match = yugiPlaybook(evidence(input));
@@ -97,4 +97,29 @@ it("flips a direct attacker with Book of Moon instead of taking the hit", () => 
   });
   expect(npcActivated(p, "Book of Moon")).toBe(true);
   expect(p.msgs.some(m => m.type === "DAMAGE" && Number(m.player) === 1)).toBe(false);
+});
+
+it("negates a fusion spell with Solemn Judgment even though it targets nothing of his", () => {
+  // Lab: Dark Fusion and Dark Calling resolved into two Dark Gaias with Solemn Judgment set: neither hit Yugi's cards.
+  const p = play(dc, {
+    npcId: 53, heart_of_cards: 1, handAwareDraw: true, first: "player", turns: 1,
+    heart_pool: [code("Marshmallon")],
+    npc: { szone: ["Solemn Judgment"], mzone: ["Beta The Magnet Warrior"] },
+    player: { hand: ["Dark Fusion", "Summoned Skull", "Giant Soldier of Stone"], extra: ["Evil HERO Dark Gaia"] },
+    player_policy: activating("Dark Fusion"),
+  });
+  expect(npcActivated(p, "Solemn Judgment")).toBe(true);
+  expect(p.msgs.some(m => m.type === "SPSUMMONING" && m.code === code("Evil HERO Dark Gaia"))).toBe(false);
+});
+
+it("never uses a draw effect other than his one Pot of Greed", () => {
+  // Lab: Monster Reborn on the opponent's Cyber Valley, then its banish-and-draw-two.
+  const p = play(dc, {
+    npcId: 52, heart_of_cards: 1, handAwareDraw: true, first: "npc", turns: 2,
+    heart_pool: [code("Marshmallon")],
+    npc: { mzone: [["Cyber Valley", "atk"]] },
+    player: { mzone: ["Gladiator Beast Darius"] },
+    player_policy: attacker,
+  });
+  expect(npcActivated(p, "Cyber Valley")).toBe(false);
 });

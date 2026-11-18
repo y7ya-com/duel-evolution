@@ -215,3 +215,28 @@ it("summons Slifer with three tributes and projects its hand-based attack", () =
   expect(p.npc.some(x => x.resp?.action === "SELECT_SUMMON" && (x.sel.summons as any[])[Number(x.resp.index)]?.code === code("Slifer the Sky Dragon"))).toBe(true);
   expect(p.msgs.filter(m => m.type === "MOVE" && m.card === code("Petit Moth") && ((m.from as any)?.location === 4) && ((m.to as any)?.location === 16)).length).toBe(3);
 });
+
+it("draws at most one Pot of Greed per duel and no other draw card", () => {
+  // Owner: chained Pots and Graceful Charities look rigged on a player who chooses every draw.
+  const draws = (hand: string[]) => play(dc, { npcId: 53, heart_of_cards: 1, first: "npc", turns: 7,
+    npc: { hand, deck: Array(20).fill("Petit Moth") },
+    player: { mzone: ["Gladiator Beast Darius"], szone: ["Waboku", "Mirror Force"], deck: Array(20).fill("Gladiator Beast Laquari") } })
+    .npc.filter(x => x.sel.heart_of_cards).map(x => dc.cardDB.name(Number(x.resp?.card)));
+  const drawing = /^(graceful charity|upstart goblin|jar of greed|reload|card destruction|heart of the underdog|card of sanctity|magical mallet|common charity|trade-in)$/i;
+  const fresh = draws(["Beta The Magnet Warrior"]);
+  expect(fresh.length).toBeGreaterThan(3);
+  expect(fresh.filter(n => n === "Pot of Greed").length).toBeLessThanOrEqual(1);
+  expect(fresh.filter(n => drawing.test(n))).toEqual([]);
+  const dealt = draws(["Pot of Greed", "Beta The Magnet Warrior"]);
+  expect(dealt.filter(n => n === "Pot of Greed" || drawing.test(n))).toEqual([]);
+});
+
+it("does not cast a second draw spell once his Pot of Greed has resolved", () => {
+  // Lab: Dark Magician of Chaos took a used Pot of Greed back over Raigeki and Yugi cast it again.
+  const p = play(dc, { npcId: 52, heart_of_cards: 1, heart_pool: [code("Petit Moth")], first: "player", turns: 4,
+    npc: { hand: ["Dark Magician of Chaos"], mzone: ["Skilled Dark Magician", "Breaker the Magical Warrior"],
+      grave: ["Pot of Greed", "Raigeki"], deck: Array(20).fill("Petit Moth") },
+    player: { mzone: ["Gladiator Beast Darius"], szone: ["Waboku"] } });
+  expect(npcActivated(p, "Dark Magician of Chaos")).toBe(true);
+  expect(npcActivated(p, "Pot of Greed")).toBe(false);
+});

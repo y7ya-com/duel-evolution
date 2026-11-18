@@ -46,15 +46,16 @@ it('never uses the identities of hidden traps and can reserve a public negate fo
  expect(publicCounterReply({type:'SELECT_CHAIN',selects:[{code:41420027,location:8,position:10},{code:34487429,location:8,position:10}]},false)).toBeNull();
  expect(publicCounterReply({type:'SELECT_CHAIN',selects:[{code:34487429,location:8,position:1}]},true)).toBeNull();
 });
-it('Graceful preserves a discard for its monster answer instead of keeping only overlapping wipes',()=>{
+it('holds Graceful Charity unused and still answers with Tribe-Infecting Virus',()=>{
+ // Owner: one signature Pot of Greed per duel is Yugi's only draw spell; a Graceful Charity in hand stays there.
  const p=play(dc,{npcId:53,heart_of_cards:1,heart_pool:[code('Raigeki')],first:'player',turns:2,
-  npc:{hand:['Graceful Charity','Alpha The Magnet Warrior'],deck:[...Array(16).fill('Petit Moth'),'Tribe-Infecting Virus','Dark Hole','Raigeki','Petit Moth']},
+  npc:{hand:['Graceful Charity','Alpha The Magnet Warrior','Tribe-Infecting Virus'],deck:[...Array(16).fill('Petit Moth'),'Tribe-Infecting Virus','Dark Hole','Raigeki','Petit Moth']},
   player:{mzone:['Crystal Beast Sapphire Pegasus','Crystal Beast Topaz Tiger'],szone:[['Crystal Beast Amber Mammoth','up'],['Crystal Beast Sapphire Pegasus','up'],['Crystal Beast Amber Mammoth','up'],null,null,['Ancient City - Rainbow Ruins','up']]},
   player_policy: sel => {
     const charity=(sel.view as any)?.players?.[1]?.szone?.some((c:any)=>c?.code===code('Graceful Charity'));
     return charity ? passive(sel) : activating('Ancient City - Rainbow Ruins')(sel);
   }});
- expect(npcActivated(p,'Graceful Charity')).toBe(true);
+ expect(npcActivated(p,'Graceful Charity')).toBe(false);
  expect(npcActivated(p,'Tribe-Infecting Virus')).toBe(true);
  expect(p.npc.find(x=>x.sel.type==='ANNOUNCE_RACE')?.resp?.races).toEqual([0x4000]);
 });

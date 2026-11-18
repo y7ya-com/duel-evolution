@@ -31,7 +31,9 @@ interface Playbook {
 const graveDenial = ["d.d. crow", "soul release", "kycoo the ghost destroyer", "banisher of the radiance", "dimensional fissure"];
 const monsterInterruption = ["light-imprisoning mirror", "pulling the rug", "divine wrath"];
 const battleDenial = ["dimensional prison", "compulsory evacuation device", "book of moon", "threatening roar"];
-const fusionDenial = ["royal oppression", "solemn judgment", "dark bribe", "magic jammer"];
+// Spell negation: Royal Oppression cannot stop a summon made by a card's effect (Polymerization, Miracle Fusion,
+// Dark Calling, a Ritual Spell); it stays only where summons are inherent (Gladiator contact fusions, Cyber Dragon).
+const fusionDenial = ["dark bribe", "magic jammer", "solemn judgment"];
 const fusionAnswer = ["de-fusion", "compulsory evacuation device", "snatch steal", "raigeki"];
 const bounceCrystals = ["giant trunade", "heavy storm", "spiritualism", "phoenix wing wind blast"];
 const boardRemoval = ["raigeki", "dark hole", "snatch steal", "smashing ground"];
