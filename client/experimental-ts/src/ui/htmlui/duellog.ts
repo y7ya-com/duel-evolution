@@ -194,7 +194,16 @@ export function duellogServerPicker(ids: Ids, ui: DuellogUi, d: DuellogDeps): Wi
   DUELLOG_SERVERS.forEach((name, i) => b.add('CWindowTaskButtonDuel', `server:${i}`, { x: 11, y: 21 + 26 * i, w: 258, h: 22 }, { label: name, align: 1, state: 'normal', color: [1, 1, 1, 1], light: true },
     { key: `duellog-server:${name}`, label: `${name} server`, click: () => open('server') }));
   b.add('CWindowTaskIconHide', 'close', { x: W2 - 24, y: 3, w: 15, h: 14 }, { pressed: false, label: '✕', closeX: true }, { key: 'duellog-server-close', label: 'Close', click: () => { ui.view = 'top'; d.rerender(); } });
-  return b.spec();
+  const spec = b.spec();
+  // the row under the pointer lit as live's (25b: an orange-rimmed pale yellow plate, a white top edge, an orange foot)
+  spec.after = root => {
+    const doc = root.ownerDocument; if (doc.getElementById('de-duellog-servers-css')) return;
+    const st = doc.createElement('style'); st.id = 'de-duellog-servers-css';
+    st.textContent = `[data-window-class="CWindowModelDuellogServerSelect"] .yo2-dbtn:hover:not(:disabled), [data-window-class="CWindowModelDuellogServerSelect"] .yo2-dbtn[data-state=hover] { filter: none; border: 1px solid #e36f08; border-radius: 3px; box-shadow: none;
+  background: linear-gradient(#fff 0 2px, #ffffc4 2px 4px, #faeaac 4px calc(100% - 4px), #f8df9c calc(100% - 4px) calc(100% - 2px), #f0a84a calc(100% - 2px)); }`;
+    doc.head.append(st);
+  };
+  return spec;
 }
 // the plates' sprite (duel_btn_02_c01: the glossy plate, normal at 0, the pink pressed / chosen one at 32)
 const PLATE = (y: number) => ({ tex: 'data/common/window/duel_btn_02_c01.png', src: [0, y, 224, 32] as [number, number, number, number] });
