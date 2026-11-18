@@ -1361,7 +1361,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const mapUrl = safeImageUrl(lobby.mapImage);
     if (mapUrl && !useScene) { const image = el('img', 'de-stage-layer'); image.src = mapUrl; image.alt = lobby.name; image.style.width = '100%'; image.style.height = '100%'; image.style.objectFit = 'fill'; image.style.pointerEvents = 'none'; stage.append(image); }
     const worldW = lobby.width ?? 1024, worldH = lobby.height ?? 768;
-    map.onclick = e => { if (worldWalk?.consumeClick()) return; const card = state.profileDetail; if (card && card.selectedPid !== null && card.selectedPid !== card.selfPid) { send({ type: 'profileAction', action: { type: 'close' } }); return; } if (lobby.connected && !state.busy) { if (useScene && !world!.ready) return; const p = useScene ? gamePoint(e.clientX, e.clientY, world!.element.getBoundingClientRect()) : gamePoint(e.clientX, e.clientY, map.getBoundingClientRect(), worldW, worldH); if (p) { const target = useScene ? world!.screenToWorld(p) : p; send({ type: 'move', x: Math.round(target.x), y: Math.round(target.y) }); } } };
+    // (a left click or a tap on the floor walks nowhere: live walks only while the right button, or a finger, is held,
+    // holdToWalk; the click still closes another player's card)
+    map.onclick = () => { if (worldWalk?.consumeClick()) return; const card = state.profileDetail; if (card && card.selectedPid !== null && card.selectedPid !== card.selfPid) send({ type: 'profileAction', action: { type: 'close' } }); };
     map.onkeydown = e => {
       const currentLobby = controller.getState().lobby, self = currentLobby?.avatars.find(a => a.self); if (!self || !currentLobby?.connected) return;
       const delta: Record<string, [number, number]> = { ArrowLeft: [-32, 0], ArrowRight: [32, 0], ArrowUp: [0, -32], ArrowDown: [0, 32] };

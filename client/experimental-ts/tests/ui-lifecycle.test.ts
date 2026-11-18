@@ -217,7 +217,9 @@ describe('UI ownership and semantic interaction', () => {
     f.update({ scene: 'lobby', player: { id: 1, name: 'A' }, lobby }); await Promise.resolve(); const avatar = f.root.querySelectorAll('button').find(n => n.dataset.key === 'avatar:1')!, map = f.root.querySelectorAll('[data-key]').find(n => n.dataset.key === 'lobby-map')!;
     f.update({ lobby: { ...lobby, avatars: [{ ...lobby.avatars[0], x: 200, y: 200 }] } }); await Promise.resolve();
     expect(f.root.querySelectorAll('button').find(n => n.dataset.key === 'avatar:1')).toBe(avatar); expect(avatar.style.left).toBe(`${200 / 1024 * 100}%`);
-    map.onkeydown?.({ key: 'ArrowRight', preventDefault() {} }); expect(f.commands.at(-1)).toEqual({ type: 'move', x: 232, y: 200 }); f.mounted.dispose();
+    map.onkeydown?.({ key: 'ArrowRight', preventDefault() {} }); expect(f.commands.at(-1)).toEqual({ type: 'move', x: 232, y: 200 });
+    // a left click on the floor walks nowhere (live: only the right button, or a finger, held walks)
+    const sent = f.commands.length; map.onclick?.({ clientX: 300, clientY: 300 }); expect(f.commands.slice(sent).some(c => c.type === 'move')).toBe(false); f.mounted.dispose();
   });
   it('updates animation transforms and LP in place without replacing field nodes', async () => {
     const f = fixture(), card = { id: 'c1', name: 'Card', controller: 0 as const, zone: 'monster' as const, index: 0, faceUp: true };

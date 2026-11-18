@@ -194,8 +194,8 @@ const BROWSER_TIMERS = { set: ((f: () => void, ms?: number) => setTimeout(f, ms)
 export interface HoldWalk { /** True once for the click that ends a walk (the walk was the press; it is not also a click). */ consumeClick(): boolean; dispose(): void; }
 /** A finger held still (or the right mouse button held) on el walks toward the pointer until it lifts, steered by moving
  * (the mouse re-aims every STEER_MS, a finger every WALK_MS); the lift calls `release` (live's avatar glides to a stop).
- * A finger moved past SLOP before HOLD_MS is a drag, not a walk. The left button is the DOM's click (a walk to the point,
- * once). */
+ * A finger moved past SLOP before HOLD_MS is a drag, not a walk. The left button walks nowhere (live: a left click on the
+ * floor does nothing). */
 export function holdToWalk(el: HTMLElement, step: (clientX: number, clientY: number) => void, accept: (target: EventTarget | null, button: number) => boolean = () => true, timers: { set: typeof setTimeout; clear: typeof clearTimeout; every: typeof setInterval; stop: typeof clearInterval } = BROWSER_TIMERS, release: () => void = () => {}): HoldWalk {
   let id: number | null = null, sx = 0, sy = 0, lx = 0, ly = 0, walking = false, swallow = false, right = false;
   let hold: ReturnType<typeof setTimeout> | undefined, tick: ReturnType<typeof setInterval> | undefined;
