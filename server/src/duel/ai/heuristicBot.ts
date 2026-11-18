@@ -52,7 +52,9 @@ import { zoneOrder } from "../zones.ts";
 const TAG_RULES = new Map<number, CardRule | null>();
 
 const MAX_IDLE_ACTIONS = 24; // hard safety cap on plays per turn (prevents pathological loops)
-const YUGI_SIGNATURE = /^(dark magician(?: girl| of chaos)?|skilled dark magician|apprentice magician|buster blader|summoned skull|gaia the fierce knight|swift gaia the fierce knight|curse of dragon|gazelle the king of mythical beasts|berfomet|kuriboh|big shield gardna|obnoxious celtic guard|alpha the magnet warrior|beta the magnet warrior|gamma the magnet warrior|valkyrion the magna warrior|king's knight|queen's knight|jack's knight|slifer the sky dragon|obelisk the tormentor|the winged dragon of ra|black luster soldier(?: - envoy of the beginning)?|gandora the dragon of destruction|polymerization|ancient rules|magical dimension|dark magic attack|thousand knives|swords of revealing light|mirror force|magic cylinder|monster reborn)$/;
+// Reactive cards (Mirror Force, Magic Cylinder, Swords) are not on the list: a signature bonus made Mirror Force the
+// draw over Heavy Storm or Raigeki (owner: "why not Dark Hole instead of Mirror Force").
+const YUGI_SIGNATURE = /^(dark magician(?: girl| of chaos)?|skilled dark magician|apprentice magician|buster blader|summoned skull|gaia the fierce knight|swift gaia the fierce knight|curse of dragon|gazelle the king of mythical beasts|berfomet|kuriboh|big shield gardna|obnoxious celtic guard|alpha the magnet warrior|beta the magnet warrior|gamma the magnet warrior|valkyrion the magna warrior|king's knight|queen's knight|jack's knight|slifer the sky dragon|obelisk the tormentor|the winged dragon of ra|black luster soldier(?: - envoy of the beginning)?|gandora the dragon of destruction|polymerization|ancient rules|magical dimension|dark magic attack|thousand knives|monster reborn)$/;
 
 /** Spells whose resolution is a Fusion or Ritual Summon (ritual spells are also found by type). */
 const SUMMON_SPELL = /^(polymerization|dark fusion|dark calling|miracle fusion|power bond|overload fusion|fusion gate|super polymerization|contract with the abyss|advanced ritual art)$/;
@@ -1945,7 +1947,8 @@ export class HeuristicBot {
         && matchupBonus.has(this.#nameOf(c.code)) && !this.#locked(c.code)),
       (c: CardRef) => /^(pot of greed|graceful charity)$/.test(this.#nameOf(c.code)),
       (c: CardRef) => /^(giant trunade|heavy storm|royal decree|spiritualism)$/.test(this.#nameOf(c.code)),
-      (c: CardRef) => /^(marshmallon|spirit reaper|swords of revealing light|mirror force)$/.test(this.#nameOf(c.code)),
+      (c: CardRef) => /^(marshmallon|spirit reaper|swords of revealing light)$/.test(this.#nameOf(c.code)),
+      (c: CardRef) => /^(raigeki|dark hole)$/.test(this.#nameOf(c.code)),
     ];
     if (opposingHand) {
       categories.push(pressure);
@@ -1967,6 +1970,8 @@ export class HeuristicBot {
         + this.#heartDrawRisk(code) + (singleSpell ? Math.min(2, hiddenBackrow) * 1300 : 0)
         + (fragileDefense.test(name) ? storm ? 3000 : effectPressure ? 1800 : 0 : 0)
         + (waits(code, name) ? Math.min(3000, hate * 150) : 0)
+        // The set cards are what backrow removal is drawn for, not a risk to it.
+        - (/^(heavy storm|giant trunade|harpie's feather duster|mystical space typhoon|dust tornado)$/.test(name) ? Math.min(2, hiddenBackrow) * 1000 : 0)
         - (matchupBonus.has(name) ? 700 : 0);
       return [{ resp: { type: "ANNOUNCE_CARD", card: code }, risk, commit: () => this.#heartChosen(code) }];
     });

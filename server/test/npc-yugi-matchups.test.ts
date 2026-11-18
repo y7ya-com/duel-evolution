@@ -170,3 +170,26 @@ it("revives an attacker with Monster Reborn, not Big Shield Gardna, when the opp
   });
   expect(p.msgs.some(m => m.type === "SPSUMMONING" && m.code === code("Summoned Skull"))).toBe(true);
 });
+
+it.each([["Marshmallon", "def"], ["Spirit Reaper", "def"], ["Marshmallon", "set"]] as const)(
+  "draws the removal for a battle-proof %s wall and wins through it", (wall, pos) => {
+    const p = play(dc, {
+      npcId: 53, heart_of_cards: 1, handAwareDraw: true, first: "player", turns: 2,
+      heart_pool: [...YUGI_HEART_POOL],
+      npc: { mzone: ["Skilled Dark Magician", "Beta The Magnet Warrior"] },
+      player: { lp: 2000, mzone: [[wall, pos]] },
+    });
+    expect(p.end?.winner).toBe(1);
+  });
+
+it("clears set backrow instead of drawing Mirror Force behind two walls", () => {
+  // Owner: "why not Dark Hole instead of Mirror Force". A signature bonus made Mirror Force the draw here.
+  const p = play(dc, {
+    npcId: 53, heart_of_cards: 1, handAwareDraw: true, first: "player", turns: 2,
+    heart_pool: [...YUGI_HEART_POOL],
+    npc: { mzone: ["Skilled Dark Magician", "Beta The Magnet Warrior"] },
+    player: { lp: 3000, mzone: [["Marshmallon", "def"], ["Spirit Reaper", "def"]], szone: ["Waboku", "Mirror Force"] },
+  });
+  const drawn = p.npc.filter(x => x.sel.heart_of_cards).map(x => dc.cardDB.name(Number(x.resp?.card)));
+  expect(drawn).not.toContain("Mirror Force");
+});
