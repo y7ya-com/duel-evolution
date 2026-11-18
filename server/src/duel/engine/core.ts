@@ -277,6 +277,8 @@ export interface NewOptions {
   /** Starting cards and newly materialised copies share this per-duel cap.
    * Absent only when replaying the original unlimited-skill archives. */
   heart_copy_limit?: 3;
+  /** Five selected passcodes in draw order, snapshotted with the duel. */
+  heart_opening?: number[];
   first?: 0 | 1;
   seed?: number | string;
   lp?: number;
@@ -432,6 +434,7 @@ export class DuelCore {
     if (o.heart_of_cards === 0 || o.heart_of_cards === 1) c.heart_of_cards = o.heart_of_cards;
     if (o.heart_pool) c.heart_pool = o.heart_pool;
     if (o.heart_copy_limit !== undefined) c.heart_copy_limit = o.heart_copy_limit;
+    if (o.heart_opening !== undefined) c.heart_opening = o.heart_opening;
     return this.command(c);
   }
 
@@ -525,7 +528,7 @@ export class DuelCore {
     return o;
   }
 
-  private createDuel(decks: { main: number[]; extra: number[] }[], swap: boolean, seed: bigint, lp: number, shuffle: boolean, rnd: () => number, flags: bigint, setup: DuelSetup | null = null, heartPlayer?: 0 | 1, heartPool: number[] = [], heartCopies?: HeartCopyState): Duel {
+  private createDuel(decks: { main: number[]; extra: number[] }[], swap: boolean, seed: bigint, lp: number, flags: bigint, setup: DuelSetup | null = null, heartPlayer?: 0 | 1, heartPool: number[] = [], heartCopies?: HeartCopyState): Duel {
     const core = this.core;
     const db = this.db;
     const scripts = this.scripts;
@@ -554,11 +557,9 @@ export class DuelCore {
       if (!src || !core.loadScript(handle, s, src)) throw new Error(`no se pudo cargar ${s}`);
     }
     if (!core.loadScript(handle, "yo2_compat.lua", COMPAT_CHAININFO_LUA)) throw new Error("no se pudo cargar yo2_compat.lua");
-    // Core player 0 always goes first
-    const coreDecks = swap ? [decks[1], decks[0]] : [decks[0], decks[1]];
-    coreDecks.forEach((deck, t) => {
-      const main = shuffle ? shuffled(deck.main, rnd) : [...deck.main];
-      for (const code of main) {
+    // Decks arrive in core seat order, with the top card at the end.
+    decks.forEach((deck, t) => {
+      for (const code of deck.main) {
         core.duelNewCard(handle, { team: t as 0 | 1, duelist: 0, code, controller: t as 0 | 1, location: OcgLocation.DECK, sequence: 0, position: OcgPosition.FACEDOWN_DEFENSE });
       }
       for (const code of deck.extra ?? []) {
@@ -803,20 +804,45 @@ export class DuelCore {
     if (c.heart_copy_limit !== undefined && c.heart_copy_limit !== 3) throw new Error("Yugi copy limit must be three");
     const heartPool = heartPlayer === undefined ? [] : [...new Set((Array.isArray(c.heart_pool) ? c.heart_pool : YUGI_HEART_POOL) as number[])];
     if (heartPlayer !== undefined && (!heartPool.length || heartPool.some(code => !Number.isInteger(code) || !this.db.get(code)))) throw new Error("invalid Yugi card pool");
+    const opening = c.heart_opening;
+    if (opening !== undefined && (heartPlayer === undefined || c.heart_copy_limit !== 3
+      || !Array.isArray(opening) || opening.length !== 5 || (setup?.draw ?? 5) !== 5
+      || opening.some(code => !heartPool.includes(code as number)) || norm[heartPlayer]!.main.length < 5))
+      throw new Error("invalid Yugi opening hand");
+    const ordered = (swap ? [norm[1]!, norm[0]!] : norm).map(deck => ({
+      main: c.shuffle !== false ? shuffled(deck.main, rnd) : [...deck.main], extra: deck.extra,
+    }));
     let heartCopies: HeartCopyState | undefined;
     if (heartPlayer !== undefined && c.heart_copy_limit === 3) {
       const used = new Map<number, number>(), aliases = new Map<number, number>();
-      const initial = [...norm[heartPlayer]!.main, ...norm[heartPlayer]!.extra, ...(setup?.cards ?? []).filter(card => card.player === heartPlayer).map(card => card.code)];
-      for (const code of [...initial, ...heartPool]) {
+      const deck = ordered[swap ? 1 - heartPlayer : heartPlayer]!;
+      const other = [...deck.extra, ...(setup?.cards ?? []).filter(card => card.player === heartPlayer).map(card => card.code)];
+      for (const code of [...deck.main, ...other, ...heartPool]) {
         let name = code;
         const seen = new Set<number>();
         while (this.db.get(name)?.alias && !seen.has(name)) { seen.add(name); name = this.db.get(name)!.alias; }
         if (name !== code) aliases.set(code, name);
       }
+      const identity = (code: number) => aliases.get(code) ?? code;
+      if (Array.isArray(opening)) {
+        // Draw natural copies first. A generated card occupies one of the
+        // remaining opening slots, keeping the original deck and hand sizes.
+        const remaining = [...deck.main];
+        const hand = (opening as number[]).map(code => {
+          const name = identity(code);
+          let i = remaining.length - 1;
+          while (i >= 0 && identity(remaining[i]!) !== name) i--;
+          return i < 0 ? code : remaining.splice(i, 1)[0]!;
+        });
+        remaining.length = deck.main.length - hand.length;
+        deck.main = [...remaining, ...hand.reverse()];
+      }
+      const initial = [...deck.main, ...other];
       for (const code of initial) { const name = aliases.get(code) ?? code; used.set(name, (used.get(name) ?? 0) + 1); }
+      if (opening !== undefined && [...used.values()].some(count => count > 3)) throw new Error("Yugi opening exceeds the three-copy limit");
       heartCopies = { used, aliases };
     }
-    const duel = this.createDuel(norm, swap, seed, lp, c.shuffle !== false, rnd, flags, setup, heartPlayer, heartPool, heartCopies);
+    const duel = this.createDuel(ordered, swap, seed, lp, flags, setup, heartPlayer, heartPool, heartCopies);
     const placeOrder = placeOrderFrom(c.place_order);
     const bots: (Bot | null)[] = [0, 1].map((coreP) => {
       const protoP = swap ? 1 - coreP : coreP;

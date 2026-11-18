@@ -19,6 +19,7 @@ import { mirror, mirror_state, unmirror_response, is_end } from "./translator/mi
 import { timeup_warning } from "./translator/lockstep.ts";
 import { loadNpcProfile, NpcBrain } from "./brain/index.ts";
 import { NpcAi, NPC_AI_REV, cardInfo, tierFor, type LoggedCmd } from "./ai/index.ts";
+import { chooseYugiOpening } from "./ai/yugiOpening.ts";
 import { resultOf, type DuelArchiveEntry } from "./duelArchive.ts";
 import { brainDb, cardmap, duelCore, npcDeck, NPC_PROFILES, toCodes, type Deck } from "./data.ts";
 import { PyRandom } from "../util/pyrandom.ts";
@@ -326,7 +327,12 @@ export class OcgSession {
     const o = USE_BRAIN ? { first: first as 0 | 1, seed, shuffle: true, brain: "python", rule, auto_chain: autoChain, place_order }
       : { first: first as 0 | 1, seed, shuffle: true, rule, auto_chain: autoChain, place_order };
     const yugi = [51, 52, 53].includes(this.npcId);
-    if (yugi) Object.assign(o, { heart_of_cards: 1, heart_pool: [...YUGI_HEART_POOL], heart_copy_limit: 3 });
+    if (yugi) {
+      const skill = { heart_of_cards: 1 as const, heart_pool: [...YUGI_HEART_POOL], heart_copy_limit: 3 as const };
+      const engine = dc.eng.local!;
+      const opening = chooseYugiOpening(engine, decks, { ...o, ...skill }, this.npcId, cardInfo(engine.cardDB, brainDb()));
+      Object.assign(o, skill, opening.length === 5 ? { heart_opening: opening } : {});
+    }
     const log = dc.record(this.id);
     const py = this.g.cfg.npcAi === "py";
     this.rec = { decks, opts: o, cmds: log, t0: now(), tier: !USE_BRAIN ? "engine" : py ? "py" : tierFor(this.npcId, NPC_PROFILES) };

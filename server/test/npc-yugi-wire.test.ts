@@ -19,10 +19,15 @@ let dc: DuelCore;
 beforeAll(async () => { dc = await createNodeDuelCore(); }, 60000);
 const canonical = (evs: Json[]) => evs.map(({ id, ms, ...ev }) => ev);
 
-it.each([0, 1] as const)("keeps materialised identities, client packets and archive replay aligned, first seat %i", first => {
-  const decks = [0, 1].map(() => ({ main: Array(40).fill(code("Mystical Elf")), extra: [] }));
+it.each([[0, false], [1, false], [0, true], [1, true]] as const)("keeps client packets and replay aligned, first seat %i, selected opening %s", (first, selected) => {
+  const decks: { main: number[]; extra: number[] }[] = [0, 1].map(() => ({ main: Array(40).fill(code("Mystical Elf")), extra: [] }));
   const opts: NewOptions = { seed: 701, first, rule: "MR1", shuffle: false, brain: [true, true], record: true, heart_of_cards: 1, heart_copy_limit: 3, heart_pool: [...YUGI_HEART_POOL] };
-  const id = `yugi-wire-${first}`, log: LoggedCmd[] = [], batches: Json[][] = [];
+  if (selected) {
+    decks[1] = YUGI_DECKS["53"]!;
+    opts.heart_opening = ["Valkyrion the Magna Warrior", "Alpha The Magnet Warrior", "Beta The Magnet Warrior",
+      "Gamma The Magnet Warrior", "Pot of Greed"].map(code);
+  }
+  const id = `yugi-wire-${first}-${selected}`, log: LoggedCmd[] = [], batches: Json[][] = [];
   const mirror = new YO2Duel(decks, { first, cardmap: new CardMap(JSON.parse(readFileSync(join(GD, "translator.json"), "utf8"))), rng: new PyRandom(701) });
   const wire = new WireDecoder(GD);
   wire.decode(mirror.start());

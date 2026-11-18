@@ -173,6 +173,7 @@ it.each([51, 52, 53])("production Yugi stage %i always starts capped at full str
     await s.start(0);
     const rec = (s as any).rec;
     expect(rec.opts.heart_copy_limit).toBe(3); expect(rec.opts.heart_of_cards).toBe(1); expect(rec.tier).toBe("elite");
+    expect(rec.opts.heart_opening).toHaveLength(5);
     const counts = new Map<number, number>();
     for (const c of [...YUGI_DECKS[String(npc)]!.main, ...YUGI_DECKS[String(npc)]!.extra]) counts.set(identity(c), (counts.get(identity(c)) ?? 0) + 1);
     expect(Math.max(...counts.values())).toBeLessThanOrEqual(3);
