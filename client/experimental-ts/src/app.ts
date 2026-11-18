@@ -563,7 +563,7 @@ export class ClientApp implements ClientController {
         ...(this.requestRefused(state) ? { refused: this.requestRefused(state)! } : {}),
         // All areas of a world share one server block: live's player list lists every player of it, the map draws only
         // the players in this area (its area block)
-        players: this.project('players', state.players, players => players.filter(p => p.pid !== profile.pid).map(p => ({ id: p.pid, name: p.name, level: p.level }))),
+        players: this.project('players', state.players, players => players.filter(p => p.pid !== profile.pid).map(p => ({ id: p.pid, name: p.name, level: p.level, ...(p.parts ? { parts: p.parts } : {}) }))),
         // All areas of a world share one server block; only players in this area (its area block) are on this map.
         avatars: state.players.filter(p => p.pid === profile.pid || p.areaBlock === state.areaBlock).map(p => ({ id:p.pid,name:p.name,level:p.level,country:p.country,...(p.pid === profile.pid ? selfShown(p) : { x:p.x ?? 0,y:p.y ?? 0,direction:p.direction }),self:p.pid === profile.pid,parts:p.parts,world:this.lobbyWorld(state),duelling:p.state !== undefined && p.state >= 0x67 && p.state <= 0x6a,nameColor:nameTagColor(p.state),motion:p.pid === profile.pid && this.world.walking ? 'walk' as const : 'stand' as const }) as LobbyAvatar).concat(this.mapNpcAvatars(state,worldMap)),
         chat: this.project('chat', state.chat, chat => chat.map((m, i) => ({ id: String(i), sender: m.name, text: m.text, channel: channelName(m.channel) }))),

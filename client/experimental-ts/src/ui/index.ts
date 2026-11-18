@@ -957,7 +957,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const request = lobby?.invitation?.parts ?? lobby?.outgoing?.parts ?? refused?.parts ?? (tradeAsk ? Array.from(tradeAsk) : null);
     // a player's card: live shows that player's bust where the Discord card's stands (BUST_AT)
     const card = state.scene === 'lobby' && state.profileDetail && state.profileDetail.selectedPid !== null && state.profileDetail.selectedPid !== state.profileDetail.selfPid
-      ? state.lobby?.avatars.find(a => a.id === state.profileDetail!.selectedPid)?.parts : null;
+      ? state.lobby?.avatars.find(a => a.id === state.profileDetail!.selectedPid)?.parts ?? state.lobby?.players?.find(p => p.id === state.profileDetail!.selectedPid)?.parts : null;
     const look = avatar ? avatar.look : dc && state.scene === 'lobby' ? dc.parts : request ?? (card ? Array.from(card) : null);
     if (!look || look.length !== 16 || !controller.loadArchiveImage) { portraitScene?.show({ logo: false, portrait: null, reducedMotion: true }); portraitScene?.element.remove(); return; }
     portraitScene ??= new StartScene(controller.loadArchiveImage.bind(controller));
