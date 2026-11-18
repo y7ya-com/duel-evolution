@@ -159,6 +159,9 @@ button.de-field-card.de-card-target { z-index:3; outline:2px solid rgba(255,255,
 .de-phase img.de-phase-lit { animation:de-phase-pulse 1s linear infinite; }
 @keyframes de-phase-pulse { 0%, 12% { opacity:0; } 70% { opacity:1; } 100% { opacity:0; } }
 @media (prefers-reduced-motion: reduce) { .de-phase img.de-phase-lit { animation:none; } }
+/* the turn's LP plate glow (duel-plate.ts .de-lpp-glow: duel_window_a01's 40 frames, alpha 0 → 243 → 0) */
+@keyframes de-lpp-glow { 0% { opacity:0; } 47.5%, 50% { opacity:.95; } 100% { opacity:0; } }
+@media (prefers-reduced-motion: reduce) { .de-lpp-glow { animation:none; } }
 [data-motion="reduced"] .de-phase img.de-phase-lit, [data-motion="reduced"] .de-lpp-glow { animation:none; }
 /* live's scan lines over the field's five columns (index.ts FIELD_LINES) */
 .de-duel-board>img.de-duel-lines { position:absolute; left:${322 / 1024 * 100}%; top:${58 / 768 * 100}%; width:${384 / 1024 * 100}%; height:${464 / 768 * 100}%; max-width:none; opacity:.5; pointer-events:none; }

@@ -93,8 +93,6 @@ export const LP_PLATE_CSS = `
 .de-lpp-crop,.de-lpp-bar,.de-lpp-digits,.de-lpp-name{position:absolute}
 .de-lpp-turn{position:absolute;left:${pct(-16, PLATE_W)};top:${pct(-16, PLATE_H)};width:${pct(320, PLATE_W)};height:${pct(96, PLATE_H)};max-width:none;opacity:.9}
 .de-lpp-glow{opacity:0;animation:de-lpp-glow ${PLATE_PULSE_MS}ms linear infinite}
-@keyframes de-lpp-glow{0%{opacity:0}47.5%{opacity:.95}50%{opacity:.95}100%{opacity:0}}
-@media (prefers-reduced-motion: reduce){.de-lpp-glow{animation:none}}
 .de-lpp-crop{overflow:hidden;top:0;height:100%}
 .de-lpp-sheet{position:absolute;max-width:none;image-rendering:pixelated}
 .de-lpp-label,.de-lpp-gauge{position:absolute;height:${pct(16, PLATE_H)}}
