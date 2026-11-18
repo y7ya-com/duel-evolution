@@ -265,7 +265,9 @@ export class DuelFx {
         let shownFrom: number | null = null;
         this.push(cue, this.reduced ? 1000 : (32 + lpCountFrames(value)) * FRAME + 4000, (ctx, t) => {
           const lp = this.duel?.players[side]?.lp ?? 0; shownFrom ??= lp;
-          const left = this.reduced ? value : Math.max(0, value - Math.abs(lp - shownFrom));
+          // (damage past the LP left: the gauge stops at 0, and the number with it, not at what it could not count)
+          const target = cue.kind === 'damage' ? Math.max(0, shownFrom - value) : shownFrom + value;
+          const left = this.reduced ? value : lp === target ? 0 : Math.max(0, value - Math.abs(lp - shownFrom));
           if (!left) { anim.duration = 0; return; }
           this.damageWave(ctx, sheet, `${sign}${left}`, at.x, at.y, this.reduced ? 0x200 : Math.floor(t / FRAME) * 16);
         });
