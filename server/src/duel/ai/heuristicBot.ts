@@ -44,6 +44,7 @@ import {
   respTribute, respUnselect, respYesNo,
 } from "./prompt.ts";
 import { rolloutScore, searchable, whatIf, type SearchAccess } from "./simSearch.ts";
+import { yugiPlaybook } from "./yugiMatchups.ts";
 import type { CardDB as BrainDB } from "../brain/index.ts";
 import { zoneOrder } from "../zones.ts";
 
@@ -944,7 +945,45 @@ export class HeuristicBot {
       idleActivate: (ctx: RuleCtx) => !ctx.ext?.fieldMonsterEffectsNegated && (this.#me()?.hand.length ?? 0) > 0 && this.#tribePublicGain() > 0,
       idlePriority: 100,
     } : undefined);
+    const counter = this.#heartSkill ? this.#yugiCounterRule(name) : undefined;
+    if (counter) return { ...r, ...named, ...counter };
     return named ? (r ? { ...r, ...named } : named) : r ?? undefined;
+  }
+
+  /** Follow through on matchup draws using legal engine response windows. */
+  #yugiCounterRule(name: string): CardRule | undefined {
+    if (name === "light-imprisoning mirror" || name === "shadow-imprisoning mirror") {
+      const attribute = name === "light-imprisoning mirror" ? 0x10 : 0x20;
+      return { ownTurn: true, chainReact: () => {
+        const link = this.#links.at(-1);
+        return !!link && link.controller !== this.seat && !!(link.location & (LOCATION.MZONE | LOCATION.GRAVE))
+          && this.#cards.brain.get(link.code)?.attribute === attribute
+          && !this.#me()?.szone.some(c => c && !isFaceDown(c.position) && this.#nameOf(c.code) === name);
+      } };
+    }
+    if (name === "threatening roar" || name === "dimensional prison" || name === "compulsory evacuation device") {
+      const existing = this.#rules[name]?.chainReact;
+      return { chainReact: ctx => {
+        const gladiators = this.#oppMonsters().filter(m => !m.faceDown && /^gladiator beast /.test(this.#nameOf(m.code)));
+        const oppTurn = this.#turnPlayer !== this.seat;
+        const deniesTag = name === "threatening roar" ? gladiators.some(m => m.attackPos)
+          && this.#board?.phase === PHASE.BATTLE_START
+          : this.#attack && !this.#attack.resolved && gladiators.some(m => m.seq === this.#attack!.sequence);
+        return (oppTurn && !!deniesTag) || (existing?.(ctx) ?? false);
+      } };
+    }
+    if (name === "system down" || name === "acid rain") {
+      const machines = (p: PlayerBoard | null) => this.#monstersOf(p).filter(m => !m.faceDown && this.#cards.brain.get(m.code)?.race === 0x20).length;
+      return { idlePriority: 117, idleActivate: ctx => name === "acid rain"
+        ? machines(this.#opp()) > machines(this.#me())
+        : ctx.myLp > 1000 && (machines(this.#opp()) > 0
+          || (this.#opp()?.grave.filter(c => this.#cards.brain.get(c)?.race === 0x20).length ?? 0) >= 2) };
+    }
+    if (name === "dimensional fissure") {
+      return { idlePriority: 112, idleActivate: () => !this.#me()?.szone.some(c => c && !isFaceDown(c.position)
+        && /^(dimensional fissure|macro cosmos)$/.test(this.#nameOf(c.code))) };
+    }
+    return undefined;
   }
 
   /** Index of the backrow worth setting: a trap or a quick-play spell (a set normal spell does nothing), or -1. */
@@ -1589,6 +1628,22 @@ export class HeuristicBot {
     const hiddenBackrow = this.#opp()?.szone.filter(c => c && isFaceDown(c.position)).length ?? 0;
     const opposingHand = this.#search?.opposingHand?.();
     const opposingNames = opposingHand?.map(c => this.#nameOf(c)) ?? [];
+    const foe = this.#opp();
+    const publicNames = (zone: PlayerBoard["mzone"] = []) => zone.flatMap(c =>
+      c && !isFaceDown(c.position) && c.code ? [this.#nameOf(c.code)] : []);
+    const matchup = opposingHand && yugiPlaybook({
+      hand: opposingNames, monsters: publicNames(foe?.mzone), backrow: publicNames(foe?.szone),
+      grave: (foe?.grave ?? []).map(c => this.#nameOf(c)),
+      setMonsters: foe?.mzone.filter(c => c && isFaceDown(c.position)).length ?? 0,
+      setBackrow: hiddenBackrow,
+      fusionOnBoard: foe?.mzone.some(c => c && !isFaceDown(c.position)
+        && ((this.#cards.brain.get(c.code)?.type ?? 0) & TYPE_FUSION) !== 0),
+    });
+    const held = new Set([...present, ...(me?.szone ?? []).flatMap(c => c ? [this.#nameOf(c.code)] : [])]);
+    const matchupBonus = new Map<string, number>();
+    for (const line of matchup?.lines ?? []) line.forEach((n, i) => {
+      if (!held.has(n)) matchupBonus.set(n, Math.max(matchupBonus.get(n) ?? 0, 7000 - i * 500));
+    });
     const storm = opposingNames.some(n => /^(heavy storm|giant trunade|harpie's feather duster)$/.test(n));
     const effectPressure = opposingNames.some(n => /^(celestia, lightsworn angel|judgment dragon|lyla, lightsworn sorceress|ryko, lightsworn hunter|breaker the magical warrior|gladiator beast bestiari|gladiator beast gyzarus)$/.test(n));
     const gravePressure = opposingNames.some(n => /^(lumina, lightsworn summoner|judgment dragon|monster reborn|premature burial|call of the haunted|pot of avarice|dark armed dragon)$/.test(n));
@@ -1666,6 +1721,7 @@ export class HeuristicBot {
         if ((storm || effectPressure) && pressure(c)) score += 3500;
       }
       if (finishesObelisk.has(name)) score += 45000;
+      score += matchupBonus.get(name) ?? 0;
       score -= this.#heartDrawRisk(c.code);
       score -= (this.#heartMade.get(c.code) ?? 0) * 500;
       return score;
@@ -1675,6 +1731,8 @@ export class HeuristicBot {
     // Reserve slots for genuinely different plans. Six similar removal spells
     // must not crowd every resource/protection line out of native lookahead.
     const categories = [
+      ...(matchup?.lines ?? []).map(line => (c: CardRef) => line.includes(this.#nameOf(c.code))
+        && matchupBonus.has(this.#nameOf(c.code)) && !this.#locked(c.code)),
       (c: CardRef) => /^(pot of greed|graceful charity)$/.test(this.#nameOf(c.code)),
       (c: CardRef) => /^(giant trunade|heavy storm|royal decree|spiritualism)$/.test(this.#nameOf(c.code)),
       (c: CardRef) => /^(marshmallon|spirit reaper|swords of revealing light|mirror force)$/.test(this.#nameOf(c.code)),
@@ -1697,7 +1755,8 @@ export class HeuristicBot {
       const singleSpell = /^(raigeki|dark hole|lightning vortex|snatch steal|brain control|smashing ground|fissure)$/.test(name);
       const risk = (finishesObelisk.has(name) ? -6000 : completesFusion(name) || completesMagnets(name) ? -4000 : YUGI_SIGNATURE.test(name) ? -1500 : 1500)
         + this.#heartDrawRisk(code) + (singleSpell ? Math.min(2, hiddenBackrow) * 1300 : 0)
-        + (fragileDefense.test(name) ? storm ? 3000 : effectPressure ? 1800 : 0 : 0);
+        + (fragileDefense.test(name) ? storm ? 3000 : effectPressure ? 1800 : 0 : 0)
+        - (matchupBonus.has(name) ? 700 : 0);
       return [{ resp: { type: "ANNOUNCE_CARD", card: code }, risk, commit: () => this.#heartChosen(code) }];
     });
   }
