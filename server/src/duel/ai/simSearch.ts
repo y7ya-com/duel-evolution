@@ -73,6 +73,10 @@ function hasPublicCounter(live: Json, seat: number): boolean {
 }
 
 const SIM_PROMPT_CAP = 400; // prompts answered after the injection before a rollout is cut short
+/** Turn cycles a Yugi draw forecast plays out: the opponent's next turn, then his own next turn and theirs again. One
+ *  cycle chose whatever survived one turn (Marshmallon, Pot of Greed into a set Solemn Judgment) over a line that wins
+ *  in two (production losses 2415, 2426, 2432). */
+const FORECAST_CYCLES = Number((globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.YUGI_FORECAST_CYCLES ?? 2);
 const WIN = 1e9;
 let forkSeq = 0;
 
@@ -110,7 +114,7 @@ type Horizon = (sel: Json, events: Json[], live: Json) => boolean;
  * Fork + replay + inject + play forward to the horizon. The fork's state at the horizon (duelcore `query`), a number
  * (+-1e9: the duel ended), or null when the fork failed structurally (the replay did not reach the live select).
  */
-function forkPlay(access: SearchAccess, seat: number, live: Json, prompt: Prompt, inject: Json, liveBot: HeuristicBot, stopAt: Horizon, reply: "first" | "payoff" = "first", playOpponent = false): Json | number | null {
+function forkPlay(access: SearchAccess, seat: number, live: Json, prompt: Prompt, inject: Json, liveBot: HeuristicBot, stopAt: Horizon, reply: "first" | "payoff" = "first", playOpponent = false, cap = SIM_PROMPT_CAP): Json | number | null {
   const t0 = performance.now();
   const L = access.link();
   if (!L) return null;
@@ -145,7 +149,7 @@ function forkPlay(access: SearchAccess, seat: number, live: Json, prompt: Prompt
       if (last.ev === "end") { open = false; return last.winner === seat ? WIN : last.winner === 1 - seat ? -WIN : 0; }
       if (stop || last.ev !== "select") break;
       if (stopAt(last, evs, live)) break;
-      if (++prompts > SIM_PROMPT_CAP) break;
+      if (++prompts > cap) break;
       const p = Number(last.player);
       const publicReply = access.publicReplies && !access.spy && p !== seat
         ? publicCounterReply(last, reply === "payoff" && ownDrawLink) : null;
@@ -185,8 +189,8 @@ export function rolloutScore(access: SearchAccess, seat: number, live: Json, pro
   const replies = access.publicReplies && !access.spy && hasPublicCounter(live, seat) ? ["first", "payoff"] as const : ["first"] as const;
   for (const reply of replies) {
     const r = forkPlay(access, seat, live, prompt, inject, liveBot, (sel, _events, l) => forecast
-      ? Number(sel.turn) >= Number(l.turn) + (Number(l.turn_player) === seat ? 2 : 1)
-      : !access.spy && sel.turn !== l.turn, reply, forecast);
+      ? Number(sel.turn) >= Number(l.turn) + (Number(l.turn_player) === seat ? 2 : 1) + 2 * (FORECAST_CYCLES - 1)
+      : !access.spy && sel.turn !== l.turn, reply, forecast, forecast ? SIM_PROMPT_CAP * FORECAST_CYCLES : SIM_PROMPT_CAP);
     if (r === null) return null;
     pilot.copyTurnState(liveBot);
     scores.push(typeof r === "number" ? r : pilot.valueOf(r, forecast));
