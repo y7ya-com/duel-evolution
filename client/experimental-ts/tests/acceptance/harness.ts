@@ -143,9 +143,11 @@ export const roomShown = `(!!document.querySelector('[data-key="main-menu"]')&&!
  * lobby there walks it out through the red door (Duel Academy) unless the starter deck picker is up (claimStarter
  * waits for the lobby again after it), which also counts as shown. A new character's picker opens in the room once the
  * server says a starter is claimable: the player stays for it (a walk out under it would claim as the area changes,
- * "Join the lobby first"); with no word of it after 8 s, out. A room whose map could not load (no art: no collision to walk
- * out on either) is as far as the player gets. */
-export const lobbyShown = `((!!document.querySelector('[data-key="menubar-duel"]')&&${mapShown})||(${roomShown}&&(!!document.getElementById('starter')||document.querySelector('.de-world-view')?.dataset.mapFailed==='true'||((w,t)=>{const s=w.__deApp.getState().starter;if(!w.__inRoomAt||t-w.__inRoomSeen>2000)w.__inRoomAt=t;w.__inRoomSeen=t;if(s?.claimable||!s&&t-w.__inRoomAt<8000)return false;if(!w.__leaveRoomAt||t-w.__leaveRoomAt>15000){w.__leaveRoomAt=t;void w.__deApp.dispatch({type:'move',x:860,y:360}).catch(()=>{});}return false;})(window,Date.now()))))`;
+ * "Join the lobby first"); with no word of it after 8 s, out. A room whose map could not load (its art unreachable: no
+ * collision to walk out on either) is as far as the player gets. A client run without the original art (openClient
+ * assets:false: no world view, no collision) leaves by the door's own move (the app's myRoom leave, what crossing the red
+ * door sends), as no walk can reach the door there. */
+export const lobbyShown = `((!!document.querySelector('[data-key="menubar-duel"]')&&${mapShown})||(${roomShown}&&(!!document.getElementById('starter')||document.querySelector('.de-world-view')?.dataset.mapFailed==='true'||((w,t)=>{const s=w.__deApp.getState().starter;if(!w.__inRoomAt||t-w.__inRoomSeen>2000)w.__inRoomAt=t;w.__inRoomSeen=t;if(s?.claimable||!s&&t-w.__inRoomAt<8000)return false;if(!w.__leaveRoomAt||t-w.__leaveRoomAt>15000){w.__leaveRoomAt=t;void w.__deApp.dispatch(document.querySelector('.de-world-view')?{type:'move',x:860,y:360}:{type:'myRoom',enter:false}).catch(()=>{});}return false;})(window,Date.now()))))`;
 /** A row's name: its label past the level live's rows lead with ("Lv 1 Name"; an NPC's row has none). */
 const rowName = `(b=>(b.getAttribute('aria-label')??'').replace(/^Lv \\d+ /,''))`;
 export const listRow = (name:string) => `[...document.querySelectorAll('#htmlui-host .pl-row')].find(b=>${rowName}(b)===${JSON.stringify(name)}&&b.getClientRects().length)`;
