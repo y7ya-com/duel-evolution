@@ -40,8 +40,19 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
     const lobby = { name: 'Duel Academy · Area 1', avatars: [], connected: true, channels: ['global'], chat: [{ id: '1', sender: 'A', text: 'hi', channel: 'global' }, { id: '2', sender: 'B', text: 'wts', channel: 'trade' }] };
     const t = context(view({ scene: 'lobby', lobby }));
     const chat = t.windows().find(s => s.win.cls === 'CChatWindow')!.win, logs = chat.controls.filter(c => c.cls === 'CWindowTaskTextlist');
-    expect(logs.map(l => l.items)).toEqual([['@0A:hi', '@0B:wts'], ['@0B:wts'], [], ['@0No open duels. Create Duel opens one anyone here may join.']]);
+    // (the Duels tab's rows are its panel's, live's: its log stays empty)
+    expect(logs.map(l => l.items)).toEqual([['@0A:hi', '@0B:wts'], ['@0B:wts'], [], []]);
     expect(chat.controls.filter(c => c.cls === 'CWindowTaskTab').sort((a, b) => a.x - b.x).map(c => c.label)).toEqual(['All Chat', 'TRADE', 'Team ', 'Duels']);
+    // "Duels (n)": the open duels of others since the tab was last shown (not the player's own); shown, the count goes
+    t.ctx.ui.duels = [{ id: 5, pid: 9, name: 'Bo', lv: 2, match: false, timeLimit: true, surrender: true, spectators: true, mine: false },
+      { id: 6, pid: 1, name: 'Me', lv: 1, match: false, timeLimit: true, surrender: true, spectators: true, mine: true }];
+    const duelsTab = () => t.windows().find(s => s.win.cls === 'CChatWindow')!.win.controls.find(c => c.cls === 'CWindowTaskTab' && /^Duels/.test(c.label ?? ''))!;
+    expect(duelsTab().label).toBe('Duels (1)'); expect(duelsTab().w).toBeGreaterThan(72);
+    t.find('chat-tab:duels')!.click!(); expect(duelsTab().label).toBe('Duels');
+    const open = t.windows().find(s => s.win.cls === 'CChatWindow')!;
+    expect(open.win.controls.filter(c => c.cls === 'CWindowTaskTextlist' || c.cls === 'CWindowTaskInput').every(c => !c.shown)).toBe(true);
+    expect(open.after).toBeTypeOf('function');
+    t.find('chat-tab:all')!.click!(); expect(duelsTab().label).toBe('Duels');
     t.find('chat-tab:trade')!.click!(); t.find('chat')!.text!('selling'); t.find('chat')!.enter!();
     expect(t.sent.at(-1)).toEqual({ type: 'chat', channel: 'trade', text: 'selling' });
     expect(chatCommand(0, '/w Bob  hello there')).toEqual({ type: 'chat', channel: 'whisper', target: 'Bob', text: 'hello there' });

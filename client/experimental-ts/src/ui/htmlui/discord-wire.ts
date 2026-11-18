@@ -52,9 +52,13 @@ export function discordWire(deps: DiscordWireDeps) {
   };
   const stop = () => { on = false; gen++; if (duelsTimer) clearT(duelsTimer); if (discordTimer) clearT(discordTimer); duelsTimer = discordTimer = null; };
 
+  // (live, main's chat.js hub.join: the Duels panel's line says what a Join is doing, then its answer, for 30 s)
+  const status = (text: string, kind: 'info' | 'error' = 'info') => { ui.duelsStatus = { text, kind, until: now() + 30000 }; deps.rerender(); };
   ui.onJoinDuel = id => {
     if (joining) return; joining = true;
-    void joinDuel(f, id, pidOf, challenge, base).then(r => { joining = false; if (!r.ok) say(r.message); });
+    const name = ui.duels?.find(d => d.id === id)?.name;
+    status(name ? `Sending a duel request to ${name}…` : 'Sending a duel request…');
+    void joinDuel(f, id, pidOf, challenge, base).then(r => { joining = false; status(r.ok ? `Duel request sent to ${r.name}. Waiting for their answer.` : r.message, r.ok ? 'info' : 'error'); });
   };
   ui.onDiscordCard = p => {
     const card = deps.state().profileDetail;

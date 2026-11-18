@@ -1,7 +1,8 @@
 // The windows the rewrite shows through main's Legacy HTML UI screens, built from its ClientView (snapshot.ts). Each
 // builder returns a window snapshot in main's shape plus what its controls do (ClientApp commands). Layouts: main's
 // captured windows (client/web-shell/htmlui/mock/*.json) or numbers measured from main's game (tools/flip.mjs), cited.
-import { discordRows, duelLines, duelRows, type DiscordDuelist, type OpenDuelView } from './discord';
+import { discordRows, duelRows, unseen, type DiscordDuelist, type OpenDuelView } from './discord';
+import { measure } from '@html-ui/ui.js';
 import type { ClientCommand, ClientView } from '../contracts';
 import { REWRITE_TEXT } from '../../features/ui-text';
 import { Ids, WindowBuilder, levelText } from './snapshot';
@@ -44,6 +45,9 @@ export type HtmlDialog =
 export interface HtmlUiLocal { discord?: DiscordDuelist[] | null; onDiscordCard?: (p: DiscordDuelist) => void; discordCard?: DiscordDuelist | null; duels?: OpenDuelView[] | null; onJoinDuel?: (id: number) => void; dialog: HtmlDialog | null; chatTab: number; chatDraft: string; menu: boolean;
   /** The world's chat size (CChatWindow's mode, its △ / ▽): 1 short (the default), 0 tall, 2 folded to its bar. */
   chatMode?: 0 | 1 | 2;
+  /** The open duels seen when the chat's Duels tab was last shown (its "(n)": those of others since); the line its
+   * panel shows in the input line's place for a while (a Join's progress or refusal), as main's chat.js hub.status. */
+  duelsSeen?: number[]; duelsStatus?: { text: string; kind: 'info' | 'error'; until: number } | null;
   /** Create Comment's two lines while it is open; the lines still to save once the server confirms the one before. */
   /** My Profile's first shown row (its scroll; the rows past ten scroll in). */
   profileTop?: number;
@@ -399,6 +403,8 @@ export interface DeckChat { mode: 0 | 1 | 2; fold(): void; unfold(): void }
  * △ there opens it short again. Live keeps the size through area changes; the rewrite keeps it for the session. */
 export const CHAT_SIZES = { 1: { y: 608, h: 128, rows: 5 }, 0: { y: 176, h: 560, rows: 32 } } as const;
 export function worldChatMode(ui: HtmlUiLocal): 0 | 1 | 2 { return ui.chatMode ?? 1; }
+/** How much wider `to` is drawn than `from` (the engine's glyph cells; 7 px a character before its glyphs are loaded). */
+const grownBy = (from: string, to: string): number => { try { return Math.ceil(measure(to) - measure(from)); } catch { return 7 * ([...to].length - [...from].length); } };
 export function chatWindow(ctx: BuildContext, deck?: DeckChat, world = false): WindowSpec | null {
   const lobby = ctx.state.lobby; if (!lobby) return null;
   // live's deck screen: the chat folded to its bar (mode 2, 248, 712 x 32, drawn 24 high: the tabs and △ only), or
@@ -419,16 +425,19 @@ export function chatWindow(ctx: BuildContext, deck?: DeckChat, world = false): W
   b.add('CWindowTaskThinChop', 'frame', { x: 0, y: 24, w: 776, h: h - 24 });
   b.add('CWindowTaskBackPlane', 'plane', { x: 8, y: 24, w: 760, h: h - 32 });
   const lines = lobby.chat.slice(-200);
+  // the Duels tab (live: main's chat.js, its own DOM tab and panel): "Duels (n)", the open duels of others that came
+  // since it was last shown; shown, its panel (duelsPanel) takes the log's and the input line's place
+  const duelsOn = tabs[tab]?.key === 'duels';
+  if (duelsOn) ctx.ui.duelsSeen = (ctx.ui.duels ?? []).map(d => d.id);
+  const fresh = duelsOn ? 0 : unseen(ctx.ui.duels, new Set(ctx.ui.duelsSeen ?? []));
   const pairs = tabs.map((t, i) => {
-    const tc = b.add('CWindowTaskTab', `tab${i}`, { x: t.x, y: 0, w: t.w, h: 24 }, { label: t.label, active: i === tab },
+    const duels = t.key === 'duels', count = duels && fresh ? ` (${fresh > 99 ? '99+' : fresh})` : '';
+    // (the count's width as main's chatTabs grows a tab: the engine's metrics of the words added)
+    const tc = b.add('CWindowTaskTab', `tab${i}`, { x: t.x, y: 0, w: t.w + (count ? grownBy(t.label, t.label + count) : 0), h: 24 }, { label: t.label + count, active: i === tab },
       { key: `chat-tab:${t.key}`, label: t.label.trim(), click: () => { ctx.ui.chatTab = i; ctx.rerender(); } });
-    const duels = t.key === 'duels';
-    const items = duels ? duelLines(ctx.ui.duels) : lines.filter(l => t.shows(l.channel, l.sender)).map(l => `@0${l.sender.trim() ? `${l.sender}:${l.text}` : l.text}`);
-    const log = b.add('CWindowTaskTextlist', `log${i}`, { x: 8, y: i === tab ? 24 : 99999, w: 760, h: size.rows * 16 }, { shown: i === tab, items, selected: -1, top: 0, topLine: 0, rows: size.rows });
-    if (duels && i === tab) {
-      const rows = duelRows(ctx.ui.duels);
-      b.on(log, { key: 'chat-duels', label: 'Open duels', click: point => { if (!point) return; const r = rows[Math.floor((point[1] - top - 24) / 16)]; if (r && !r.mine) ctx.ui.onJoinDuel?.(r.id); } });
-    }
+    // (the Duels tab's log stays empty: its rows are the panel's, and main's chatTabs counts no lines on it)
+    const items = duels ? [] : lines.filter(l => t.shows(l.channel, l.sender)).map(l => `@0${l.sender.trim() ? `${l.sender}:${l.text}` : l.text}`);
+    const log = b.add('CWindowTaskTextlist', `log${i}`, { x: 8, y: i === tab ? 24 : 99999, w: 760, h: size.rows * 16 }, { shown: i === tab && !duels, items, selected: -1, top: 0, topLine: 0, rows: size.rows });
     return { tab: tc.id, log: log.id, visible: true };
   });
   b.win.pairs = pairs;
@@ -452,9 +461,61 @@ export function chatWindow(ctx: BuildContext, deck?: DeckChat, world = false): W
     b.add('CWindowTaskText', 'input', { x: 8, y: h - 24, w: 760, h: 16 }, { text: CHAT_SANCTION_NOTICE, align: 0, fontSize: 12, color: [0.5, 0.5, 0.5, 1] });
     return b.spec();
   }
-  b.add('CWindowTaskInput', 'input', { x: 0, y: h - 32, w: 776, h: 32 }, { focused: true, value: ctx.ui.chatDraft, password: false, caret: null, caretOn: false, maxLen: 128, multiLine: false },
+  b.add('CWindowTaskInput', 'input', { x: 0, y: h - 32, w: 776, h: 32 }, { shown: !duelsOn, focused: !duelsOn, value: ctx.ui.chatDraft, password: false, caret: null, caretOn: false, maxLen: 128, multiLine: false },
     { key: 'chat', label: 'Chat message', text: v => { ctx.ui.chatDraft = v; }, enter: send });
-  return b.spec();
+  const spec = b.spec();
+  spec.after = root => duelsPanel(root, duelsOn ? { ui: ctx.ui, list: { x: 8, y: 24, w: 760, h: size.rows * 16 }, status: { x: 8, y: h - 24, w: 760, h: 16 } } : null);
+  return spec;
+}
+
+// The Duels tab's panel as live's (main's chat.js drawDuels, its CSS .dz-*): a row per open duel of the world (name, LV,
+// the rules and a gold Join; the player's own "Your duel: waiting for an opponent"), "No open duels right now." when
+// none, and in the input line's place a line: how Join works, or what a Join did (30 s).
+export const DUELS_PANEL_TEXT = { hint: 'Join sends the duelist your duel request; they accept or decline.', mine: 'Your duel stays listed here until someone joins.',
+  empty: ['No open duels right now.', 'To list yours: Duel menu → Create Duel.'], looking: 'Looking for open duels…', waiting: 'Your duel: waiting for an opponent' } as const;
+type Rect = { x: number; y: number; w: number; h: number };
+function duelsPanel(root: HTMLElement, o: { ui: HtmlUiLocal; list: Rect; status: Rect } | null): void {
+  let layer = root.querySelector<HTMLElement>(':scope > .de-duels');
+  if (!o) { layer?.remove(); return; }
+  const ui = o.ui, rows = duelRows(ui.duels), msg = ui.duelsStatus && ui.duelsStatus.until > Date.now() ? ui.duelsStatus : null;
+  const k = JSON.stringify([o.list, o.status, rows, !!ui.duels, msg]);
+  if (layer?.dataset.k === k) return;
+  const keep = layer?.querySelector('.dz-list')?.scrollTop ?? 0;
+  if (!layer) {
+    layer = document.createElement('div'); layer.className = 'de-duels';
+    Object.assign(layer.style, { position: 'absolute', inset: '0', pointerEvents: 'none', zIndex: '1' });
+    root.append(layer);
+  }
+  layer.dataset.k = k; layer.replaceChildren();
+  const at = (el: HTMLElement, r: Rect) => Object.assign(el.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px', pointerEvents: 'auto' });
+  const node = (tag: string, cls: string, text?: string) => { const e = document.createElement(tag); e.className = cls; if (text != null) { e.textContent = text; e.style.letterSpacing = spacing(text) + 'px'; } return e; };
+  const list = node('div', 'dz-list yo2-scroll-list'); list.setAttribute('role', 'list'); list.setAttribute('aria-label', 'Open duels'); at(list, o.list);
+  if (!rows.length) {
+    const e = node('div', 'dz-empty');
+    e.append(node('div', '', ui.duels ? DUELS_PANEL_TEXT.empty[0] : DUELS_PANEL_TEXT.looking));
+    if (ui.duels) e.append(node('div', '', DUELS_PANEL_TEXT.empty[1]));
+    list.append(e);
+  }
+  for (const d of rows) {
+    const r = node('div', 'dz-row'); r.setAttribute('role', 'listitem');
+    r.append(node('span', 'nm', d.name), node('span', 'lv', d.lv));
+    if (d.mine) r.append(node('span', 'wait', DUELS_PANEL_TEXT.waiting));
+    else {
+      const act = node('span', 'act'), join = document.createElement('button'), label = node('span', '', 'Join');
+      join.type = 'button'; join.className = 'yo2-mbtn'; join.dataset.key = `duel-join:${d.id}`; join.setAttribute('aria-label', `Join ${d.name}'s duel`);
+      Object.assign(join.style, { left: '0', top: '0', width: '72px', height: '20px', lineHeight: '18px' });
+      label.style.marginRight = -spacing('Join') + 'px'; join.append(label);
+      join.addEventListener('click', () => ui.onJoinDuel?.(d.id));
+      act.append(join); r.append(node('span', 'ru', d.rules), act);
+    }
+    list.append(r);
+  }
+  layer.append(list); list.scrollTop = keep;
+  const hint = rows.some(d => !d.mine) ? DUELS_PANEL_TEXT.hint : rows.length ? DUELS_PANEL_TEXT.mine : '';
+  const line = msg ?? { text: hint, kind: 'hint' }, s = node('div', `dz-status ${line.kind}`, line.text);
+  s.setAttribute('role', 'status'); at(s, o.status); layer.append(s);
+  // (a status line goes back to the hint when its time is up)
+  if (msg) setTimeout(() => { if (layer!.isConnected && layer!.dataset.k === k) { layer!.dataset.k = ''; duelsPanel(root, o); } }, msg.until - Date.now() + 50);
 }
 
 // The chat folded to its bar on the deck screen (live's capture: CChatWindow mode 2 at 248, 712, 776 x 32, drawn 24

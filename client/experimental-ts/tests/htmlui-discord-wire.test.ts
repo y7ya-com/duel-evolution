@@ -49,12 +49,13 @@ describe('discord wire (chat Duels tab, Discord rows, ?duel= link)', () => {
     for (const t of r.timers) t.f(); await flush(); expect(r.calls).toHaveLength(2);
   });
 
-  it('Join checks with the server, then challenges the creator; a refusal is said', async () => {
+  it('Join checks with the server, then challenges the creator; the Duels panel\'s line says so, or the refusal (live)', async () => {
     const r = rig(world()); r.ui.onJoinDuel!(7); await flush();
     expect(r.calls).toContain('/api/de/duels/join');
     expect(r.sent).toEqual([{ type: 'duelChallenge', playerId: 42 }]);
+    expect(r.ui.duelsStatus).toMatchObject({ kind: 'info' }); expect(r.ui.duelsStatus!.text).toMatch(/^Duel request sent to .+\. Waiting for their answer\.$/);
     const n = rig(world(), { join: { ok: false, error: 'gone', message: 'That duel is gone.' } }); n.ui.onJoinDuel!(7); await flush();
-    expect(n.sent).toEqual([]); expect(n.ui.dialog).toEqual({ kind: 'ok', text: 'That duel is gone.' });
+    expect(n.sent).toEqual([]); expect(n.ui.duelsStatus).toMatchObject({ text: 'That duel is gone.', kind: 'error' }); expect(n.ui.dialog ?? null).toBeNull();
   });
 
   it('a Discord row opens the duelist\'s card (live: a card, not a message box)', () => {
