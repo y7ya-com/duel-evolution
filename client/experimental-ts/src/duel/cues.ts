@@ -12,7 +12,8 @@ const MAX_PENDING = 1024, MAX_RELEASED = 48;
  * command's effect first): the effects layer's own lengths (ui/duel-fx.ts); a banner lets the next start at 70% of
  * its own, as the banner line does; coins and the die until they have landed. Attacks and LP are the timeline's own. */
 const HOLD_MS: Partial<Record<DuelCue['kind'], (cue: DuelCue) => number>> = {
-  phase: () => 770, turn: () => 840, field: () => 1260, summon: () => 700, set: () => 600, flip: () => 450,
+  // START DUEL (duel-fx START.out): the opening hands are dealt once it is over, as live's
+  start: () => 2300, phase: () => 770, turn: () => 840, field: () => 1260, summon: () => 700, set: () => 600, flip: () => 450,
   activate: () => 700, destroy: () => 900, tribute: () => 900,
   coin: cue => (Math.max(1, cue.values?.length ?? 1) - 1) * 500 + 1500, dice: () => 1880,
 };

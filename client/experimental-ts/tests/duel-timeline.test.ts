@@ -34,6 +34,17 @@ describe('deterministic bounded duel presentation timeline', () => {
     expect(done.pending).toBe(false); expect(done.acknowledgedThrough).toBe(after.sequence);
     expect(done.cards[0].to?.zone).toBe('hand');
   });
+  it('deals the cards of one draw a card at a time, eight frames apart', () => {
+    let before = initial();
+    for (let i = 0; i < 3; i++) before = cmd(before, set_card(0, 13, i, 100 + i, i + 1));
+    const after = cmd(before, engine(0x55, 0, 0xffff, 3)), t = new DuelTimeline(before);
+    t.enqueue(before, after);
+    const drawn = (s: ReturnType<DuelTimeline['sample']>) => s.cards.filter(c => c.to?.zone === 'hand').map(c => c.progress);
+    expect(drawn(t.advance(4))).toEqual([0.5, 0, 0]);
+    expect(drawn(t.advance(8))).toEqual([1, 0.5, 0]);
+    expect(t.advance(11).pending).toBe(true); expect(drawn(t.advance(1))).toEqual([1, 1, 1]);
+    expect(t.sample().pending).toBe(false);
+  });
   it("counts displayed LP as live's gauge (its number held 32 frames, then 100 a frame, 10 under 100, 1 under 10)", () => {
     const before = initial(), after = cmd(before, engine(0x25, 0, 2000)), t = new DuelTimeline(before);
     t.enqueue(before, after);

@@ -21,6 +21,9 @@ interface Batch {
   events: PresentationEvent[]; duration: number; elapsed: number;
   /** Frames an LP change's number holds before the gauge counts it. */
   hold: number;
+  /** Cards drawn together, dealt one after another as live's (its opening hands fly from the deck a card at a time):
+   *  each card's start, in frames. */
+  deal?: Map<number, number>;
 }
 export interface TimelineCard {
   uid: number; from: CardPlacement | null; to: CardPlacement | null;
@@ -159,7 +162,19 @@ export class DuelTimeline {
     else if (attack) this.battle = { hit: attackHit(attack), after: duration };
     else if (this.battle) this.battle.after += duration;
     this.enqueuedThrough = next.sequence;
-    this.queue.push({ sequence: next.sequence, from, to, events, duration, elapsed: 0, hold: lpHold });
+    // one draw command of several cards (the opening five, a Pot of Greed's two): dealt a card at a time, as live's
+    // engine plays CCard's 8-frame glide per card (film stL-3: five cards into the hand one after another)
+    let deal: Map<number, number> | undefined;
+    if (!this.reducedMotion && events.some(e => e.type === 'engine:55')) {
+      const was = new Map(from.cards.map(c => [c.uid, c]));
+      const drawn = to.cards.filter(c => c.zone === 'hand' && was.get(c.uid)?.zone === 'deck').sort((a, b) => a.index - b.index);
+      if (drawn.length > 1) {
+        const step = TIMING_EVIDENCE.cardFrames.frames;
+        deal = new Map(drawn.map((c, k) => [c.uid, k * step]));
+        duration = Math.max(duration, drawn.length * step);
+      }
+    }
+    this.queue.push({ sequence: next.sequence, from, to, events, duration, elapsed: 0, hold: lpHold, ...(deal ? { deal } : {}) });
     if (this.reducedMotion) return this.skip();
     // Far behind (more animated packets queued than the budget): the oldest are fast-forwarded, never the whole queue,
     // so what comes next still plays. (Packets with nothing to show cost no time and never count.)
@@ -203,9 +218,10 @@ export class DuelTimeline {
     const eased = Math.sin(cardProgress * Math.PI / 2);
     const before = new Map(from.cards.map(c => [c.uid, c])), after = new Map(to.cards.map(c => [c.uid, c]));
     const cards = [...new Set([...before.keys(), ...after.keys()])].sort((a, b) => a - b).map(uid => {
-      const a = before.get(uid), b = after.get(uid);
-      return { uid, from: a ? { ...a } : null, to: b ? { ...b } : null, progress: cardProgress, eased,
-        opacity: !a ? cardProgress : !b ? 1 - cardProgress : 1 };
+      const a = before.get(uid), b = after.get(uid), delay = head?.deal?.get(uid);
+      const p = delay === undefined ? cardProgress : Math.max(0, Math.min(1, (head!.elapsed - delay) / TIMING_EVIDENCE.cardFrames.frames));
+      return { uid, from: a ? { ...a } : null, to: b ? { ...b } : null, progress: p, eased: delay === undefined ? eased : Math.sin(p * Math.PI / 2),
+        opacity: !a ? p : !b ? 1 - p : 1 };
     });
     const counted = head?.duration ? Math.floor(head.elapsed) - head.hold : Infinity;
     const lp = [0, 1].map(p => {
