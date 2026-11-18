@@ -95,8 +95,8 @@ describe("NPC rewards: every possible gift maps to a real card or item", () => {
       expect(bad).toEqual([]);
       // The walk still reaches cards, friendship titles and recipes.
       expect([`c${pc(365)}`, "b160", `b${PP.NPC_PRIZE_BITS["51"].comp_got}`].filter((k) => !given.has(k))).toEqual([]);
-      // Named costumes are not fixed prizes; Hell Kaiser has a separate rare victory drop.
-      const outfits = Object.entries(PP.PRESENT_CLOTHES).filter(([name]) => name !== "Hell Kaiser")
+      // Named costumes are not fixed prizes; Yami Yugi and Hell Kaiser have a separate rare victory drop.
+      const outfits = Object.entries(PP.PRESENT_CLOTHES).filter(([name]) => !["Yami Yugi", "Hell Kaiser"].includes(name))
         .flatMap(([, bits]) => bits).filter((b) => b !== null).map((b) => `b${b}`);
       expect(outfits.filter((k) => given.has(k))).toEqual([]);
     });

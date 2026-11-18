@@ -70,7 +70,8 @@ export function outfitArtworkId(number: number, female: boolean): string | null 
 // dc_/ac_ art, unless the owner set them: Black Suit rare, Joey rare, Kaiba super, Yami Yugi / Téa
 // ultra (the fitted-duelist pair was ultra), tracksuits and punk outfits common; dc_98 is ultra and
 // takes duelforge's name, Rare Hunter Cloak. Academy (ac_*): Jaden common, Chazz super, Jesse common,
-// Hell Kaiser ultra, Aster super (not in any box: see dropExclusion).
+// Hell Kaiser ultra, Aster super (not in any box: see dropExclusion). Yami Yugi's Garms are not in any box
+// either: like Hell Kaiser's Costume, they only drop from their NPC (npcDrops.ts).
 const OUTFITS: Record<number, [string, string, CosmeticRarity]> = {
   3314: ["tracksuit-red", "Red Tracksuit", "common"],
   3315: ["tracksuit-green", "Green Tracksuit", "common"],
@@ -240,6 +241,7 @@ export function bodyInfo(item: CosmeticFamily): { bodies: Body[]; notice?: strin
  * keep ownership, equip and trade; only new rolls are withheld. Missing a body is NOT a reason. */
 function dropExclusion(item: CosmeticFamily): string | null {
   if (item.id === "outfit:kaiser") return "Duel Academy outfit: 5% Hell Kaiser victory drop";
+  if (item.id === "outfit:yugi") return "Domino outfit: 5% Yami Yugi victory drop";
   // Duel Academy (series 3, ac_* art) outfits are reserved for ranked rewards. Academy duel disks are not outfits.
   if (item.kind === "outfit" && item.artwork?.startsWith("ac_")) return "Duel Academy outfit: reserved for ranked rewards";
   return null;

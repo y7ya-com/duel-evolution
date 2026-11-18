@@ -4,7 +4,9 @@ import * as PP from "../game/persist.ts";
 import { COSMETIC_BY_ID } from "../game/cosmetics-catalog.ts";
 import { nrChainBase } from "../game/npcs.ts";
 
+/** Keyed by chain base: one entry covers all three friendship stages (51-53 Yami Yugi, 78-80 Hell Kaiser). */
 export const NPC_WIN_DROPS: Readonly<Record<number, { item: string; chance: number }>> = {
+  51: { item: "outfit:yugi", chance: 0.05 },
   78: { item: "outfit:kaiser", chance: 0.05 },
 };
 

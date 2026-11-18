@@ -58,6 +58,12 @@ is an unlock, not a source of tradable duplicate copies. Both character bodies c
 currently has only a male art variant, and the wardrobe preserves ownership for the other body too.
 The drop table is `src/duel/npcDrops.ts` and uses the server's RNG.
 
+### Yami Yugi victory drop (2026-11-18)
+
+Yami Yugi's Garms now work exactly like Hell Kaiser's Costume: winning against any Yami Yugi recipe (51–53) has an
+independent 5% chance to unlock them, with the same rules as above. They left the Outfit Box (owner, 2026-11-18),
+whose ultra tier is now Rare Hunter Cloak and Téa's Garms. Players who already own them keep, equip and trade them.
+
 ## 2. Data and methodology
 
 **Where the state lives.** The WorldDO keeps `state.json` in memory and projects it onto D1 (`src/db/project.ts`,

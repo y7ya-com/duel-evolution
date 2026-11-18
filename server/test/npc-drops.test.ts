@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as PP from "../src/game/persist.ts";
 import { cosmeticInfo } from "../src/game/cosmetics.ts";
-import { COSMETIC_BY_ID } from "../src/game/cosmetics-catalog.ts";
+import { BOXES, COSMETIC_BY_ID, cosmeticPool, DROP_EXCLUSIONS } from "../src/game/cosmetics-catalog.ts";
 import { Session } from "../src/game/hub.ts";
 import { rowsToState, stateToRows } from "../src/db/project.ts";
 import { lobbyAfterDuelMsgs, M_NPCPRESENT, RESULT_DRAW, RESULT_LOSE, RESULT_WIN } from "../src/duel/duelfin.ts";
@@ -10,6 +10,8 @@ import { harness, u16 } from "./notes-harness.ts";
 
 const outfit = COSMETIC_BY_ID.get("outfit:kaiser")!;
 const bits = outfit.variants.map(v => v.bit);
+const yugi = COSMETIC_BY_ID.get("outfit:yugi")!;
+const yugiBits = yugi.variants.map(v => v.bit);
 const giftBits = (g: ReturnType<typeof harness>["game"], p: PP.P) => {
   const data = PP.onItemget(g, p, 3, 0);
   return Array.from({ length: u16(data) }, (_, i) => u16(data, 2 + i * 2));
@@ -52,6 +54,37 @@ describe("NPC cosmetic victory drops", () => {
     for (const nid of [54, 77, 81]) lobbyAfterDuelMsgs(g, p, nid, RESULT_WIN);
     expect(roll).not.toHaveBeenCalled();
     expect(bits.some(b => PP.pbinTest(p, b))).toBe(false);
+  });
+
+  it("drops Yami Yugi's Garms the same way: an explicit 5% rate, out of every box", () => {
+    expect(NPC_WIN_DROPS[51]).toEqual({ item: yugi.id, chance: 0.05 });
+    expect(yugiBits).toEqual([121]);
+    expect(yugiBits.every(PP.bitShown)).toBe(true);
+    expect(DROP_EXCLUSIONS.get(yugi.id)).toMatch(/Yami Yugi victory drop/);
+    for (const box of BOXES) expect(cosmeticPool(box.id).some(i => i.id === yugi.id), box.id).toBe(false);
+  });
+
+  it.each([51, 52, 53])("rolls on a win against Yami Yugi recipe %i and presents his garms, not Kaiser's outfit", nid => {
+    const g = harness().game, p = PP.blankProfile("winner");
+    const roll = vi.spyOn(g.rng, "random").mockReturnValue(0.049999);
+    const messages = lobbyAfterDuelMsgs(g, p, nid, RESULT_WIN);
+    expect(roll).toHaveBeenCalledTimes(1);
+    expect(messages.some(([m]) => m === M_NPCPRESENT)).toBe(true);
+    expect(yugiBits.every(b => PP.pbinTest(p, b))).toBe(true);
+    expect(bits.some(b => PP.pbinTest(p, b))).toBe(false);
+    expect(giftBits(g, p)).toEqual(expect.arrayContaining(yugiBits));
+    expect(giftBits(g, p)).toEqual([]);
+    expect(npcWinDrop(g, p, 51, "win")).toEqual([]); // Owned: never rolled again.
+  });
+
+  it("does not grant Yami Yugi's Garms on a missed roll, a loss or a draw", () => {
+    const g = harness().game, p = PP.blankProfile("unlucky");
+    vi.spyOn(g.rng, "random").mockReturnValue(0.05);
+    for (let i = 0; i < 50; i++) lobbyAfterDuelMsgs(g, p, 51 + i % 3, RESULT_WIN);
+    const roll = vi.spyOn(g.rng, "random").mockReturnValue(0);
+    for (const nid of [51, 52, 53]) { lobbyAfterDuelMsgs(g, p, nid, RESULT_LOSE); lobbyAfterDuelMsgs(g, p, nid, RESULT_DRAW); }
+    expect(roll).not.toHaveBeenCalled();
+    expect(yugiBits.some(b => PP.pbinTest(p, b))).toBe(false);
   });
 
   it("keeps an unclaimed drop through the next duel and suppresses already owned unlocks", () => {
