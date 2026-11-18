@@ -65,6 +65,7 @@ import type { ClientController, ClientView, ClientCommand, Scene, CardView, Sett
 import { serializeDeck } from './ui/deck';
 import { CardDetailsCatalog, decodeLegacyDeck, encodeLegacyDeck } from './cards';
 import type { OriginalCardTextCatalog } from './cards/original-text';
+import type { EraCards } from './cards/era';
 import type { DeckView, LobbyAvatar } from './ui/contracts';
 import { duelOptions, DEFAULT_DECK } from './ui/contracts';
 import type { ClientData } from './data';
@@ -86,6 +87,8 @@ export interface AppOptions {
   catalog?: CardCatalog;
   cardDetails?: CardDetailsCatalog;
   cardTexts?: OriginalCardTextCatalog;
+  /** Live's 2008 printed wording and faces of the legacy-effect cards (cards/era.ts); the faces go through `assets`. */
+  eraCards?: EraCards | null;
   npcDialogue?: NpcDialogueCatalog;
   dataIssues?: string[];
   reloadData?: (signal:AbortSignal)=>Promise<ClientData>;
@@ -219,6 +222,7 @@ export class ClientApp implements ClientController {
     this.catalog = options.catalog ?? new CardCatalog();
     if (options.cardDetails) this.catalog.installDetails(options.cardDetails);
     if (options.cardTexts) this.catalog.installOriginalTexts(options.cardTexts);
+    if (options.eraCards) this.catalog.installEraTexts(options.eraCards);
     if (options.assets) {
       this.scenes = new SceneLoader({assets:options.assets}); this.avatars = new AvatarLoader(options.assets);
       this.loadWorldScene = (mapId,signal)=>{const work=this.scenes!.load(mapId,signal),end=options.sceneLoads?.begin(`map:${mapId}`);if(end)void work.then(end,end);return work;};
@@ -319,6 +323,7 @@ export class ClientApp implements ClientController {
     this.options.duelTexts?.localizeDialogs(this.languageTexts.dialogs);
     if (this.options.cardTexts) this.catalog.installOriginalTexts(this.options.cardTexts);
     if (this.localized) this.catalog.installLocalizedTexts(this.localized.cards, this.localized.language);
+    if (this.options.eraCards) this.catalog.installEraTexts(this.options.eraCards, this.localized?.language ?? 'E');
   }
   get diagnostics(): { duel: DuelState; assetBytes: number; resources: number } {
     return { duel: structuredClone(this.duelState), assetBytes: this.options.assets?.cacheBytes ?? 0, resources: this.scope.size };

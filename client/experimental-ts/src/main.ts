@@ -1,6 +1,7 @@
 import { ClientApp } from './app';
 import { CardCatalog } from './catalog';
 import { loadClientData } from './data';
+import { loadEraCards } from './cards/era';
 import { AssetManager, CacheApiPersistence, IdlePrefetcher } from './assets';
 import { SceneManifest } from './assets/prefetch';
 import { SceneLoader, scenePaths } from './world/scene';
@@ -38,7 +39,19 @@ const abort = new AbortController();
 // The boot screen (main's loader.js look) from the first frame the script runs, over index.html's own first frame
 const reducedMotion = () => settings.reducedMotion === true || globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
 let overlay: SceneLoadingOverlay | null = new SceneLoadingOverlay(null, reducedMotion);
-const data=await loadClientData({signal:abort.signal}), catalog=data.catalog ?? new CardCatalog();
+const assetBase = params.get('assets') ?? (DEFAULT_ASSETS || null);
+// Live's 2008 printed faces and wording of the legacy-effect cards (cards/era.ts): the configuration live's yo2rc.html
+// carries (beside its game/ folder; v2's front forwards it), read alongside the tables. ?era= names another page; none or
+// a failure leaves those cards on the modern art, as a live page without the configuration would.
+const eraPage = params.get('era') ?? (assetBase === null ? null : /(^|\/)game\/?$/.test(assetBase) ? assetBase.replace(/game\/?$/, 'yo2rc.html') : '/yo2rc.html');
+const eraLoad = eraPage === null ? Promise.resolve(null) : (async () => {
+  const late = new AbortController(), stop = () => late.abort(), timer = setTimeout(stop, 5000);
+  abort.signal.addEventListener('abort', stop, { once: true });
+  try { return await loadEraCards(new URL(eraPage, location.href).href, { signal: late.signal }); }
+  catch (error) { console.info('2008 card faces and wording unavailable:', error instanceof Error ? error.message : error); return null; }
+  finally { clearTimeout(timer); abort.signal.removeEventListener('abort', stop); }
+})();
+const [data, eraCards]=await Promise.all([loadClientData({signal:abort.signal}), eraLoad]), catalog=data.catalog ?? new CardCatalog();
 const offset = Number(params.get('portOffset') ?? 1000);
 if (!Number.isInteger(offset) || offset < 0 || offset > 60000) throw new Error('Invalid port offset');
 const dev = (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV === true;
@@ -47,13 +60,13 @@ const prefetcher = new IdlePrefetcher();
 let storage: Storage | null = null; try { storage = localStorage; } catch { /* optional */ }
 const manifest = new SceneManifest('de-prefetch-v1', storage);
 let preloader: Preloader | undefined;
-const assetBase = params.get('assets') ?? (DEFAULT_ASSETS || null);
 // The 2x card art (merge/data/card.dat, mini.dat) has its own directory on live, cards/ beside game/ (lazyfs.js mounts
 // both): without it every card face fell back to merge.dat's 2008 art. ?cards= names another; a base that is not a
 // game/ directory (the dev middleware's /game-assets/) serves card.dat itself.
 const cardsBase = params.get('cards') ?? (assetBase !== null && /(^|\/)game\/?$/.test(assetBase) ? assetBase.replace(/game\/?$/, 'cards/') : null);
 const assets = assetBase !== null ? new AssetManager({ baseUrl: new URL(assetBase, location.href).href, mergeCardPaths: catalog.mergePaths,
   ...(cardsBase !== null ? { cardsBaseUrl: new URL(cardsBase, location.href).href } : {}),
+  eraCards,
   ...(globalThis.caches ? { persistent: new CacheApiPersistence({ build: 'v1' }) } : {}), onScene: path => preloader?.record(path) }) : undefined;
 const mapScenes = assets ? new SceneLoader({ assets }) : null;
 if (assets) preloader = new Preloader({ assets, prefetcher, manifest,
@@ -86,7 +99,7 @@ const held = { left: false, right: false };
 const holdButtons = (e: MouseEvent) => { held.left = (e.buttons & 1) !== 0; held.right = (e.buttons & 2) !== 0; };
 for (const type of ['mousedown', 'mouseup', 'mousemove'] as const) globalThis.addEventListener?.(type, holdButtons, true);
 globalThis.addEventListener?.('blur', () => { held.left = held.right = false; });
-const app = new ClientApp({ heldButtons: () => ({ ...held }), ...data, audio, ...(preloader ? { preloader } : {}), sceneLoads, dataIssues:data.issues, reloadData:signal=>loadClientData({signal}), gatewayUrl:gateway.href,portOffset:offset,freeMode:params.get('free')==='1',catalog,assets,settings,...(socialBox ? { socialBox } : {}),
+const app = new ClientApp({ heldButtons: () => ({ ...held }), ...data, eraCards, audio, ...(preloader ? { preloader } : {}), sceneLoads, dataIssues:data.issues, reloadData:signal=>loadClientData({signal}), gatewayUrl:gateway.href,portOffset:offset,freeMode:params.get('free')==='1',catalog,assets,settings,...(socialBox ? { socialBox } : {}),
   persistSettings: s => { try { localStorage.setItem('de-client-settings-v1', JSON.stringify(s)); } catch { /* optional */ } },
 });
 // every scene change raises the veil too (main's loader.js on each scene "begin"), until the new scene has settled: its
