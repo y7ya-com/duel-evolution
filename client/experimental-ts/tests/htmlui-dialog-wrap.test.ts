@@ -36,7 +36,7 @@ describe('every dialog the rewrite raises carries its text wrapped', () => {
     const ids = new Ids();
     const sel = duelDialog({ ids, local: { selected: new Set() }, busy: false, respond: () => {}, rerender: () => {} } as never,
       { id: 'p', kind: 'option', text: long, options: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }, { id: 'c', label: 'C' }] } as never)!;
-    const t = sel.win.controls.find(c => c.cls === 'CWindowTaskText' && String(c.text).startsWith('Activate'))!;
+    const t = sel.win.controls.find(c => c.cls === 'CWindowTaskTextField' && String(c.text).startsWith('Activate'))!;
     expect(String(t.text).split('\n').length).toBeGreaterThan(1);
     for (const l of String(t.text).split('\n')) expect(l.length).toBeLessThanOrEqual(46);
   });
