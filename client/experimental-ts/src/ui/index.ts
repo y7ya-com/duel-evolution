@@ -673,6 +673,13 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const liftTarget = () => pinnedCard() ?? handHover ?? (local.duelCmd !== null && handRects.some(r => r.id === local.duelCmd) ? local.duelCmd : null);
   const liftNode = (id: string, node = fieldNodes.get(id)) => {
     if (!node) return;
+    // only a card in the hand is raised: one just played keeps its id on the field, where a lift left from the hand's
+    // hover made it hop up and down in its zone
+    if (node.dataset.zone !== undefined && node.dataset.zone !== 'hand') {
+      handLift.delete(id); node.style.marginTop = '';
+      if (node.style.zIndex === '20' || node.style.zIndex === '21') node.style.zIndex = '';
+      return;
+    }
     const v = Math.round(handLift.get(id) ?? 0), top = id === liftTarget();
     node.style.marginTop = v ? `${-v / 1024 * 100}%` : '';
     if (v || top) node.style.zIndex = top ? '21' : '20'; else if (node.style.zIndex === '20' || node.style.zIndex === '21') node.style.zIndex = '';
@@ -1138,8 +1145,11 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const depth = stacked ? pileDepth(Number(count!.textContent) || 0) : 0;
     // a hand card played from its raised place flies from there (live: the card leaves the raised place, never drops back first)
     if (card.id === pinnedCard() && card.zone !== 'hand') { launchLift.set(card.id, handLift.get(card.id) ?? HAND_LIFT); handLift.delete(card.id); handPin = null; }
-    const launched = launchLift.get(card.id); if (launched !== undefined && !motion) launchLift.delete(card.id);
-    const lifted = motion && launched ? launched * (1 - (motion.eased ?? 1)) : 0;
+    // (its own flight only: a later packet's glide of other cards restarts the timeline's ease, which made the card
+    // played hop back up to the raised place and sink again in its zone)
+    const flying = !!motion && motion.zIndex === 2 && (motion.eased ?? 1) < 1;
+    const launched = launchLift.get(card.id); if (launched !== undefined && !flying) launchLift.delete(card.id);
+    const lifted = flying && launched ? launched * (1 - (motion!.eased ?? 1)) : 0;
     node.style.left = `${((motion?.x ?? p.x) + (card.controller ? -depth : depth)) / 1024 * 100}%`; node.style.top = `${((motion?.y ?? p.y) - depth - lifted) / 768 * 100}%`;
     node.style.width = `${(motion?.width ?? p.width) / 1024 * 100}%`; node.style.height = `${(motion?.height ?? p.height) / 768 * 100}%`;
     node.style.transform = motion ? `translate(-50%,-50%) rotate(${motion.rotation}deg) scaleX(${motion.scaleX})` : '';
