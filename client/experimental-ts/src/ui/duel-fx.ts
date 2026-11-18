@@ -47,6 +47,9 @@ const FRAME = 1000 / 30;
  * (duel_ef_attack_a) runs on at its own rate, at most this long. */
 export const ATTACK = { turn: 8 * FRAME, flight: 8 * FRAME, movie: 700 };
 const BANNERS = new Set<DuelCue['kind']>(['phase', 'turn', 'field']);
+/** The banners' lengths: one after another, never two on the line at once (live: Draw / Standby / Main shown in turn);
+ *  the duel waits the same time for each (duel/cues.ts HOLD_MS). */
+const PHASE_MS = 770, TURN_MS = 840, FIELD_MS = 1260;
 
 interface Anim { cue: DuelCue; start: number; duration: number; draw(ctx: PixiPainter, t: number): void;
   /** Held at its first frame while this says its art is still loading (at most ART_HOLD ms after it was cued). */
@@ -221,7 +224,7 @@ export class DuelFx {
     if (BANNERS.has(cue.kind)) {
       // Phases the server sends back to back show in turn; far behind (a fast opponent turn), the line catches up.
       if (this.bannerFree - start > 1600) { this.anims = this.anims.filter(a => !BANNERS.has(a.cue.kind)); this.bannerFree = start; }
-      start = Math.max(start, this.bannerFree); this.bannerFree = start + duration * 0.7;
+      start = Math.max(start, this.bannerFree); this.bannerFree = start + duration;
     }
     this.anims.push({ cue, start, duration, draw });
     if (this.anims.length > MAX_ANIMS) this.anims.splice(0, this.anims.length - MAX_ANIMS);
@@ -244,13 +247,13 @@ export class DuelFx {
         if (!cue.phase) return;
         const base = `data/y/duel/phase_name/e_${PHASE_ART[cue.phase]}_${side}`, sparkle = cue.phase === 'battle' ? Array.from({ length: 7 }, (_, i) => `${base}${i + 1}.png`) : [];
         this.want(`${base}.png`, ...sparkle);
-        return this.push(cue, this.reduced ? 900 : 1100, (ctx, t) => this.banner(ctx, `${base}.png`, sparkle, t, this.reduced ? 900 : 1100, mine ? 412 : 233));
+        return this.push(cue, PHASE_MS, (ctx, t) => this.banner(ctx, `${base}.png`, sparkle, t, PHASE_MS, mine ? 412 : 233));
       }
       case 'turn': {
         this.chain.clear(); this.firstLink = undefined;
         const base = `data/y/duel/phase_name/nex_e_${side}`, frames = Array.from({ length: 8 }, (_, i) => `${base}${i + 1}.png`);
         this.want(`${base}.png`, ...frames);
-        return this.push(cue, 1200, (ctx, t) => this.banner(ctx, `${base}.png`, frames, t, 1200, 318));
+        return this.push(cue, TURN_MS, (ctx, t) => this.banner(ctx, `${base}.png`, frames, t, TURN_MS, 318));
       }
       case 'damage': case 'recover': {
         // The LP gauge's number (yo2.exe 0x7cf150 / 0x7d2770): on the field, centred on a zone: a battle's on the fighting
@@ -365,7 +368,7 @@ export class DuelFx {
       case 'field': {
         const name = FIELD_TITLES[(cue.value ?? 0) - 1]; if (!name) return;
         const title = `data/y/duel/field/fie_${name}_fe.png`; this.want(title);
-        return this.push(cue, 1800, (ctx, t) => this.banner(ctx, title, [], t, 1800, 318));
+        return this.push(cue, FIELD_MS, (ctx, t) => this.banner(ctx, title, [], t, FIELD_MS, 318));
       }
     }
   }
