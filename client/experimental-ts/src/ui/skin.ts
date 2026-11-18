@@ -77,7 +77,7 @@ export const SKIN_CSS = `
 .de-client .de-deck-zone { background:#effcffcc; border:1px solid #6299bd; border-top:0; border-radius:0 0 2px 2px; }
 
 /* The menu bar and Main Menu are main's (src/ui/htmlui); the nav keeps only the status, for assistive technology. */
-.de-client .de-nav { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; border:0; }
+.de-client .de-nav { position:absolute; left:0; top:0; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; border:0; }
 
 /* the name over a head as live's engine draws it: dark letters in a white rim */
 .de-client .de-avatar-name { color:#1c2733; background:none; padding:0 2px; font:16px/18px Arial,sans-serif; letter-spacing:.04em; text-shadow:1px 0 #fff,-1px 0 #fff,0 1px #fff,0 -1px #fff,1px 1px #fff,-1px -1px #fff; }
@@ -102,7 +102,9 @@ html:has(.de-client[data-scene=title]:not(.de-phone)), html:has(.de-client[data-
 html:has(.de-client[data-scene]:not(.de-phone)), html:has(.de-client[data-scene]:not(.de-phone)) body { overflow:hidden; margin:0; }
 .de-client[data-scene]:not(.de-phone) { width:min(100vw,calc(100vh*4/3)); margin:calc((100vh - min(100vh,calc(100vw*3/4)))/2) auto 0; }
 .de-client[data-scene]:not(.de-phone)>.de-stage { min-height:0; max-height:none; height:auto; aspect-ratio:4/3; }
-.de-client[data-scene]:not(.de-phone)>.de-nav { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+/* (at the client's top corner: left under the 768 px stage it made the page 769 tall, and a focus or scroll moved the
+   whole screen up a pixel and back, every card, plate and window with it: v2r3 duelui __bj) */
+.de-client[data-scene]:not(.de-phone)>.de-nav { position:absolute; left:0; top:0; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 /* where live's sign-in panel stands: CWindowLogin at 256, 256, 464 wide (rt/session.cpp), under the title movie's logo */
 .de-client[data-scene=title] .de-scene>.de-panel { position:absolute; z-index:1; left:25%; top:33.333%; width:45.3125%; margin:0; box-sizing:border-box; }
 .de-client[data-scene=title] .de-scene .de-panel>button { min-height:36px; font:italic bold 16px Arial,sans-serif; letter-spacing:.05em; clip-path:polygon(14px 0,100% 0,calc(100% - 14px) 100%,0 100%); padding:0 24px; }

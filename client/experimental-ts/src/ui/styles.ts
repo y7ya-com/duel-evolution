@@ -131,7 +131,9 @@ button.de-field-card.de-card-target { z-index:3; outline:2px solid rgba(255,255,
 /* the Battle Phase's swords on the monsters that can still attack: pointing up, at alpha 0xa0 (index.ts idleSwordsFrame) */
 .de-duel-board>.de-attack-idle { position:absolute; z-index:21; pointer-events:none; max-width:none; transform:translate(-50%,-50%); opacity:.627; }
 @keyframes de-zone-pulse { from { box-shadow:0 0 6px #ffe14a; } to { box-shadow:0 0 18px #fff38a; } }
-.de-duel-board { position:absolute; left:0; top:0; width:100%; aspect-ratio:4/3; overflow:hidden; }
+/* clipped, not a scroll box: the opponent's hand above the top edge made it one, and a focus or scrollIntoView on a card
+   near the edge scrolled the whole board (every card, plate and portrait jumping by 13-160 px; v2r3 duelui __mv) */
+.de-duel-board { position:absolute; left:0; top:0; width:100%; aspect-ratio:4/3; overflow:hidden; overflow:clip; }
 .de-duel-board>.de-duel-field { position:absolute; inset:0; background:center/100% 100% no-repeat; }
 .de-duel-bg { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; pointer-events:none; }
 .de-duel-frames { position:absolute; left:25%; width:50%; height:33.3333%; overflow:hidden; pointer-events:none; }
