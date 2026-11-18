@@ -195,14 +195,17 @@ const seenOrder = new Map<number, number>();
 export function listRows(state: ClientView, search: Search | null, friends: readonly number[]): ListRow[] {
   const lobby = state.lobby; if (!lobby) return [];
   const seen = (id: number) => { let n = seenOrder.get(id); if (n === undefined) { n = seenOrder.size; seenOrder.set(id, n); } return n; };
-  const players = lobby.avatars.filter(a => !a.self && !a.npc).sort((a, b) => seen(a.id) - seen(b.id)), self = lobby.avatars.find(a => a.self);
+  // (live lists every player of the lobby's block, those in the world's other areas too; the map draws this area's)
+  const here = lobby.avatars.filter(a => !a.self && !a.npc), at = new Map(here.map(a => [a.id, a]));
+  const players = [...here, ...(lobby.players ?? []).filter(p => !at.has(p.id))].sort((a, b) => seen(a.id) - seen(b.id)), self = lobby.avatars.find(a => a.self);
   const rooms = lobby.rooms ?? [], room = (pid: number) => rooms.find(r => r.owner === pid && !r.opponent);
   const row = (a: { id: number; name: string; level?: number }): ListRow => ({ kind: 'player', id: a.id, name: a.name, ...(a.level ? { level: a.level } : {}) });
   switch (search) {
     case 'single': case 'match': return players.filter(a => { const r = room(a.id); return r && (search === 'match' ? r.style === 4 : r.style !== 4); }).map(row);
     case 'name': return [...players].sort((a, b) => a.name.localeCompare(b.name)).map(row);
     case 'friends': return players.filter(a => friends.includes(a.id)).map(row);
-    case 'near': return self ? [...players].sort((a, b) => Math.hypot(a.x - self.x, a.y - self.y) - Math.hypot(b.x - self.x, b.y - self.y)).map(row) : players.map(row);
+    // (the players in this area by their distance, the world's others after them)
+    case 'near': { const d = (p: { id: number }) => { const a = at.get(p.id); return a && self ? Math.hypot(a.x - self.x, a.y - self.y) : Infinity; }; return [...players].sort((a, b) => d(a) - d(b)).map(row); }
     case 'all': return players.map(row);
     // the levels are not in the lobby's list: the players here, as listed
     default: return players.map(row);
@@ -266,6 +269,9 @@ function joinPrompt(ctx: BuildContext, deps: LobbyDeps): WindowSpec {
 }
 function cancelPrompt(ctx: BuildContext, deps: LobbyDeps): WindowSpec {
   const { b, cs } = start(ctx, 'room-close', dialogYesNo, 51503), field = cs.find(c => c.cls === 'CWindowTaskTextField');
+  // live's capture: the lobby's translucent blue box (frame style 1, the frame and the text's plane at 0.7), not the
+  // template's white one
+  for (const c of cs) if (c.cls === 'CWindowTaskFrameBottomThick') Object.assign(c, { style: 1, alpha: 0.7 }); else if (c.cls === 'CWindowTaskBackPlane') c.alpha = 0.7;
   const inner = cs.find(c => c.parent === field?.id && c.cls === 'CWindowTaskText');
   const text = wrapDialogText(say(ctx, 'cancelRoom'), inner?.w ?? field?.w ?? 320); if (field) field.text = text;
   for (const c of cs) if (c.parent === field?.id && c.cls === 'CWindowTaskText') c.text = text;
@@ -287,7 +293,7 @@ export function duelKey(state: ClientView, ui: LobbyLocal): void {
 export function moveKey(ui: LobbyLocal): void { ui.open = ui.open === 'move' ? null : 'move'; }
 /** The bar's message while this player waits for a duel (the original's "Seeking Opponents" / "Searching…"). */
 export function waitingMessage(ctx: Pick<BuildContext, 'state' | 'text'>): string | null {
-  if (ownRoom(ctx.state)) return ctx.text?.(LOBBY_TEXT.seeking) ?? LOBBY_FALLBACK.seeking;
+  // (a created duel waiting: live's bar has no words, its notice icon says it: index.ts noticeIconSpecs)
   if (ctx.state.matchmaking?.status === 'searching') return ctx.text?.(LOBBY_TEXT.searching) ?? LOBBY_FALLBACK.searching;
   return null;
 }

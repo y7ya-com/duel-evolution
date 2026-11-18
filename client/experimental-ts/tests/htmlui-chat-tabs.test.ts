@@ -85,3 +85,45 @@ describe('the chat\'s tabs stack as the game stacks them', async () => {
     expect(c.map(k => k.cls === 'CWindowTaskTab' ? 'T' : k.name)).toEqual(['bar', 'T', 'log0', 'T', 'log1', 'T', 'log2', 'T', 'log3', 'input']);
   });
 });
+
+describe('the world chat\'s △ / ▽ (live\'s CChatWindow: short, tall, folded to its bar)', async () => {
+  const { chatWindow, htmlUiLocal } = await import('../src/ui/htmlui/windows');
+  const { Ids } = await import('../src/ui/htmlui/snapshot');
+  const state = { scene: 'lobby', busy: false, lobby: { connected: true, chat: [], avatars: [] } } as unknown as import('../src/ui/contracts').ClientView;
+  const ui = htmlUiLocal(), ids = new Ids();
+  let renders = 0;
+  const ctx = { state, ui, ids, send: () => {}, rerender: () => { renders++; } };
+  const at = () => { const s = chatWindow(ctx, undefined, true)!; return { s, rect: [s.win.x, s.win.y, s.win.w, s.win.h], icons: s.win.controls.filter(c => /Icon(Expand|Hide)$/.test(c.cls)).map(c => [c.cls.replace('CWindowTaskIcon', ''), c.enabled]) }; };
+  const press = (s: ReturnType<typeof at>['s'], key: string) => { const h = [...s.handlers.values()].find(h => h.key === key); expect(h, key).toBeTruthy(); h!.click!(); };
+  it('opens short with its △ on (its ▽ off), as live', () => {
+    const { rect, icons, s } = at();
+    expect(rect).toEqual([248, 608, 776, 128]);
+    expect(icons).toEqual([['Hide', false], ['Expand', true]]);
+    expect(s.win.controls.find(c => c.cls === 'CWindowTaskInput')).toMatchObject({ y: 96, h: 32 });
+  });
+  it('△ makes it tall (248, 176, 776 x 560: the log 32 rows, the input at its foot), its ▽ on', () => {
+    press(at().s, 'chat-taller');
+    expect(ui.chatMode).toBe(0); expect(renders).toBe(1);
+    const { rect, icons, s } = at();
+    expect(rect).toEqual([248, 176, 776, 560]);
+    expect(icons).toEqual([['Expand', false], ['Hide', true]]);
+    expect(s.win.controls.find(c => c.cls === 'CWindowTaskTextlist' && c.shown)).toMatchObject({ y: 24, h: 512, rows: 32 });
+    expect(s.win.controls.find(c => c.cls === 'CWindowTaskInput')).toMatchObject({ y: 528 });
+  });
+  it('▽ folds it to its bar (248, 712, the tabs and the △ only); △ there opens it short again', () => {
+    press(at().s, 'chat-fold');
+    const folded = at();
+    expect(folded.rect).toEqual([248, 712, 776, 32]);
+    expect(folded.icons).toEqual([['Hide', false], ['Expand', true]]);
+    expect(folded.s.win.controls.some(c => c.cls === 'CWindowTaskInput')).toBe(false);
+    expect(folded.s.win.controls.filter(c => c.cls === 'CWindowTaskTab').length).toBe(4);
+    press(folded.s, 'chat-unfold');
+    expect(at().rect).toEqual([248, 608, 776, 128]);
+  });
+  it('the duel\'s and the trade\'s chat (not the world\'s) stay short with no △', () => {
+    ui.chatMode = 0;
+    const s = chatWindow(ctx)!;
+    expect([s.win.y, s.win.h]).toEqual([608, 128]);
+    expect([...s.handlers.values()].some(h => h.key === 'chat-taller' || h.key === 'chat-fold')).toBe(false);
+  });
+});

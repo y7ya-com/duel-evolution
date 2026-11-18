@@ -40,8 +40,21 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
     const lobby = { name: 'Duel Academy · Area 1', avatars: [], connected: true, channels: ['global'], chat: [{ id: '1', sender: 'A', text: 'hi', channel: 'global' }, { id: '2', sender: 'B', text: 'wts', channel: 'trade' }] };
     const t = context(view({ scene: 'lobby', lobby }));
     const chat = t.windows().find(s => s.win.cls === 'CChatWindow')!.win, logs = chat.controls.filter(c => c.cls === 'CWindowTaskTextlist');
-    expect(logs.map(l => l.items)).toEqual([['@0A:hi', '@0B:wts'], ['@0B:wts'], [], ['@0No open duels. Create Duel opens one anyone here may join.']]);
+    // (the Duels tab's rows are its panel's, live's: its log stays empty)
+    expect(logs.map(l => l.items)).toEqual([['@0A:hi', '@0B:wts'], ['@0B:wts'], [], []]);
     expect(chat.controls.filter(c => c.cls === 'CWindowTaskTab').sort((a, b) => a.x - b.x).map(c => c.label)).toEqual(['All Chat', 'TRADE', 'Team ', 'Duels']);
+    // "Duels (n)": the open duels of others since the tab was last shown (not the player's own); shown, the count goes
+    t.ctx.ui.duels = [{ id: 5, pid: 9, name: 'Bo', lv: 2, match: false, timeLimit: true, surrender: true, spectators: true, mine: false },
+      { id: 6, pid: 1, name: 'Me', lv: 1, match: false, timeLimit: true, surrender: true, spectators: true, mine: true }];
+    const duelsTab = () => t.windows().find(s => s.win.cls === 'CChatWindow')!.win.controls.find(c => c.cls === 'CWindowTaskTab' && /^Duels/.test(c.label ?? ''))!;
+    expect(duelsTab().label).toBe('Duels (1)'); expect(duelsTab().w).toBeGreaterThan(72);
+    t.find('chat-tab:duels')!.click!(); expect(duelsTab().label).toBe('Duels');
+    const open = t.windows().find(s => s.win.cls === 'CChatWindow')!;
+    expect(open.win.controls.filter(c => c.cls === 'CWindowTaskTextlist' || c.cls === 'CWindowTaskInput').every(c => !c.shown)).toBe(true);
+    expect(open.after).toBeTypeOf('function');
+    // (the rows ride on the window, so main's layer redraws the panel when only the duels change)
+    expect((open.win as unknown as { duels: { rows: { name: string }[] } }).duels.rows.map(r => r.name)).toEqual(['Bo', 'Me']);
+    t.find('chat-tab:all')!.click!(); expect(duelsTab().label).toBe('Duels');
     t.find('chat-tab:trade')!.click!(); t.find('chat')!.text!('selling'); t.find('chat')!.enter!();
     expect(t.sent.at(-1)).toEqual({ type: 'chat', channel: 'trade', text: 'selling' });
     expect(chatCommand(0, '/w Bob  hello there')).toEqual({ type: 'chat', channel: 'whisper', target: 'Bob', text: 'hello there' });
@@ -89,7 +102,12 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
     expect(win().win.controls.find(c => c.cls === 'CWindowTaskListbox')!.items).toEqual(['Cy']);
     [...win().handlers.values()].find(h => h.label === 'Ignore List')!.click!([100, 282 + 32 + 8]);
     t.find('list-remove')!.click!(); expect(calls).toEqual(['unignore 3']);
-    t.ctx.ui.lists = { kind: 'team', selected: -1 }; t.find('team-form')!.click!(); t.find('team-name')!.text!('Aces'); t.find('team-name-ok')!.click!();
+    t.ctx.ui.lists = { kind: 'team', selected: -1 }; t.find('team-form')!.click!();
+    // live: the Team List put away under the engine's "Enter Team Name." window
+    const asked = t.windows();
+    expect(asked.some(s => s.win.cls === 'CWindowModelTeamlist')).toBe(false);
+    expect(asked.find(s => s.win.cls === 'CWindowModelInput1')!.win.controls.find(c => c.cls === 'CWindowTaskText')?.text).toBe('Enter Team Name.');
+    t.find('team-name')!.text!('Aces'); t.find('team-name-ok')!.click!();
     expect(calls.at(-1)).toBe('team Aces');
     t.ctx.ui.mail = { top: 0, selected: -1 }; t.find('mail-row:0')!.click!();
     expect(t.windows().find(s => s.win.cls === 'CWindowModelDMail')!.win.controls.find(c => c.name === 'body')!.text).toBe('Duel later?');
@@ -120,8 +138,20 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
     t.find('friend-offer-yes')!.click!(); expect(calls.at(-1)).toBe('reply 5 true');
     // Ignore List: Add by Name looks the name up, then ignores that player
     t.ctx.ui.lists = { kind: 'ignore', selected: -1 }; t.find('list-add')!.click!(); t.ctx.ui.lists = null;
+    // live's own name window (CWindowModelBlacklistInput): 362, 284, 300 x 200, "Name" over its field
+    const input = t.windows().find(s => s.win.cls === 'CWindowModelBlacklistInput')!.win;
+    expect([input.x, input.y, input.w, input.h]).toEqual([362, 284, 300, 200]);
+    expect(input.controls.find(c => c.cls === 'CWindowTaskText' && c.shown)?.text).toBe('Name');
     t.find('ignore-name')!.text!('Zed'); t.find('ignore-name-ok')!.click!(); expect(calls.at(-1)).toBe('find Zed');
     social.lookup = { name: 'Zed', pid: 77 }; t.windows(); expect(calls.at(-1)).toBe('ignore 77'); expect(t.ctx.ui.ignoreInput).toBe(null);
+    // an unknown name: live's "There are no Players with this name." in its 336 x 144 box, over the Ignore List
+    t.ctx.ui.lists = { kind: 'ignore', selected: -1 }; t.find('list-add')!.click!();
+    t.find('ignore-name')!.text!('Nobody'); t.find('ignore-name-ok')!.click!(); social.lookup = { name: 'Nobody', pid: 0 };
+    const shown = t.windows(), box = shown.find(s => s.win.cls === 'CWindowModelDialogOk')!.win, list = shown.find(s => s.win.cls === 'CWindowModelBlacklist')!.win;
+    expect([box.x, box.y, box.w, box.h]).toEqual([344, 312, 336, 144]);
+    expect(box.controls.find(c => c.cls === 'CWindowTaskTextField')?.text).toBe('There are no Players with this name.');
+    expect(box.z).toBeGreaterThan(list.z!);
+    t.find('dialog-ok')!.click!(); t.ctx.ui.lists = null; social.lookup = null;
     // Leave Team asks first (main's YesNo)
     t.ctx.ui.compose = null; t.ctx.ui.lists = { kind: 'team', selected: -1 }; t.find('team-leave')!.click!(); expect(calls.at(-1)).not.toBe('leave');
     t.find('team-leave-yes')!.click!(); expect(calls.at(-1)).toBe('leave');

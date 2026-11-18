@@ -345,7 +345,9 @@ export class WorldRenderer {
       this.place(actor, motion);
     }
     for (const [id, actor] of this.actors) if (!seen.has(id)) { this.dropActor(id, actor); }
-    const v = this.camera?.viewport ?? null, viewKey = v ? `${v.x}/${v.y}/${avatars.length}` : `-/${avatars.length}`;
+    // (and how many have a look yet: one's own parts come after the area's list, in My Room with nothing after them)
+    const looks = avatars.reduce((n, a) => n + (a.parts?.length === 16 || a.npcArt ? 1 : 0), 0);
+    const v = this.camera?.viewport ?? null, viewKey = `${v ? `${v.x}/${v.y}` : '-'}/${avatars.length}/${looks}`;
     if (viewKey !== this.drawnKey || ++this.drawnClock >= 30) { this.drawnKey = viewKey; this.drawnClock = 0; this.drawn = drawnAvatars(this.placed(avatars), v); }
     for (const [id, actor] of this.actors) this.pose(actor, this.lastAvatars.get(id)!, this.drawn.has(id), t);
   }

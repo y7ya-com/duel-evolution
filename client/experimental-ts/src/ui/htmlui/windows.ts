@@ -1,7 +1,8 @@
 // The windows the rewrite shows through main's Legacy HTML UI screens, built from its ClientView (snapshot.ts). Each
 // builder returns a window snapshot in main's shape plus what its controls do (ClientApp commands). Layouts: main's
 // captured windows (client/web-shell/htmlui/mock/*.json) or numbers measured from main's game (tools/flip.mjs), cited.
-import { discordRows, duelLines, duelRows, type DiscordDuelist, type OpenDuelView } from './discord';
+import { discordRows, duelRows, unseen, type DiscordDuelist, type OpenDuelView } from './discord';
+import { measure } from '@html-ui/ui.js';
 import type { ClientCommand, ClientView } from '../contracts';
 import { REWRITE_TEXT } from '../../features/ui-text';
 import { Ids, WindowBuilder, levelText } from './snapshot';
@@ -12,6 +13,8 @@ import type { HtmlControl, WindowSpec } from './snapshot';
 import { avatarSwitch, freeChoices, starterLook, FIRST_CATEGORY, type AvatarDeps } from './avatar';
 import playerSelectLive from './templates/playerselect-live.json';
 import dialogInput1 from './templates/dialog-input1.json';
+import blacklistInput from './templates/blacklist-input.json';
+import dialogOkSmall from './templates/dialog-ok-336.json';
 import { wrapDialogText } from './dialog-text';
 import { spacing } from '@htmlui/controls/basic.js';
 export { wrapDialogText };
@@ -32,7 +35,7 @@ export type HtmlDialog =
   | { kind: 'delpw'; slot: number; name: string; value: string; checking?: boolean }
   | { kind: 'deleting'; slot: number }
   /** An OK box; `at`: the account task's own (uiOpenDialogOk: style 1, 360 x 120 there, Select Player hidden under it). */
-  | { kind: 'ok'; text: string; at?: [number, number] }
+  | { kind: 'ok'; text: string; at?: [number, number]; small?: boolean }
   | { kind: 'team'; name: string }
   /** A Yes / No question (the rewrite's confirmations: surrender, disconnect, a starter claim): main's YesNo. */
   | { kind: 'confirm'; text: string; yes: () => void; key?: string }
@@ -40,6 +43,11 @@ export type HtmlDialog =
   | { kind: 'avatar'; slot: number | null; name?: string; look: number[]; category: number; page: number };
 /** The HTML UI's own state between snapshots (what the engine's windows keep themselves). */
 export interface HtmlUiLocal { discord?: DiscordDuelist[] | null; onDiscordCard?: (p: DiscordDuelist) => void; discordCard?: DiscordDuelist | null; duels?: OpenDuelView[] | null; onJoinDuel?: (id: number) => void; dialog: HtmlDialog | null; chatTab: number; chatDraft: string; menu: boolean;
+  /** The world's chat size (CChatWindow's mode, its △ / ▽): 1 short (the default), 0 tall, 2 folded to its bar. */
+  chatMode?: 0 | 1 | 2;
+  /** The open duels seen when the chat's Duels tab was last shown (its "(n)": those of others since); the line its
+   * panel shows in the input line's place for a while (a Join's progress or refusal), as main's chat.js hub.status. */
+  duelsSeen?: number[]; duelsStatus?: { text: string; kind: 'info' | 'error'; until: number } | null;
   /** Create Comment's two lines while it is open; the lines still to save once the server confirms the one before. */
   /** My Profile's first shown row (its scroll; the rows past ten scroll in). */
   profileTop?: number;
@@ -77,8 +85,9 @@ export interface MenuView { entries: MenuEntry[]; message: string; duel?: () => 
   /** My Room's bar: the Main Menu key alone of the game's (live: Main Menu, then the page's Wardrobe and Missions). */
   room?: boolean;
   /** A duel request waiting on this player's answer: live's notice icon after MOVE (the crossed swords, menuicon_03_a05),
-   * an engine-drawn slot the page's Wardrobe and Missions keys move past (wardrobe-launcher.js CNoticeIcon*). */
-  notice?: 'duel' }
+   * an engine-drawn slot the page's Wardrobe and Missions keys move past (wardrobe-launcher.js CNoticeIcon*); 'room':
+   * this player's created duel waiting for an opponent (live's CNoticeIconDuelroom, the cyan sword, menuicon_03_a04). */
+  notice?: 'duel' | 'room' }
 
 export interface BuildContext {
   state: ClientView; ui: HtmlUiLocal; ids: Ids;
@@ -293,7 +302,13 @@ function deletionDone(ctx: BuildContext, dialog: Extract<HtmlDialog, { kind: 'de
   else if (ctx.state.error) ctx.ui.dialog = null;
 }
 export function okDialog(ctx: BuildContext, dialog: Extract<HtmlDialog, { kind: 'ok' }>): WindowSpec {
-  const spec = messageDialog(ctx, 'ok', dialogOk, dialog.text, { OK: ['dialog-ok', () => { ctx.ui.dialog = null; ctx.rerender(); }] });
+  // small: the engine's own 336 x 144 box at 344, 312 (live's capture: Ignore List's "There are no Players with this
+  // name."), over the Main Menu's windows
+  const spec = dialog.small
+    ? messageDialog(ctx, 'ok', dialogOkSmall as unknown as typeof dialogYesNo, dialog.text, { OK: ['dialog-ok', () => { ctx.ui.dialog = null; ctx.rerender(); }] }, 51703)
+    : messageDialog(ctx, 'ok', dialogOk, dialog.text, { OK: ['dialog-ok', () => { ctx.ui.dialog = null; ctx.rerender(); }] });
+  // (its one line as the engine lays it: it fits the box, wider than the column count wrapDialogText allows)
+  if (dialog.small) for (const c of spec.win.controls) if (c.cls === 'CWindowTaskTextField' || c.cls === 'CWindowTaskText' && c.h === 96) c.text = dialog.text;
   if (dialog.at) {
     // main's live capture of the wrong password's box: the blue frame (style 1) 360 x 120, the text field 8, 8, 344 x 72
     // (its plane 344 x 72, its text 328 wide, the scroll column at 328 hidden), OK 140, 88
@@ -382,12 +397,24 @@ export function stackChatTabs(controls: HtmlControl[]): void {
   at.forEach((i, k) => { controls[i] = order[k]!; });
 }
 export interface DeckChat { mode: 0 | 1 | 2; fold(): void; unfold(): void }
-export function chatWindow(ctx: BuildContext, deck?: DeckChat): WindowSpec | null {
+/** The world's chat sizes (live, yo2WindowChat.cpp through main's chat.js; captured on live): short (mode 1) at 248, 608,
+ * 776 x 128, its △ on and its ▽ off; the △ makes it tall (mode 0: 248, 176, 776 x 560, the log 32 rows, the input line
+ * still at the foot), its △ off and its ▽ on; that ▽ folds it to its bar (mode 2: 248, 712, the tabs and the △); the
+ * △ there opens it short again. Live keeps the size through area changes; the rewrite keeps it for the session. */
+export const CHAT_SIZES = { 1: { y: 608, h: 128, rows: 5 }, 0: { y: 176, h: 560, rows: 32 } } as const;
+export function worldChatMode(ui: HtmlUiLocal): 0 | 1 | 2 { return ui.chatMode ?? 1; }
+/** How much wider `to` is drawn than `from` (the engine's glyph cells; 7 px a character before its glyphs are loaded). */
+const grownBy = (from: string, to: string): number => { try { return Math.ceil(measure(to) - measure(from)); } catch { return 7 * ([...to].length - [...from].length); } };
+export function chatWindow(ctx: BuildContext, deck?: DeckChat, world = false): WindowSpec | null {
   const lobby = ctx.state.lobby; if (!lobby) return null;
   // live's deck screen: the chat folded to its bar (mode 2, 248, 712 x 32, drawn 24 high: the tabs and △ only), or
   // its bare bar in My Room (no tabs)
   if (deck && deck.mode !== 1) return foldedChat(ctx, deck);
-  const b = new WindowBuilder(ctx.ids, 'chat', 'CChatWindow', { x: 248, y: 608, w: 776, h: 128 }, { z: 51303, mode: 1, online: true, world: true, pairs: [] as unknown[] });
+  // the world's chat: its own size, changed by its △ / ▽
+  const mode = world ? worldChatMode(ctx.ui) : 1, setMode = (m: 0 | 1 | 2) => { ctx.ui.chatMode = m; ctx.rerender(); };
+  if (mode === 2) return foldedChat(ctx, { mode: 2, fold: () => {}, unfold: () => setMode(1) });
+  const size = CHAT_SIZES[mode], top = size.y, h = size.h;
+  const b = new WindowBuilder(ctx.ids, 'chat', 'CChatWindow', { x: 248, y: top, w: 776, h }, { z: 51303, mode, online: true, world: true, pairs: [] as unknown[] });
   // an NPC duel's chat has the lobby's tabs (All Chat / Trade / Team / Duels); a duel between players adds its duel tab,
   // a trade its partner's tab (live)
   const trade = ctx.state.socialDetail?.trade, partner = trade && ['open', 'closing', 'finished'].includes(trade.phase) ? trade.partner?.name ?? null : null;
@@ -395,36 +422,102 @@ export function chatWindow(ctx: BuildContext, deck?: DeckChat): WindowSpec | nul
   const tabs = chatTabsFor(partner, duel && !npcDuel && !ctx.state.replay ? duel.players.map(p => p.name) : null);
   const tab = ctx.ui.chatTab >= 0 && ctx.ui.chatTab < tabs.length ? ctx.ui.chatTab : 0;
   b.add('CWindowTaskIconbar', 'bar', { x: 0, y: 0, w: 776, h: 24 }, { active: true });
-  b.add('CWindowTaskThinChop', 'frame', { x: 0, y: 24, w: 776, h: 104 });
-  b.add('CWindowTaskBackPlane', 'plane', { x: 8, y: 24, w: 760, h: 96 });
+  b.add('CWindowTaskThinChop', 'frame', { x: 0, y: 24, w: 776, h: h - 24 });
+  b.add('CWindowTaskBackPlane', 'plane', { x: 8, y: 24, w: 760, h: h - 32 });
   const lines = lobby.chat.slice(-200);
+  // the Duels tab (live: main's chat.js, its own DOM tab and panel): "Duels (n)", the open duels of others that came
+  // since it was last shown; shown, its panel (duelsPanel) takes the log's and the input line's place
+  const duelsOn = tabs[tab]?.key === 'duels';
+  if (duelsOn) ctx.ui.duelsSeen = (ctx.ui.duels ?? []).map(d => d.id);
+  const fresh = duelsOn ? 0 : unseen(ctx.ui.duels, new Set(ctx.ui.duelsSeen ?? []));
   const pairs = tabs.map((t, i) => {
-    const tc = b.add('CWindowTaskTab', `tab${i}`, { x: t.x, y: 0, w: t.w, h: 24 }, { label: t.label, active: i === tab },
+    const duels = t.key === 'duels', count = duels && fresh ? ` (${fresh > 99 ? '99+' : fresh})` : '';
+    // (the count's width as main's chatTabs grows a tab: the engine's metrics of the words added)
+    const tc = b.add('CWindowTaskTab', `tab${i}`, { x: t.x, y: 0, w: t.w + (count ? grownBy(t.label, t.label + count) : 0), h: 24 }, { label: t.label + count, active: i === tab },
       { key: `chat-tab:${t.key}`, label: t.label.trim(), click: () => { ctx.ui.chatTab = i; ctx.rerender(); } });
-    const duels = t.key === 'duels';
-    const items = duels ? duelLines(ctx.ui.duels) : lines.filter(l => t.shows(l.channel, l.sender)).map(l => `@0${l.sender.trim() ? `${l.sender}:${l.text}` : l.text}`);
-    const log = b.add('CWindowTaskTextlist', `log${i}`, { x: 8, y: i === tab ? 24 : 99999, w: 760, h: 80 }, { shown: i === tab, items, selected: -1, top: 0, topLine: 0, rows: 5 });
-    if (duels && i === tab) {
-      const rows = duelRows(ctx.ui.duels);
-      b.on(log, { key: 'chat-duels', label: 'Open duels', click: point => { if (!point) return; const r = rows[Math.floor((point[1] - 608 - 24) / 16)]; if (r && !r.mine) ctx.ui.onJoinDuel?.(r.id); } });
-    }
+    // (the Duels tab's log stays empty: its rows are the panel's, and main's chatTabs counts no lines on it)
+    const items = duels ? [] : lines.filter(l => t.shows(l.channel, l.sender)).map(l => `@0${l.sender.trim() ? `${l.sender}:${l.text}` : l.text}`);
+    const log = b.add('CWindowTaskTextlist', `log${i}`, { x: 8, y: i === tab ? 24 : 99999, w: 760, h: size.rows * 16 }, { shown: i === tab && !duels, items, selected: -1, top: 0, topLine: 0, rows: size.rows });
     return { tab: tc.id, log: log.id, visible: true };
   });
   b.win.pairs = pairs;
   stackChatTabs(b.win.controls);
-  b.add('CWindowTaskIconExpand', 'expand', { x: 757, y: 0, w: 16, h: 24 }, { pressed: false, enabled: false });
-  // on the deck screen its ▽ (live's capture there: the △ off, the ▽ over it) folds it to its bar
-  if (deck) b.add('CWindowTaskIconHide', 'hide', { x: 757, y: 0, w: 16, h: 24 }, { pressed: false, enabled: true }, { key: 'chat-fold', label: 'Shorter', click: () => deck.fold() });
+  // the world's short chat: its ▽ off under its △ (taller); tall: its △ off under its ▽ (folds it to its bar)
+  if (world && mode === 1) {
+    b.add('CWindowTaskIconHide', 'hide', { x: 757, y: 0, w: 16, h: 24 }, { pressed: false, enabled: false });
+    b.add('CWindowTaskIconExpand', 'expand', { x: 757, y: 0, w: 16, h: 24 }, { pressed: false, enabled: true }, { key: 'chat-taller', label: 'Taller', click: () => setMode(0) });
+  } else if (world) {
+    b.add('CWindowTaskIconExpand', 'expand', { x: 757, y: 0, w: 16, h: 24 }, { pressed: false, enabled: false });
+    b.add('CWindowTaskIconHide', 'hide', { x: 757, y: 0, w: 16, h: 24 }, { pressed: false, enabled: true }, { key: 'chat-fold', label: 'Shorter', click: () => setMode(2) });
+  } else {
+    b.add('CWindowTaskIconExpand', 'expand', { x: 757, y: 0, w: 16, h: 24 }, { pressed: false, enabled: false });
+    // on the deck screen its ▽ (live's capture there: the △ off, the ▽ over it) folds it to its bar
+    if (deck) b.add('CWindowTaskIconHide', 'hide', { x: 757, y: 0, w: 16, h: 24 }, { pressed: false, enabled: true }, { key: 'chat-fold', label: 'Shorter', click: () => deck.fold() });
+  }
   // nothing while the app is busy (the old Send was disabled then): the line stays to be sent with the next Enter
   const send = () => { const partnerTab = tabs[tab]?.target, typed = ctx.ui.chatDraft.trim(), command = partnerTab && typed && !/^\//.test(typed) ? { type: 'chat' as const, channel: 'whisper' as const, target: partnerTab, text: typed } : chatCommand(tab, ctx.ui.chatDraft, lobby.avatars.map(a => a.name)); if (!command || !lobby.connected || ctx.state.busy) return; ctx.ui.chatDraft = ''; ctx.send(command); ctx.rerender(); };
   // an account the admin barred from chat (0x3004's SANCTION_CHAT): the line greyed out with the notice, nothing to type
   if (ctx.state.sanctions?.chat) {
-    b.add('CWindowTaskText', 'input', { x: 8, y: 104, w: 760, h: 16 }, { text: CHAT_SANCTION_NOTICE, align: 0, fontSize: 12, color: [0.5, 0.5, 0.5, 1] });
+    b.add('CWindowTaskText', 'input', { x: 8, y: h - 24, w: 760, h: 16 }, { text: CHAT_SANCTION_NOTICE, align: 0, fontSize: 12, color: [0.5, 0.5, 0.5, 1] });
     return b.spec();
   }
-  b.add('CWindowTaskInput', 'input', { x: 0, y: 96, w: 776, h: 32 }, { focused: true, value: ctx.ui.chatDraft, password: false, caret: null, caretOn: false, maxLen: 128, multiLine: false },
+  b.add('CWindowTaskInput', 'input', { x: 0, y: h - 32, w: 776, h: 32 }, { shown: !duelsOn, focused: !duelsOn, value: ctx.ui.chatDraft, password: false, caret: null, caretOn: false, maxLen: 128, multiLine: false },
     { key: 'chat', label: 'Chat message', text: v => { ctx.ui.chatDraft = v; }, enter: send });
-  return b.spec();
+  // (what the panel shows is on the window too: main's layer redraws a window only when its snapshot changes)
+  if (duelsOn) b.win.duels = { rows: duelRows(ctx.ui.duels), loaded: !!ctx.ui.duels, status: ctx.ui.duelsStatus ?? null };
+  const spec = b.spec();
+  spec.after = root => duelsPanel(root, duelsOn ? { ui: ctx.ui, list: { x: 8, y: 24, w: 760, h: size.rows * 16 }, status: { x: 8, y: h - 24, w: 760, h: 16 } } : null);
+  return spec;
+}
+
+// The Duels tab's panel as live's (main's chat.js drawDuels, its CSS .dz-*): a row per open duel of the world (name, LV,
+// the rules and a gold Join; the player's own "Your duel: waiting for an opponent"), "No open duels right now." when
+// none, and in the input line's place a line: how Join works, or what a Join did (30 s).
+export const DUELS_PANEL_TEXT = { hint: 'Join sends the duelist your duel request; they accept or decline.', mine: 'Your duel stays listed here until someone joins.',
+  empty: ['No open duels right now.', 'To list yours: Duel menu → Create Duel.'], looking: 'Looking for open duels…', waiting: 'Your duel: waiting for an opponent' } as const;
+type Rect = { x: number; y: number; w: number; h: number };
+function duelsPanel(root: HTMLElement, o: { ui: HtmlUiLocal; list: Rect; status: Rect } | null): void {
+  let layer = root.querySelector<HTMLElement>(':scope > .de-duels');
+  if (!o) { layer?.remove(); return; }
+  const ui = o.ui, rows = duelRows(ui.duels), msg = ui.duelsStatus && ui.duelsStatus.until > Date.now() ? ui.duelsStatus : null;
+  const k = JSON.stringify([o.list, o.status, rows, !!ui.duels, msg]);
+  if (layer?.dataset.k === k) return;
+  const keep = layer?.querySelector('.dz-list')?.scrollTop ?? 0;
+  if (!layer) {
+    layer = document.createElement('div'); layer.className = 'de-duels';
+    Object.assign(layer.style, { position: 'absolute', inset: '0', pointerEvents: 'none', zIndex: '1' });
+    root.append(layer);
+  }
+  layer.dataset.k = k; layer.replaceChildren();
+  const at = (el: HTMLElement, r: Rect) => Object.assign(el.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px', pointerEvents: 'auto' });
+  const node = (tag: string, cls: string, text?: string) => { const e = document.createElement(tag); e.className = cls; if (text != null) { e.textContent = text; e.style.letterSpacing = spacing(text) + 'px'; } return e; };
+  const list = node('div', 'dz-list yo2-scroll-list'); list.setAttribute('role', 'list'); list.setAttribute('aria-label', 'Open duels'); at(list, o.list);
+  if (!rows.length) {
+    const e = node('div', 'dz-empty');
+    e.append(node('div', '', ui.duels ? DUELS_PANEL_TEXT.empty[0] : DUELS_PANEL_TEXT.looking));
+    if (ui.duels) e.append(node('div', '', DUELS_PANEL_TEXT.empty[1]));
+    list.append(e);
+  }
+  for (const d of rows) {
+    const r = node('div', 'dz-row'); r.setAttribute('role', 'listitem');
+    r.append(node('span', 'nm', d.name), node('span', 'lv', d.lv));
+    if (d.mine) r.append(node('span', 'wait', DUELS_PANEL_TEXT.waiting));
+    else {
+      const act = node('span', 'act'), join = document.createElement('button'), label = node('span', '', 'Join');
+      join.type = 'button'; join.className = 'yo2-mbtn'; join.dataset.key = `duel-join:${d.id}`; join.setAttribute('aria-label', `Join ${d.name}'s duel`);
+      Object.assign(join.style, { left: '0', top: '0', width: '72px', height: '20px', lineHeight: '18px' });
+      label.style.marginRight = -spacing('Join') + 'px'; join.append(label);
+      join.addEventListener('click', () => ui.onJoinDuel?.(d.id));
+      act.append(join); r.append(node('span', 'ru', d.rules), act);
+    }
+    list.append(r);
+  }
+  layer.append(list); list.scrollTop = keep;
+  const hint = rows.some(d => !d.mine) ? DUELS_PANEL_TEXT.hint : rows.length ? DUELS_PANEL_TEXT.mine : '';
+  const line = msg ?? { text: hint, kind: 'hint' }, s = node('div', `dz-status ${line.kind}`, line.text);
+  s.setAttribute('role', 'status'); at(s, o.status); layer.append(s);
+  // (a status line goes back to the hint when its time is up)
+  if (msg) setTimeout(() => { if (layer!.isConnected && layer!.dataset.k === k) { layer!.dataset.k = ''; duelsPanel(root, o); } }, msg.until - Date.now() + 50);
 }
 
 // The chat folded to its bar on the deck screen (live's capture: CChatWindow mode 2 at 248, 712, 776 x 32, drawn 24
@@ -473,7 +566,7 @@ export function menuBar(ctx: BuildContext, menu: MenuView): WindowSpec {
       key('MENUBAR_MENU_DUEL', 80, 32, only(duelOpen, mainOpen || moveOpen, menu.duel), 'menubar-duel', 'Duel', duelOpen);
       key('MENUBAR_MENU_MOVE', 160, 96, only(moveOpen, mainOpen || duelOpen, menu.move), 'menubar-move', 'Move', moveOpen);
       // (its picture is the stage's: index.ts noticeIconSpecs)
-      if (menu.notice) b.add('CNoticeIconDuel', 'notice', { x: 240, y: 0, w: 48, h: 32 }, {});
+      if (menu.notice) b.add(menu.notice === 'room' ? 'CNoticeIconDuelroom' : 'CNoticeIconDuel', 'notice', { x: 240, y: 0, w: 48, h: 32 }, {});
     }
   }
   return b.spec();
@@ -799,7 +892,9 @@ export function teamNameDialog(ctx: BuildContext, dialog: Extract<HtmlDialog, { 
   const t = dialogInput1.windows[0]!, b = new WindowBuilder(ctx.ids, 'team-name', t.cls, { x: t.x, y: t.y, w: t.w, h: t.h }, { modal: true, z: 51503 });
   const cs = b.fromTemplate(t, true);
   const ok = () => { const name = dialog.name.trim(); if (!name) return; ctx.ui.dialog = null; lists.formTeam(name); ctx.rerender(); };
-  const text = named(cs, 'CWindowTaskText'); if (text) Object.assign(text, { text: 'Enter your Team Name', x: 0, y: 8, w: 336, align: 1 });
+  // the engine's words (live's snapshot: "Enter Team Name." at 0, 8, 336 wide, centred; live's HTML UI leaves this window
+  // undrawn, a live bug: the player sees nothing after Form Team)
+  const text = named(cs, 'CWindowTaskText'); if (text) Object.assign(text, { text: 'Enter Team Name.', x: 0, y: 8, w: 336, align: 1 });
   const input = named(cs, 'CWindowTaskInput'); if (input) Object.assign(input, { x: 8, y: 56, w: 320 });
   const okButton = named(cs, 'CWindowTaskTextSwitch', 'OK'), cancel = named(cs, 'CWindowTaskTextSwitch', 'Cancel');
   if (input) { Object.assign(input, { value: dialog.name, focused: true, maxLen: 16 }); b.on(input, { key: 'team-name', label: 'Team name', text: v => { dialog.name = v; ctx.rerender(); }, enter: ok }); }
@@ -823,13 +918,14 @@ export function invitationDialog(ctx: BuildContext, lists: SocialLists): WindowS
 // player it names, or says no such player was found (main's OK box).
 export function ignoreInputDialog(ctx: BuildContext, lists: SocialLists): WindowSpec | null {
   const d = ctx.ui.ignoreInput; if (!d) return null;
-  const t = dialogInput1.windows[0]!, b = new WindowBuilder(ctx.ids, 'blacklist-input', 'CWindowModelBlacklistInput', { x: t.x, y: t.y, w: t.w, h: t.h }, { modal: true, z: 51503 });
+  // live's own window (CWindowModelBlacklistInput, captured on live: 362, 284, 300 x 200, "Name" over the field, OK /
+  // Cancel), over the Ignore List; OK greyed while the name is looked up
+  const t = blacklistInput.windows[0]!, b = new WindowBuilder(ctx.ids, 'blacklist-input', t.cls, { x: t.x, y: t.y, w: t.w, h: t.h }, { modal: true, z: 51703 });
   const cs = b.fromTemplate(t, true);
   const ok = () => { const name = d.name.trim(); if (!name || d.asked || !lists.find) return; d.asked = name; lists.find(name); ctx.rerender(); };
-  const text = named(cs, 'CWindowTaskText'); if (text) Object.assign(text, { text: d.asked ? 'Looking up the player…' : 'Enter the name of the player to ignore', x: 0, y: 8, w: 336, align: 1 });
-  const input = named(cs, 'CWindowTaskInput'); if (input) Object.assign(input, { x: 8, y: 56, w: 320 });
+  const input = named(cs, 'CWindowTaskInput');
   const okButton = named(cs, 'CWindowTaskTextSwitch', 'OK'), cancel = named(cs, 'CWindowTaskTextSwitch', 'Cancel');
-  if (input) { Object.assign(input, { value: d.name, focused: true, maxLen: 15 }); b.on(input, { key: 'ignore-name', label: 'Player name', text: v => { d.name = v; ctx.rerender(); }, enter: ok }); }
+  if (input) { Object.assign(input, { value: d.name, focused: true }); b.on(input, { key: 'ignore-name', label: 'Player name', text: v => { d.name = v; ctx.rerender(); }, enter: ok }); }
   if (okButton) { okButton.state = d.name.trim() && !d.asked ? 'normal' : 'disabled'; b.on(okButton, { key: 'ignore-name-ok', click: ok }); }
   if (cancel) b.on(cancel, { key: 'ignore-name-cancel', click: () => { ctx.ui.ignoreInput = null; ctx.rerender(); } });
   return b.spec();
@@ -839,7 +935,7 @@ function settleIgnore(ctx: BuildContext, lists: SocialLists): void {
   const d = ctx.ui.ignoreInput, look = lists.lookup; if (!d?.asked || look?.name !== d.asked) return;
   ctx.ui.ignoreInput = null;
   if (look.pid) lists.ignore?.(look.pid);
-  else ctx.ui.dialog = { kind: 'ok', text: `No player called "${look.name}" was found.` };
+  else ctx.ui.dialog = { kind: 'ok', text: 'There are no Players with this name.', small: true };   // live's words and box
 }
 
 /** D-Mail's (and Write Mail's) title: white over the engine's heavy black shadow, 2 px down and right (live). */
@@ -915,7 +1011,8 @@ export function htmlWindows(ctx: BuildContext): WindowSpec[] {
     const room = state.location === 'my-room';
     const place = !ctx.covered && !room && placeBanner(ctx); if (place) out.push(place);
     // live's free-mode lobby has the player list alone, no chat window
-    const chat = !room && state.mode !== 'free' ? chatWindow(ctx) : null; if (chat) out.push(chat);
+    // (its △ / ▽ size it; in the Card Swap, which covers the lobby, it stays short under the trade's windows)
+    const chat = !room && state.mode !== 'free' ? chatWindow(ctx, undefined, !ctx.covered) : null; if (chat) out.push(chat);
     const list = !ctx.covered && !room && (ctx.lobby ? ctx.lobby.list(ctx) : ctx.openPlayer && playerList(ctx, ctx.openPlayer)); if (list) out.push(list);
     const profile = profileWindow(ctx); if (profile) out.push(profile);
     const card = playerCard(ctx, ctx.cardActions ?? {}); if (card) { out.push(card); const flag = cardFlag(ctx, card); if (flag) out.push(flag); }
@@ -937,7 +1034,8 @@ export function htmlWindows(ctx: BuildContext): WindowSpec[] {
   // the Main Menu's social windows belong to the character's session: Return to Title closes them (a Friend List left
   // open over the title stood over Go Online)
   const social = state.scene === 'title' || state.scene === 'characters' ? undefined : ctx.social;
-  const lists = social ? listWindow(ctx, social) : null; if (lists) out.push(lists); else if (!social) ui.lists = null;
+  // (live puts the Team List away while its team name is asked: the name window alone, the list back after it)
+  const lists = social && ui.dialog?.kind !== 'team' ? listWindow(ctx, social) : null; if (lists) out.push(lists); else if (!social) ui.lists = null;
   const invitation = social && state.scene === 'lobby' && !ui.dialog ? invitationDialog(ctx, social) : null; if (invitation) out.push(invitation);
   if (social) settleIgnore(ctx, social);
   const ignoreInput = social ? ignoreInputDialog(ctx, social) : null; if (ignoreInput) out.push(ignoreInput); else if (!social) ui.ignoreInput = null;

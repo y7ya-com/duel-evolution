@@ -18,12 +18,12 @@ describe('HTML lobby state', () => {
   it('counts the duel menu from the authoritative rooms and queue', () => {
     expect(duelCounts(view({ matchmaking: { status: 'idle', counts: { single: 1, match: 2, either: 3 } } }))).toEqual({ auto: 6, waiting: 1, duelling: 1 });
   });
-  it('waits only in an own room or a searching queue, and says so on the bar', () => {
+  it('waits only in an own room or a searching queue; the queue says so on the bar, a created duel by its notice icon (live: no words)', () => {
     expect(ownRoom(view())).toBeUndefined(); expect(waiting(view())).toBe(false);
     const queued = view({ matchmaking: { status: 'searching' } });
     expect(waiting(queued)).toBe(true); expect(waitingMessage({ state: queued, text: n => `t${n}` })).toBe('t4031');
     const hosting = view({ player: { id: 2 } });
-    expect(ownRoom(hosting)?.owner).toBe(2); expect(waitingMessage({ state: hosting, text: n => `t${n}` })).toBe('t5067');
+    expect(ownRoom(hosting)?.owner).toBe(2); expect(waitingMessage({ state: hosting, text: n => `t${n}` })).toBeNull();
     expect(waitingMessage({ state: view() })).toBeNull();
   });
   it('the Duel key opens the menu, or cancels while waiting', () => {
@@ -38,5 +38,11 @@ describe('HTML lobby state', () => {
     expect(listRows(view(), 'friends', [2]).map(r => r.id)).toEqual([2]);
     // live's Show all: the players here, no NPCs
     expect(listRows(view(), 'all', []).map(r => r.kind)).toEqual(['player', 'player']);
+  });
+  it('lists the players of the world\'s other areas too (live: the whole lobby block), the area\'s nearest first by Proximity', () => {
+    const v = view(); (v.lobby as { players?: unknown }).players = [{ id: 2, name: 'Zed', level: 1 }, { id: 3, name: 'Amy', level: 1 }, { id: 7, name: 'Bea', level: 4 }];
+    expect(listRows(v, null, []).map(r => r.name).sort()).toEqual(['Amy', 'Bea', 'Zed']);
+    expect(listRows(v, 'all', []).find(r => r.id === 7)).toMatchObject({ kind: 'player', name: 'Bea', level: 4 });
+    expect(listRows(v, 'near', []).map(r => r.id)).toEqual([3, 2, 7]);
   });
 });

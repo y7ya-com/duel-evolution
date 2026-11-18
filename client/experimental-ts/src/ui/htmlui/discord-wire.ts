@@ -27,8 +27,12 @@ export function discordWire(deps: DiscordWireDeps) {
   const store = deps.store;
   if (deps.search !== undefined) capturePending(deps.search, store, now());
   const ui = deps.ui;
-  const pidOf = (name: string) => deps.state().lobby?.avatars.find(a => a.name === name)?.id ?? null;
-  const challenge = (pid: number) => deps.send({ type: 'duelChallenge', playerId: pid });
+  // (the creator may stand in another area of the world: live's player list, which its Join goes through, lists them too)
+  const pidOf = (name: string) => { const l = deps.state().lobby; return l?.avatars.find(a => a.name === name)?.id ?? l?.players?.find(p => p.name === name)?.id ?? null; };
+  // (as the player card's Send Duel Request: the creator's open room when the lobby lists it, live's room challenge;
+  // a plain duel request finds the creator "busy" in their own room)
+  const challenge = (pid: number) => { const room = deps.state().lobby?.rooms?.find(r => r.owner === pid && !r.opponent);
+    deps.send(room ? { type: 'challengeRoom', roomId: room.id } : { type: 'duelChallenge', playerId: pid }); };
   const say = (text: string) => { ui.dialog = { kind: 'ok', text }; deps.rerender(); };
   const joiner = deeplinkJoiner({ fetch: f, base, inWorld: () => inWorld(deps.state()), pidOf, challenge, say, now, ...(store !== undefined ? { store } : {}) });
   let duelsTimer: Timer | null = null, discordTimer: Timer | null = null, on = false, dead = false, joining = false, gen = 0;
@@ -52,9 +56,13 @@ export function discordWire(deps: DiscordWireDeps) {
   };
   const stop = () => { on = false; gen++; if (duelsTimer) clearT(duelsTimer); if (discordTimer) clearT(discordTimer); duelsTimer = discordTimer = null; };
 
+  // (live, main's chat.js hub.join: the Duels panel's line says what a Join is doing, then its answer, for 30 s)
+  const status = (text: string, kind: 'info' | 'error' = 'info') => { ui.duelsStatus = { text, kind, until: now() + 30000 }; deps.rerender(); };
   ui.onJoinDuel = id => {
     if (joining) return; joining = true;
-    void joinDuel(f, id, pidOf, challenge, base).then(r => { joining = false; if (!r.ok) say(r.message); });
+    const name = ui.duels?.find(d => d.id === id)?.name;
+    status(name ? `Sending a duel request to ${name}…` : 'Sending a duel request…');
+    void joinDuel(f, id, pidOf, challenge, base).then(r => { joining = false; status(r.ok ? `Duel request sent to ${r.name}. Waiting for their answer.` : r.message, r.ok ? 'info' : 'error'); });
   };
   ui.onDiscordCard = p => {
     const card = deps.state().profileDetail;

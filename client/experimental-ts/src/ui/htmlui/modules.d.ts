@@ -149,6 +149,10 @@ declare module '@htmlui/crafting/model.js' {
 declare module '@web-shell/starter.js' {}
 declare module '@html-ui/ui.js' {
   export function loadGlyphs(base?: string): Promise<unknown>;
+  /** A text's width in the engine's glyph cells (its DejaVu advances; no DOM). */
+  export function measure(s: string, F?: unknown): number;
+  /** The letter spacing that draws Arial as wide as the engine's text (needs the DOM). */
+  export function spacing(s: string, px?: number): number;
   export const SHEET: { window: unknown; button: unknown; check: unknown; caret: unknown };
   /** A sheet's src rect onto dst, sampled as the game samples it (bilinear, D3D8 pixel centres). */
   export function sprite(parent: HTMLElement, sheet: unknown, sx: number, sy: number, sw: number, sh: number, x: number, y: number, w: number, h: number, alpha?: number): HTMLElement;
