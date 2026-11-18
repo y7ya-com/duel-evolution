@@ -31,6 +31,7 @@ import { fieldThemeKindForPasscode } from './duel/theme';
 import { describeNotice } from './duel/text';
 import { DuelTextCatalog } from './duel/text';
 import { DuelTimeline } from './duel/timeline';
+import { PacedQueue } from './duel/paced';
 import { DuelCueQueue } from './duel/cues';
 import { DuelAudioDirector } from './duel/audio';
 import { duelRewards, pduNpcRecord, type NpcRecord, type ProfileSnapshot } from './duel/rewards';
@@ -144,12 +145,16 @@ export class ClientApp implements ClientController {
   private get records(): DuelRecordStore { return this.recordStore ??= this.options.duelRecords ?? idbRecordStore(); }
   private pvpOpponent: string | null = null;
   private chatSeen: SessionState['chat'] | null = null;
-  private timerSeen: unknown = null; private timerSeenAt = 0;
   /** Notice ids only grow (also across the games of a match), so a dismissed notice never hides a later one. */
   private noticeIds = 0;
   private nextOpponent: string | null = null;
   private duelChallengeRequest: Promise<{ room: number }> | null = null;
+  /** The information box shown (a packet's waits for the board to reach it: duelPaced). */
   private duelNotice: { id: number; text: string } | null = null;
+  /** A packet's Duel Log lines, information box, clock and Field Spell, held until the board reaches that packet. */
+  private duelPaced = new PacedQueue<{ log?: string[]; notice?: { id: number; text: string }; timer?: NonNullable<DuelView['timer']> | null; field?: number }>();
+  /** The duel clock shown: the last one the board has reached, from when it arrived (the server's clock runs from then). */
+  private duelTimer: NonNullable<DuelView['timer']> | null = null;
   private sideboard: DeckView | null = null;
   private sideboardRound: number | null = null;
   private duelState: DuelState = createDuelState();
@@ -225,6 +230,7 @@ export class ClientApp implements ClientController {
     this.timeline.setReducedMotion(this.view.settings.reducedMotion || !this.frameRequest);
     this.duelAudio.setReducedMotion(this.view.settings.reducedMotion || !this.frameRequest);
     this.duelAudio.setMuted(!options.audio || this.view.settings.sound === 0);
+    globalThis.document?.addEventListener?.('visibilitychange', this.onVisibility);
     if (options.audio) { options.audio.setVolumes(this.view.settings); this.view.audio = options.audio.getState(); }
     this.social = new SocialController({ send: command => this.sendGameplay(command), onChange: socialDetail => this.patch({ socialDetail }), ...(options.socialBox ? { box: options.socialBox } : {}) });
     // A cosmetics response carries the authoritative wallet: the shop's wallet plate follows it.
@@ -480,7 +486,8 @@ export class ClientApp implements ClientController {
       const fresh = this.chatSeen ? state.chat.filter(m => !this.chatSeen!.includes(m)) : []; this.chatSeen = state.chat;
       // Channel 9 is the server's duel text log (the duel screen keeps its own); 10 tag relay identities.
       const line = fresh.filter(m => m.pid === 0 && m.channel !== 9 && m.channel !== 10 && m.text.trim()).at(-1);
-      if (line && this.duelState.status === 'playing' && ['duel', 'sideboarding'].includes(state.phase)) { this.duelNotice = { id: ++this.noticeIds, text: line.text.trim() }; this.duelLog = [...this.duelLog, line.text.trim()].slice(-100); this.syncDuel(); }
+      // (after what the board is still playing: the duel goes on to its end on screen first)
+      if (line && this.duelState.status === 'playing' && ['duel', 'sideboarding'].includes(state.phase)) { this.duelPaced.push(this.duelState.sequence, { notice: { id: ++this.noticeIds, text: line.text.trim() }, log: [line.text.trim()] }); this.syncDuel(); }
     }
     if ((state.limits ?? null) !== this.limitsRef) {
       // the server's forbidden/limited list: the deck's marks, limits and checks follow it (CLimitationList)
@@ -574,7 +581,8 @@ export class ClientApp implements ClientController {
       relay: this.project('relay',state.relay,relay => relay ? { active:[...relay.active] as [0|1,0|1], self:relay.self, players:relay.players.map(p => ({pid:p.pid,name:p.name})),canAct:relay.canAct } : undefined),
       matchmaking:this.project('matchmaking',state.matchmaking,matchmaking=>({...matchmaking,opponent:matchmaking.opponent ? {pid:matchmaking.opponent.pid,name:matchmaking.opponent.name,level:matchmaking.opponent.level} : null})),
       match: state.match ? { round:state.match.round, scores:[...state.match.scores], complete:state.match.complete } : undefined,
-      sideboarding: state.match?.stage === 'sideboarding' && !state.match.complete && this.sideboard ? {
+      // (the Card Swap once the game's end is on screen: after the board has played its last commands)
+      sideboarding: state.match?.stage === 'sideboarding' && !state.match.complete && this.sideboard && !this.timeline.pending ? {
         deck:structuredClone(this.sideboard), original:{ name:'Match Deck', main:[...state.match.original.main], side:[...(state.match.original.side ?? [])], extra:[...state.match.original.extra] },
         round:state.match.round, scores:[...state.match.scores], deadline:state.match.sideboardDeadline,
         ready:false,
@@ -637,12 +645,19 @@ export class ClientApp implements ClientController {
     const previous = observer && !this.duelState.observer ? { ...this.duelState, observer } : this.duelState;
     this.duelState = reduceDuelMessage(previous, message);
     const npcResult = this.npcResult; try { this.npcResult = reduceNpcResultContext(npcResult, this.duelState, message); } catch { /* malformed packet: keep the last context */ }
-    const names = this.duelNames();
-    this.duelLog = [...this.duelLog, ...this.duelState.events.filter(e => e.sequence > previous.sequence).map(e => describeEvent(this.duelState, this.catalog, names, e, this.options.duelTexts)).filter((line): line is string => line !== null)].slice(-100);
-    for (const event of this.duelState.events) if (event.sequence > previous.sequence && event.type === 'notice') this.duelNotice = { id: ++this.noticeIds, text: describeNotice(event.params[0] ?? 0, this.options.duelTexts) };
-    for(const event of this.duelState.events) if(event.sequence>previous.sequence && event.type==='engine:14') this.fieldPasscode=event.params[0];
+    const names = this.duelNames(), fresh = this.duelState.events.filter(e => e.sequence > previous.sequence);
+    // what this packet shows besides the board (its log lines, information box, clock, Field Spell) waits for the board
+    // to reach it, as its cues do: live's engine shows each command as it plays it
+    const fact: { log?: string[]; notice?: { id: number; text: string }; timer?: NonNullable<DuelView['timer']> | null; field?: number } = {};
+    const lines = fresh.map(e => describeEvent(this.duelState, this.catalog, names, e, this.options.duelTexts)).filter((line): line is string => line !== null);
+    for (const event of fresh) if (event.type === 'notice') fact.notice = { id: ++this.noticeIds, text: describeNotice(event.params[0] ?? 0, this.options.duelTexts) };
+    for (const event of fresh) if (event.type === 'engine:14') fact.field = event.params[0]!;
     // (a duel called off before it began says so in its own box: duelCalledOff)
-    if (!this.game?.state.duelCalledOff) for (const event of this.duelState.events) if (event.sequence > previous.sequence && event.type === 'server-notice') { const text = serverInfoText(event.params[0] ?? 0, event.player === 1, names[1], names[0]); if (text) { this.duelNotice = { id: ++this.noticeIds, text }; this.duelLog = [...this.duelLog, text].slice(-100); } }
+    if (!this.game?.state.duelCalledOff) for (const event of fresh) if (event.type === 'server-notice') { const text = serverInfoText(event.params[0] ?? 0, event.player === 1, names[1], names[0]); if (text) { fact.notice = { id: ++this.noticeIds, text }; lines.push(text); } }
+    if (lines.length) fact.log = lines;
+    // the clock runs on the server from when its message came (0x6461)
+    if (message.id === 0x6461 && this.duelState.timer !== previous.timer) fact.timer = this.duelState.timer ? { ...this.duelState.timer, at: Date.now() } : null;
+    if (Object.keys(fact).length) this.duelPaced.push(previous.sequence, fact);
     this.timeline.enqueue(previous, this.duelState, this.duelCues.collect(previous, this.duelState));
     if (this.duelState.sequence > previous.sequence) this.duelAudio.enqueue(previous,this.duelState);
     if (!this.replay && this.duelState.result && [1,2,3].includes(this.duelState.result.result)) this.npc.afterDuel(this.duelState.result.result as 1|2|3);
@@ -812,7 +827,7 @@ export class ClientApp implements ClientController {
     this.timeline = new DuelTimeline(this.duelState, { reducedMotion: this.view.settings.reducedMotion || !this.frameRequest });
     this.duelAudio.reset(this.duelState.sequence); this.duelCues.reset(); this.duelPortraits = [undefined, undefined];
     this.settledDuel = null;
-    this.fieldPasscode=0;this.fieldAudioSlot=11; this.duelIsPvp = false; this.duelNotice = null;
+    this.fieldPasscode=0;this.fieldAudioSlot=11; this.duelIsPvp = false; this.duelNotice = null; this.duelPaced.clear(); this.duelTimer = null;
     const profile = this.game?.state.profile; this.duelStartProfile = profile ? { level: profile.level, score: profile.score, mp: profile.mp } : null; this.duelNpcRecord = null;
   }
   /** The result board's extras once the duel is over: the profile's change since it began, and an NPC duel's record. */
@@ -822,9 +837,9 @@ export class ClientApp implements ClientController {
     return { ...(rewards ? { rewards } : {}), ...(record ? { npcRecord: { name: this.duelNames()[1], wins: record.wins, losses: record.losses, draws: record.draws } } : {}) };
   }
   private syncDuel(): void {
-    const background = this.duelBackground();
-    this.settledDuel = { ...projectDuel(this.duelState, this.catalog, this.duelNames(), this.submittedPrompt, this.options.duelTexts, this.lastDuelAction), log: this.duelLog, ...(background ? { background } : {}), ...(this.duelNotice ? { notice: this.duelNotice } : {}),
-      spectating: (this.game?.state.spectating ?? false) || !!this.replay, ...(this.duelState.timer ? { timer: { ...this.duelState.timer, at: this.timerAt() } } : {}) };
+    // (its log, information box, clock and background are the board's: renderDuelFrame)
+    const { timer: _timer, ...settled } = projectDuel(this.duelState, this.catalog, this.duelNames(), this.submittedPrompt, this.options.duelTexts, this.lastDuelAction);
+    this.settledDuel = { ...settled, spectating: (this.game?.state.spectating ?? false) || !!this.replay };
     this.renderDuelFrame(); this.scheduleAnimation();
   }
   /** Each duelist's avatar bytes for the waist-up portraits, kept from the first time they are known in this duel. */
@@ -836,8 +851,6 @@ export class ClientApp implements ClientController {
       theirs ?? (this.duelIsPvp ? state.players.find(p => p.name === opponent && p.pid !== self)?.parts : state.npcs.find(n => n.id === this.npc.state.npc?.id)?.parts)];
     return this.duelPortraits;
   }
-  /** When the duel's current clock reading arrived. */
-  private timerAt(): number { if (this.duelState.timer !== this.timerSeen) { this.timerSeen = this.duelState.timer; this.timerSeenAt = Date.now(); } return this.timerSeenAt; }
   private duelNames(): [string, string] {
     if (this.replay) return [...this.replay.names];
     const watched = this.game?.state.spectating ? this.game.state.watchNames : null; if (watched) return [...watched];
@@ -872,7 +885,13 @@ export class ClientApp implements ClientController {
    * then duel_filed_01..38): the area's own (Map_d02 -> duelbg_d_02, Map_a03 -> duelbg_a_03: live's lazyfs.js pins the
    * same file), which a Field Spell replaces with duel_filed_NN (theme.ts, the exe's 0x00704100 table). My Room has no
    * area picture: the table's first line. */
+  private backgroundMemo: { field: number; area: number | undefined; value: string | null } | null = null;
   private duelBackground(): string | null {
+    const area = this.game?.state.area, memo = this.backgroundMemo;
+    if (memo && memo.field === this.fieldPasscode && memo.area === area) return memo.value;
+    const value = this.computeDuelBackground(); this.backgroundMemo = { field: this.fieldPasscode, area, value }; return value;
+  }
+  private computeDuelBackground(): string | null {
     if (!this.options.assets) return null;
     let kind: number | null = 0;
     try { kind = fieldThemeKindForPasscode(this.fieldPasscode, pc => this.options.cardDetails?.get(pc)?.internalId); } catch { kind = 0; }
@@ -882,8 +901,16 @@ export class ClientApp implements ClientController {
   }
   private renderDuelFrame(): void {
     if (!this.settledDuel || this.disposed) return;
+    for (const fact of this.duelPaced.take(this.timeline.acknowledgedThrough)) {
+      if (fact.log) this.duelLog = [...this.duelLog, ...fact.log].slice(-100);
+      if (fact.notice) this.duelNotice = fact.notice;
+      if (fact.timer !== undefined) this.duelTimer = fact.timer;
+      if (fact.field !== undefined) this.fieldPasscode = fact.field;
+    }
     const sample = this.timeline.sample(), timed = applyTimeline(this.settledDuel,sample,this.catalog,!!this.duelState.observer), relay = this.game?.state.relay;
-    const parts = this.duelParts(), duel = { ...timed, ...this.duelResultExtras(), cues: this.duelCues.release(this.timeline.acknowledgedThrough),
+    const background = this.duelBackground(), shown = { ...timed, log: this.duelLog, ...(background ? { background } : {}), ...(this.duelNotice ? { notice: this.duelNotice } : {}), ...(this.duelTimer ? { timer: this.duelTimer } : {}) };
+    // (the result board's rewards with the result: once the board has played everything)
+    const parts = this.duelParts(), duel = { ...shown, ...(sample.pending ? {} : this.duelResultExtras()), cues: this.duelCues.release(this.timeline.acknowledgedThrough),
       players: timed.players.map((p, i) => parts[i] ? { ...p, parts: parts[i] } : p) as unknown as typeof timed.players };
     for (const cue of this.duelAudio.consumeSample(sample)) {
       const play = () => { if (!this.disposed) void this.options.audio?.playEffect(cue.path, cue.gain).catch(error=>this.failure(error)); };
@@ -906,9 +933,24 @@ export class ClientApp implements ClientController {
       // 8-frame glide from the hand to its zone takes 267 ms on live, a hand card's lift 10 frames in 333 ms)
       const delta = this.lastFrame === null ? 1 : Math.max(0, Math.min(30, (time - this.lastFrame) * 30 / 1000));
       this.lastFrame = time; this.timeline.advance(delta); this.renderDuelFrame();
-      if (this.timeline.pending) this.scheduleAnimation(); else this.lastFrame = null;
+      if (this.timeline.pending) this.scheduleAnimation(); else { this.lastFrame = null; this.duelSettled(); }
     });
   }
+  /** The board has played everything it was sent: what waits for that (a match's Card Swap) comes now. */
+  private duelSettled(): void {
+    const game = this.game;
+    if (game && !this.view.sideboarding && game.state.match?.stage === 'sideboarding' && !game.state.match.complete) this.updateSession(game.state);
+  }
+  /** A tab put away stops its frames: what the board had left to play when it comes back is skipped (bounded, as reduced
+   *  motion), so the duel's end and its questions are not held behind a backlog the player never saw. */
+  private hiddenAt = 0;
+  private readonly onVisibility = (): void => {
+    const doc = globalThis.document; if (this.disposed || !doc) return;
+    if (doc.visibilityState === 'hidden') { this.hiddenAt = Date.now(); return; }
+    const away = this.hiddenAt ? Date.now() - this.hiddenAt : 0; this.hiddenAt = 0;
+    if (away < 1000 || !this.timeline.pending) return;
+    this.cancelAnimation(); this.timeline.skip(); this.renderDuelFrame(); this.duelSettled();
+  };
   private syncAudioScene(): void {
     const audio = this.options.audio;
     if (!audio) return;
@@ -918,10 +960,12 @@ export class ClientApp implements ClientController {
       if(field!==null) this.fieldAudioSlot=field;
     }
     // Scene slots have source evidence in recomp/audio-slots.md; duel base selection is provisional.
+    // (the duel's as the board shows it: the result's once its end is on screen, the LP as the gauges count them)
+    const duel = this.view.duel, lp = duel ? [duel.players[0].lp, duel.players[1].lp] : [this.duelState.sides[0].lp, this.duelState.sides[1].lp];
     const slot = scene === 'title' ? 0 : scene === 'characters' ? 3 : scene === 'deck' ? 1
-      : scene === 'duel' ? this.duelState.result ? this.duelState.result.result === 1 ? 28 : this.duelState.result.result === 2 ? 27 : 26
-      : this.view.preparation ? 10 : this.duelState.sides[0].lp - this.duelState.sides[1].lp >= 3000 ? 24
-      : this.duelState.sides[1].lp - this.duelState.sides[0].lp >= 3000 ? 25 : this.fieldAudioSlot
+      : scene === 'duel' ? duel?.ended ? duel.ended === 'Victory' ? 28 : duel.ended === 'Defeat' ? 27 : 26
+      : this.view.preparation ? 10 : lp[0]! - lp[1]! >= 3000 ? 24
+      : lp[1]! - lp[0]! >= 3000 ? 25 : this.fieldAudioSlot
       : [4,5,6,7].includes(this.game?.state.area ?? 4) ? 6 : 5;
     if (slot >= 0 && slot !== this.audioSlot) {
       this.audioSlot = slot;
@@ -1362,6 +1406,7 @@ export class ClientApp implements ClientController {
   }
   dispose(): void {
     if (this.disposed) return;
+    globalThis.document?.removeEventListener?.('visibilitychange', this.onVisibility);
     this.disposed = true; ++this.epoch; this.cancelAnimation(); this.stopWorld(); this.world.dispose();this.worldRuntime?.dispose(); this.duelAudio.dispose();
     const game = this.game;
     const cleanup = [() => game?.dispose(), () => this.social.dispose(), () => this.profile.dispose(), () => this.npc.dispose(), () => this.account.dispose(), () => this.online.dispose(), () => this.tagLobby.dispose(), () => this.services.dispose(), () => this.scope.dispose(), () => this.avatars?.dispose(), () => this.scenes?.dispose(), () => this.options.assets?.dispose(), () => this.options.audio?.dispose()];

@@ -12,6 +12,8 @@ export const TIMING_EVIDENCE = {
 export interface CardPlacement {
   uid: number; owner: Player; player: Player; zone: Zone; index: number;
   faceUp: boolean; defense: boolean; passcode: number | null; handCount: number;
+  /** Its ATK / DEF, counters and turn count as of this packet (a change shows when the board reaches it). */
+  attack: number | null; defence: number | null; counters: Readonly<Record<number, number>>; turns: number;
 }
 interface DisplayFrame { cards: CardPlacement[]; lp: [number, number]; turn: number; turnPlayer: Player; phase: DuelState['phase'] }
 interface Batch {
@@ -70,7 +72,8 @@ function bounded(value: number | undefined, fallback: number, max: number): numb
 function capture(state: DuelState): DisplayFrame {
   return { cards: visibleCards(state).map((card: DuelCard) => ({ uid: card.uid, owner: card.owner,
     player: card.player, zone: card.zone, index: card.index, faceUp: card.faceUp, defense: card.defense,
-    passcode: card.passcode, handCount: state.sides[card.player].hand.length })),
+    passcode: card.passcode, handCount: state.sides[card.player].hand.length,
+    attack: card.attack, defence: card.defence, counters: card.counters, turns: card.turns })),
     lp: [state.sides[0].lp, state.sides[1].lp], turn: state.turn, turnPlayer: state.turnPlayer, phase: state.phase };
 }
 function samePose(a: CardPlacement, b: CardPlacement): boolean {

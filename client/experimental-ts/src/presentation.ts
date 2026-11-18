@@ -228,6 +228,11 @@ export function interpretResponse(state: DuelState, id: string, response?: DuelR
 }
 export function interpretAction(state: DuelState, id: string): EngineResponse { return actionResponse(id, state); }
 
+function timedCard(catalog: CardCatalog, at: CardPlacement): Omit<DuelView['cards'][number], 'controller' | 'zone' | 'index' | 'faceUp'> {
+  const counters = Object.entries(at.counters).filter(([, count]) => count > 0).map(([kind, count]) => ({ kind: Number(kind), count }));
+  return { ...catalog.card(at.passcode!), ...(at.attack !== null ? { attack: at.attack } : {}), ...(at.defence !== null ? { defense: at.defence } : {}),
+    ...(at.faceUp && counters.length ? { counters } : {}), ...(at.faceUp && at.turns > 0 ? { turnCounter: at.turns } : {}) };
+}
 /** Overlay presentation poses on a view without changing rules, response masks, or server state. */
 export function applyTimeline(view: DuelView, sample: TimelineSample, catalog: CardCatalog, observer = false): DuelView {
   const current = new Map(view.cards.map(card => [Number(card.id), card]));
@@ -247,7 +252,9 @@ export function applyTimeline(view: DuelView, sample: TimelineSample, catalog: C
     // A disappearing token may no longer exist in the authoritative board; its last public identity is safe to paint.
     const shown = item.progress < 0.5 ? from : to;
     const known = shown.passcode !== null && (shown.faceUp || shown.player === 0 && !observer && ['hand', 'extra', 'monster', 'spell'].includes(shown.zone));
-    const meta = known ? existing?.passcode === shown.passcode ? existing : catalog.card(shown.passcode!) : { id: String(item.uid), name: 'Hidden card' };
+    // settled, the board's card is the latest packet's; while it plays, its ATK / DEF, counters and turn count are the
+    // playing packet's (projectDuel's rules on its values), so a change shows when the board reaches it
+    const meta = !known ? { id: String(item.uid), name: 'Hidden card' } : !sample.pending && existing?.passcode === shown.passcode ? existing : timedCard(catalog, shown);
     return { ...meta, id: String(item.uid), controller: target.player, zone: zones[target.zone], index: target.index,
       faceUp, position: target.defense ? 'defense' as const : 'attack' as const,
       // the card's size goes with it, as the original's CCard (a hand card's 94 x 138 shrinks to the zone's 48 x 70 as it
@@ -273,8 +280,9 @@ export function applyTimeline(view: DuelView, sample: TimelineSample, catalog: C
     return [{ type, player: event.player, progress, ...(card ? { cardId: String(card.uid) } : {}),
       ...(type === 'damage' || type === 'recover' ? { value: event.params[0] } : {}) }];
   });
-  // While the board is still animating, its choices (and what they ask) wait with it.
-  const { instruction: _instruction, ...settled } = view;
+  // While the board is still animating, its choices (and what they ask) wait with it, and so does the duel's end: live's
+  // engine plays every command (the last attack, the LP counting to 0, a destroy) before the result's.
+  const { instruction: _instruction, ended: _ended, ...settled } = view;
   // the phase bar and turn counter go with the board (live's engine moves them as it plays each command)
   const timing = sample.pending ? { turn: sample.turn, turnPlayer: sample.turnPlayer, phase: sample.phase ?? 'Preparing' } : {};
   return { ...(sample.pending ? settled : view), ...timing, cards, effects, players: [
