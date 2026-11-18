@@ -29,7 +29,7 @@ export { activeRules, buildRules, setActiveRules, type RuleSet } from "./ruleSet
 export type Tier = "easy" | "hard" | "elite";
 
 /** Which AI played, in the duel record (npcDuelLog.ts): one more whenever the AI's play changes. */
-export const NPC_AI_REV = 30;
+export const NPC_AI_REV = 31;
 
 /** Per-NPC personalities (NPC id -> style). */
 export const STYLE_BY_NPC: Record<number, BotStyle> = {};
@@ -101,6 +101,8 @@ export interface NpcAiOptions {
   spy?: boolean;
   /** Read the opposing hand for Heart of the Cards decisions. */
   handAwareDraw?: boolean;
+  /** Full vision without the elite's search: Yugi's opening preview plays the opponent as one who reads his set cards. */
+  vision?: boolean;
   /** The live duel for the elite's forks (null/absent = no search). */
   link?: () => ForkLink | null;
   /** The live duel's full state (duelcore `query`), for spy vision only. */
@@ -129,9 +131,9 @@ export class NpcAi {
       search = {
         link: o.link,
         // the NPC's own seat plays on as the NPC would (its strength and style); the other seat at full strength
-        makePolicy: (seat, own, peek) => new HeuristicBot(seat, o.cards, own
+        makePolicy: (seat, own, peek, vision) => new HeuristicBot(seat, o.cards, own
           ? { npcId: o.npcId, deck: (() => { const d = o.link?.()?.decks[seat]; return d ? [...d.main, ...(d.extra ?? [])] : undefined; })(), heartSkill: o.link?.()?.opts.heart_of_cards === seat, spy, peek, rules, strength: cfg.strength, style }
-          : { spy, peek, rules }),
+          : { spy: spy || !!vision, peek, rules }),
         budgetMs: cfg.budgetMs,
         maxCandidates: cfg.maxCandidates,
         spy,
@@ -144,7 +146,7 @@ export class NpcAi {
     // its own deck list (the duel it plays: inMyDeck in the rules)
     const own = o.link?.()?.decks[o.seat];
     const deck = own ? [...own.main, ...(own.extra ?? [])] : undefined;
-    this.bot = new HeuristicBot(o.seat, o.cards, { npcId: o.npcId, deck, heartSkill: o.link?.()?.opts.heart_of_cards === o.seat, seed: o.seed, spy, peek: spy ? o.peek : undefined, search, blunder: cfg.blunder, rules, strength: cfg.strength, style });
+    this.bot = new HeuristicBot(o.seat, o.cards, { npcId: o.npcId, deck, heartSkill: o.link?.()?.opts.heart_of_cards === o.seat, seed: o.seed, spy: spy || !!o.vision, peek: spy || o.vision ? o.peek : undefined, search, blunder: cfg.blunder, rules, strength: cfg.strength, style });
   }
 
   observe(ev: Json): void {

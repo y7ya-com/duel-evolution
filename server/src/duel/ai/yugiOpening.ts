@@ -23,7 +23,10 @@ const openingCounters: Record<YugiMatchup, readonly [string, string]> = {
   "apprentice-control": ["nobleman of crossout", "royal decree"],
 };
 const finalists = 3;
-const maxPreviewPrompts = 140;
+// Through both players' second turns: a hand of set answers looked best at turn 3,
+// before the opponent's removal had a turn to meet it.
+const horizonTurn = 5;
+const maxPreviewPrompts = 400;
 let previewId = 0;
 
 /** Score a possible opening against an ordinary shuffled opponent deck. This
@@ -35,7 +38,7 @@ function preview(dc: DuelCore, decks: Deck[], opts: NewOptions, npcId: number,
   const config: NewOptions = { ...opts, seed, brain: [true, true], bot: [false, false],
     record: false, heart_opening: opening };
   const pilots = [
-    new NpcAi({ npcId: 0, seat: 0, cards, seed, tier: "hard" }),
+    new NpcAi({ npcId: 0, seat: 0, cards, seed, tier: "hard", vision: true, peek: () => dc.query(id) }),
     new NpcAi({ npcId, seat: 1, cards, seed, tier: "hard", link: () => ({ dc, decks, opts: config, log: [] }) }),
   ];
   try {
@@ -44,7 +47,7 @@ function preview(dc: DuelCore, decks: Deck[], opts: NewOptions, npcId: number,
       const next = events.at(-1);
       if (next?.ev === "end") return next.winner === 1 ? 20000 : next.winner === 0 ? -20000 : 0;
       if (next?.ev !== "select" || next.retry) return null;
-      if (Number(next.turn) >= 3) return pilots[1]!.bot.valueOf(dc.query(id), true);
+      if (Number(next.turn) >= horizonTurn) return pilots[1]!.bot.valueOf(dc.query(id), true);
       for (const event of events) for (const pilot of pilots) pilot.observe(event);
       const seat = Number(next.player);
       const choice = pilots[seat]?.choose(next);
@@ -72,11 +75,16 @@ export function chooseYugiOpening(dc: DuelCore, decks: Deck[], opts: NewOptions,
   const [counter, alternate] = matchup ? openingCounters[matchup.id] : ["book of moon", "torrential tribute"];
   const body = npcId === 52 ? "skilled dark magician" : npcId === 53 ? "beta the magnet warrior" : "obnoxious celtic guard";
   const removal = opts.first === 1 ? "book of moon" : "raigeki";
+  const graveDeck = matchup?.id === "lightsworn" || matchup?.id === "dark-world";
   const recipes = [
     ["pot of greed", body, counter, "solemn judgment", removal],
     ["pot of greed", "breaker the magical warrior", alternate, "solemn judgment", "raigeki"],
-    ["graceful charity", "banisher of the radiance", counter, "compulsory evacuation device", "book of moon"],
+    // Every recipe brings an attacker: production opened with five reactive cards and no monster.
+    ["graceful charity", graveDeck ? "banisher of the radiance" : body, counter, "compulsory evacuation device", "book of moon"],
     ["graceful charity", body, alternate, "giant trunade", "monster reborn"],
+    // Proactive hands: removal that resolves on Yugi's own turn instead of set cards waiting for a backrow-heavy deck.
+    ["pot of greed", "heavy storm", "raigeki", body, "monster reborn"],
+    ["graceful charity", "breaker the magical warrior", body, "dark hole", counter],
     ...(themes[npcId] ?? []).map(line => [...line, counter, "pot of greed"]),
     ...(matchup?.id === "gladiator-beast" ? [[
       "obelisk the tormentor", "valkyrion the magna warrior", "alpha the magnet warrior", "beta the magnet warrior", "gamma the magnet warrior",

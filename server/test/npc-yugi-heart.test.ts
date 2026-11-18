@@ -114,13 +114,25 @@ it("uses the full virtual pool to complete Yugi's Dark Paladin fusion", () => {
 }, 60000);
 
 it("completes the Magnet Warriors and wins through Valkyrion in battle", () => {
+  // No burn or removal in this pool: with them, 500 LP is a one-card win (the next test).
   const p = play(dc, { npcId: 53, heart_of_cards: 1, first: "player", turns: 2,
+    heart_pool: ["Gamma The Magnet Warrior", "Marshmallon", "Mirror Force", "Pot of Greed"].map(code),
     npc: { hand: ["Alpha The Magnet Warrior", "Beta The Magnet Warrior", "Valkyrion the Magna Warrior"], deck: Array(20).fill("Petit Moth") },
     player: { lp: 500, mzone: ["Blue-Eyes White Dragon"] } });
   expect(p.npc.filter(x => x.sel.heart_of_cards).map(x => x.resp?.card)).toContain(code("Gamma The Magnet Warrior"));
   expect(p.msgs.some(m => m.type === "SPSUMMONING" && m.code === code("Valkyrion the Magna Warrior"))).toBe(true);
   expect(p.end?.winner).toBe(1);
   expect(p.end?.reason).not.toBe(16);
+});
+
+it("draws and casts a burn spell that ends the duel before any battle", () => {
+  const p = play(dc, { npcId: 53, heart_of_cards: 1, first: "player", turns: 2,
+    npc: { hand: ["Alpha The Magnet Warrior", "Beta The Magnet Warrior", "Valkyrion the Magna Warrior"], deck: Array(20).fill("Petit Moth") },
+    player: { lp: 500, mzone: ["Blue-Eyes White Dragon"], szone: ["Waboku", "Mirror Force"] } });
+  const drawn = p.npc.filter(x => x.sel.heart_of_cards).map(x => dc.cardDB.name(Number(x.resp?.card)));
+  expect(["Ookazi", "Tremendous Fire", "Poison of the Old Man", "Final Flame", "Hinotama"]).toContain(drawn[0]);
+  expect(npcActivated(p, drawn[0]!)).toBe(true);
+  expect(p.end?.winner).toBe(1);
 });
 
 it("uses an existing Pot of Greed to draw duel pieces without chaining new draw cards", () => {

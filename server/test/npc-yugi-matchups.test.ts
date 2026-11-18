@@ -66,3 +66,35 @@ it("uses Light-Imprisoning Mirror in response to Lyla's removal effect", () => {
   expect(npcActivated(p, "Light-Imprisoning Mirror")).toBe(true);
   expect(leftField(p, "Light-Imprisoning Mirror")).toBe(false);
 });
+
+it("does not draw a set trap into a deck built to remove backrow", () => {
+  // Production (duels 2378-2381): five Mirror Forces against Gladiator Beasts, each destroyed by Gyzarus, MST or
+  // Heavy Storm, or negated by Solemn Judgment, before it destroyed anything.
+  const hate = ["Mystical Space Typhoon", "Mystical Space Typhoon", "Heavy Storm", "Solemn Judgment", "Solemn Judgment",
+    "Breaker the Magical Warrior", "Gladiator Beast Bestiari", "Gladiator Beast Bestiari", "Gladiator Beast Darius"];
+  const p = play(dc, {
+    npcId: 53, heart_of_cards: 1, handAwareDraw: true, first: "player", turns: 2,
+    heart_pool: ["Mirror Force", "Swords of Revealing Light", "Skilled Dark Magician", "Raigeki"].map(code),
+    npc: { hand: ["Beta The Magnet Warrior"] },
+    player: { hand: ["Gladiator Beast Laquari", "Shrink"], mzone: ["Gladiator Beast Darius"], deck: [...hate, ...hate, ...hate],
+      extra: ["Gladiator Beast Gyzarus", "Gladiator Beast Gyzarus", "Gladiator Beast Heraklinos"] },
+  });
+  const drawn = p.npc.filter(x => x.sel.heart_of_cards).map(x => dc.cardDB.name(Number(x.resp?.card)));
+  expect(drawn.length).toBeGreaterThan(0);
+  expect(drawn).not.toContain("Mirror Force");
+  expect(drawn).not.toContain("Swords of Revealing Light");
+});
+
+it("flips a direct attacker with Book of Moon instead of taking the hit", () => {
+  // Production (duel 2378): Book of Moon held through Prisma's 1700 direct attack and cast after the battle; Yugi lost
+  // two turns later to exactly that much damage.
+  const p = play(dc, {
+    npcId: 53, heart_of_cards: 1, handAwareDraw: true, first: "npc", turns: 2,
+    heart_pool: [code("Marshmallon")],
+    npc: { lp: 3150, szone: ["Book of Moon"] },
+    player: { mzone: ["Elemental HERO Prisma"] },
+    player_policy: attacker,
+  });
+  expect(npcActivated(p, "Book of Moon")).toBe(true);
+  expect(p.msgs.some(m => m.type === "DAMAGE" && Number(m.player) === 1)).toBe(false);
+});

@@ -38,7 +38,7 @@ export interface SearchAccess {
   /** The live duel at decision time (null = no fork possible: plain heuristic). */
   link: () => ForkLink | null;
   /** A rollout pilot for a seat (`own` = the deciding NPC: its own rules), reading the fork through `peek`. */
-  makePolicy: (seat: number, own: boolean, peek: () => Json) => HeuristicBot;
+  makePolicy: (seat: number, own: boolean, peek: () => Json, vision?: boolean) => HeuristicBot;
   /** A safety ceiling per decision (ms), never reached in normal play: the search is bounded by maxCandidates, not by
    *  the clock, so the same position gets the same answer on any machine (production's slower CPU played different
    *  lines from the lab's under a 150 ms clock budget). */
@@ -117,7 +117,9 @@ function forkPlay(access: SearchAccess, seat: number, live: Json, prompt: Prompt
   const { dc } = L;
   const id = `ai-fork-${++forkSeq}`;
   const peek = () => dc.query(id);
-  const pol = [access.makePolicy(0, seat === 0, peek), access.makePolicy(1, seat === 1, peek)];
+  // A draw forecast plays the opponent as a player who reads Yugi's set cards: it removes or plays around them, as
+  // people do. A pilot that attacked into every set card made Mirror Force the best draw in every position.
+  const pol = [0, 1].map(s => access.makePolicy(s, s === seat, peek, playOpponent && s !== seat));
   pol[seat]!.copyTurnState(liveBot);
   let open = false;
   try {

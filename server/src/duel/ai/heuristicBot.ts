@@ -54,6 +54,12 @@ const TAG_RULES = new Map<number, CardRule | null>();
 const MAX_IDLE_ACTIONS = 24; // hard safety cap on plays per turn (prevents pathological loops)
 const YUGI_SIGNATURE = /^(dark magician(?: girl| of chaos)?|skilled dark magician|apprentice magician|buster blader|summoned skull|gaia the fierce knight|swift gaia the fierce knight|curse of dragon|gazelle the king of mythical beasts|berfomet|kuriboh|big shield gardna|obnoxious celtic guard|alpha the magnet warrior|beta the magnet warrior|gamma the magnet warrior|valkyrion the magna warrior|king's knight|queen's knight|jack's knight|slifer the sky dragon|obelisk the tormentor|the winged dragon of ra|black luster soldier(?: - envoy of the beginning)?|gandora the dragon of destruction|polymerization|ancient rules|magical dimension|dark magic attack|thousand knives|swords of revealing light|mirror force|magic cylinder|monster reborn)$/;
 
+/** Burn spells Yugi's draw skill can finish with: their damage to the opponent. */
+const BURN_SPELL: Record<string, number> = { "poison of the old man": 1200, "tremendous fire": 1000, ookazi: 800, "final flame": 600, hinotama: 500, sparks: 200 };
+/** Opposing cards that remove, negate or play around set Spells/Traps. Counted in the opponent's whole submitted
+ *  deck (main + Extra): a trap Yugi draws must survive the deck it is played against, not only the current hand. */
+const BACKROW_HATE = /^(mystical space typhoon|heavy storm|giant trunade|dust tornado|harpie's feather duster|breaker the magical warrior|gladiator beast (?:gyzarus|bestiari|heraklinos)|solemn judgment|seven tools of the bandit|trap stun|royal decree|jinzo|judgment dragon|lyla, lightsworn sorceress|celestia, lightsworn angel|trap jammer|magic jammer|dark bribe|mobius the frost monarch|phoenix wing wind blast|cyclone boomerang|destruction cyclone|twister|night beam|elemental hero (?:air neos|great tornado)|cyber dragon nova|ancient gear golem|trap dustshoot)$/;
+
 /** Set cards that really answer a committed board or an attack: what a spy-vision player fears, pops first, and
  *  discounts its board eval by. */
 const THREAT_BACKROW = /mirror force|sakuretsu armor|torrential tribute|ring of destruction|bottomless trap hole|magic cylinder|solemn judgment|mirror wall|spellbinding circle|draining shield|negate attack|waboku|crush card virus|book of moon/;
@@ -318,6 +324,8 @@ export class HeuristicBot {
   /** Lower bounds learned only from public returns/reveals, never raw hidden draws. */
   #knownOppHand = new Map<number, number>();
   #heartMade = new Map<number, number>();
+  /** #oppBackrowHate's count, once per duel. */
+  #hate: number | undefined;
   #heartPending: number[] = [];
   #obeliskDiscard: string | undefined;
   #obeliskRevive: string | undefined;
@@ -481,6 +489,7 @@ export class HeuristicBot {
   /** Copies another player's per-turn bookkeeping (a rollout pilot continuing the live player's turn). */
   copyTurnState(from: HeuristicBot): void {
     this.#turn = from.#turn;
+    this.#hate = from.#oppBackrowHate();
     this.#normalSummoned = from.#normalSummoned;
     this.#oppNormalSummoned = from.#oppNormalSummoned;
     this.#idleActions = from.#idleActions;
@@ -972,6 +981,17 @@ export class HeuristicBot {
         return (oppTurn && !!deniesTag) || (existing?.(ctx) ?? false);
       } };
     }
+    if (name === "book of moon") {
+      // A Gladiator Beast flipped face-down mid-attack cannot tag out; a direct
+      // attack of 1200+ is worth the card (production held it through a 1700
+      // hit, then cast it after the battle and lost by exactly that damage).
+      const existing = this.#rules[name]?.chainReact;
+      return { chainReact: ctx => {
+        const attacker = this.#turnPlayer !== this.seat && this.#attack && !this.#attack.resolved
+          ? this.#oppMonsters().find(m => m.seq === this.#attack!.sequence && !m.faceDown) : undefined;
+        return !!attacker && (attacker.battleTrigger || ctx.attackAtk >= 1200) || (existing?.(ctx) ?? false);
+      } };
+    }
     if (name === "system down" || name === "acid rain") {
       const machines = (p: PlayerBoard | null) => this.#monstersOf(p).filter(m => !m.faceDown && this.#cards.brain.get(m.code)?.race === 0x20).length;
       return { idlePriority: 117, idleActivate: ctx => name === "acid rain"
@@ -984,6 +1004,16 @@ export class HeuristicBot {
         && /^(dimensional fissure|macro cosmos)$/.test(this.#nameOf(c.code))) };
     }
     return undefined;
+  }
+
+  /** Yugi reads the opponent's submitted deck (main + Extra): how many of its cards remove or negate set cards. */
+  #oppBackrowHate(): number {
+    if (this.#hate === undefined) {
+      const deck = this.#heartSkill ? this.#search?.link()?.decks[1 - this.seat] : undefined;
+      if (!deck) return 0;
+      this.#hate = [...deck.main, ...(deck.extra ?? [])].filter(c => BACKROW_HATE.test(this.#nameOf(c))).length;
+    }
+    return this.#hate;
   }
 
   /** Index of the backrow worth setting: a trap or a quick-play spell (a set normal spell does nothing), or -1. */
@@ -1008,6 +1038,9 @@ export class HeuristicBot {
       // Extra negation, a visible backrow target and the hand-size limit can justify committing more.
       const ready = me?.szone.filter((c): c is BoardCard => !!c && isFaceDown(c.position) && !this.#locked(c.code)) ?? [];
       const summonAnswer = /^(torrential tribute|bottomless trap hole|trap hole|solemn judgment)$/;
+      // Against a deck built to clear backrow, two set cards are the stake: a fourth set card on turn one only
+      // gave Heavy Storm more to take (production then paid 4000 LP for Solemn Judgment to save them).
+      if (this.#oppBackrowHate() >= 6 && ready.length >= 2 && (me?.hand.length ?? 0) <= 5) continue;
       const negate = this.#cards.brain.get(ev.spellSet[i]!.code)?.has("negate");
       if ((me?.hand.length ?? 0) <= 6 && ready.length >= 2 && ready.some(c => ATTACK_ANSWER.test(this.#nameOf(c.code)))
         && ready.some(c => summonAnswer.test(this.#nameOf(c.code))) && !negate && !(t & TYPE_CONTINUOUS)
@@ -1554,7 +1587,7 @@ export class HeuristicBot {
       && this.#opp()?.szone.some(c => c && isFaceDown(c.position));
     try {
       const handForecast = !!search.opposingHand && ev.kind === "announceCard" && ev.heart;
-      const limit = handForecast ? 10 : Math.max(2, search.maxCandidates);
+      const limit = handForecast ? 14 : Math.max(2, search.maxCandidates);
       // Keep the phase-exit lines (the last two) in the pool: a busy hand can offer many summons/effects.
       const pool = cands.length <= limit ? cands : ev.kind === "selectIdleCmd"
         ? [...cands.slice(0, limit - 2), ...cands.slice(-2)] : cands.slice(0, limit);
@@ -1645,7 +1678,10 @@ export class HeuristicBot {
       if (!held.has(n)) matchupBonus.set(n, Math.max(matchupBonus.get(n) ?? 0, 7000 - i * 500));
     });
     const storm = opposingNames.some(n => /^(heavy storm|giant trunade|harpie's feather duster)$/.test(n));
-    const effectPressure = opposingNames.some(n => /^(celestia, lightsworn angel|judgment dragon|lyla, lightsworn sorceress|ryko, lightsworn hunter|breaker the magical warrior|gladiator beast bestiari|gladiator beast gyzarus)$/.test(n));
+    const effectPressure = [...opposingNames, ...publicNames(foe?.mzone)].some(n => /^(celestia, lightsworn angel|judgment dragon|lyla, lightsworn sorceress|ryko, lightsworn hunter|breaker the magical warrior|gladiator beast bestiari|gladiator beast gyzarus|gladiator beast heraklinos)$/.test(n));
+    // The opponent's submitted deck says how long a set card lives against it.
+    const hate = opposingHand ? this.#oppBackrowHate() : 0;
+    const waits = (code: number, name: string) => fragileDefense.test(name) || ((this.#cards.brain.get(code)?.type ?? 0) & TYPE_TRAP) !== 0;
     const gravePressure = opposingNames.some(n => /^(lumina, lightsworn summoner|judgment dragon|monster reborn|premature burial|call of the haunted|pot of avarice|dark armed dragon)$/.test(n));
     const fragileDefense = /^(mirror force|swords of revealing light|sakuretsu armor|widespread ruin|gravity bind|magic cylinder)$/;
     const effectCounter = /^(divine wrath|pulling the rug|light-imprisoning mirror|effect veiler|solemn judgment|bottomless trap hole)$/;
@@ -1715,6 +1751,7 @@ export class HeuristicBot {
       }
       if (this.#locked(c.code)) score -= 1e6;
       if (opposingHand) {
+        if (waits(c.code, name)) score -= Math.min(8000, hate * (fragileDefense.test(name) ? 700 : 350));
         if (fragileDefense.test(name)) score -= storm ? 10000 : effectPressure ? 6500 : 0;
         if (effectPressure && effectCounter.test(name)) score += 9500;
         if (gravePressure && graveCounter.test(name)) score += 9000;
@@ -1726,6 +1763,28 @@ export class HeuristicBot {
       score -= (this.#heartMade.get(c.code) ?? 0) * 500;
       return score;
     };
+    // Lethal first: a card that can end the duel this turn is played out before
+    // the ranked shortlist (production drew Swords at 600 LP, Ookazi in the pool).
+    const oppLp = foe?.lp ?? 8000;
+    const myAttack = this.#monstersOf(me).filter(m => !m.faceDown && !m.noAttack).reduce((t, m) => t + m.atk, 0);
+    const beater = (code: number) => { const k = this.#cards.brain.get(code); return k && (k.type & TYPE_MONSTER) !== 0 && k.tributes() === 0 ? this.#stat(code).atk : 0; };
+    const handBeater = this.#normalSummoned ? 0 : Math.max(0, ...(me?.hand ?? []).map(beater));
+    const graveBody = Math.max(ctx.myGraveMaxAtk ?? 0, ctx.oppGraveMaxAtk ?? 0);
+    const reach = myAttack + handBeater;
+    const finisherKind = (c: CardRef): number => {
+      const name = this.#nameOf(c.code), k = this.#cards.brain.get(c.code);
+      if (this.#locked(c.code) || !k) return 0;
+      if (BURN_SPELL[name] !== undefined) return BURN_SPELL[name]! >= oppLp && (name !== "tremendous fire" || ctx.myLp > 500) ? 4 : 0;
+      if ((k.type & TYPE_SPELL) === 0) return 0;
+      if (/^(monster reborn|premature burial)$/.test(name)) return graveBody >= 1000 && reach + graveBody >= oppLp ? 2 : 0;
+      if (reach < oppLp) return 0;
+      if ((foe?.mzone ?? []).some(Boolean) && /^(raigeki|dark hole|lightning vortex|smashing ground|fissure|snatch steal|brain control|tribute to the doomed|shield crush|nobleman of crossout|book of moon|enemy controller)$/.test(name)) return 3;
+      if (hiddenBackrow + (foe?.szone.filter(c2 => c2 && !isFaceDown(c2.position)).length ?? 0) > 0
+        && /^(heavy storm|giant trunade|harpie's feather duster|mystical space typhoon|dust tornado)$/.test(name)) return 3;
+      return myAttack > 0 && /^(megamorph|rush recklessly|limiter removal|riryoku|black pendant|axe of despair|united we stand|mage power)$/.test(name) ? 1 : 0;
+    };
+    const finishers = cards.map((c, i) => ({ i, kind: finisherKind(c) })).filter(f => f.kind > 0)
+      .sort((a, b) => b.kind - a.kind || rank(cards[b.i]!) - rank(cards[a.i]!)).slice(0, 6).map(f => f.i);
     const ranked = cards.map((c, i) => ({ c, i })).filter(({c}) => !drawUsed || !drawCard(c.code))
       .map(({c, i}) => ({ i, score: rank(c) })).sort((a, b) => b.score - a.score || a.i - b.i).map(x => x.i);
     // Reserve slots for genuinely different plans. Six similar removal spells
@@ -1742,7 +1801,7 @@ export class HeuristicBot {
       if (effectPressure) categories.push(c => effectCounter.test(this.#nameOf(c.code)));
       if (gravePressure) categories.push(c => graveCounter.test(this.#nameOf(c.code)));
     }
-    const diverse = [ranked[0], ...categories.map(test => ranked.find(i => test(cards[i]!))), ...ranked]
+    const diverse = [...finishers, ranked[0], ...categories.map(test => ranked.find(i => test(cards[i]!))), ...ranked]
       .filter((i): i is number => i !== undefined);
     const seen = new Set<number>();
     return diverse.flatMap(lead => {
@@ -1756,6 +1815,7 @@ export class HeuristicBot {
       const risk = (finishesObelisk.has(name) ? -6000 : completesFusion(name) || completesMagnets(name) ? -4000 : YUGI_SIGNATURE.test(name) ? -1500 : 1500)
         + this.#heartDrawRisk(code) + (singleSpell ? Math.min(2, hiddenBackrow) * 1300 : 0)
         + (fragileDefense.test(name) ? storm ? 3000 : effectPressure ? 1800 : 0 : 0)
+        + (waits(code, name) ? Math.min(3000, hate * 150) : 0)
         - (matchupBonus.has(name) ? 700 : 0);
       return [{ resp: { type: "ANNOUNCE_CARD", card: code }, risk, commit: () => this.#heartChosen(code) }];
     });
@@ -1933,6 +1993,20 @@ export class HeuristicBot {
     const oppMax = ctx.oppMaxAtk;
     const oppHasMon = ctx.oppMon.length > 0;
     const combo = this.#comboState();
+
+    // 00. Burn that ends the duel goes first. Held for an attack that was also lethal, a simulated Ookazi became
+    // Heraklinos's discard into a Mirror Force, and no line with the drawn burn ever won.
+    if (this.#idleActions < MAX_IDLE_ACTIONS) {
+      const oppLp = this.#opp()?.lp ?? 8000;
+      for (let i = 0; i < ev.activatable.length; i++) {
+        const a = ev.activatable[i]!, dmg = BURN_SPELL[this.#nameOf(a.code)];
+        if (dmg === undefined || dmg < oppLp || (a.location & LOCATION.HAND) === 0 && (a.location & LOCATION.SZONE) === 0) continue;
+        if (this.#nameOf(a.code) === "tremendous fire" && ctx.myLp <= 500) continue;
+        this.#idleActions++;
+        this.#activated(a.code);
+        return respIdle("SELECT_ACTIVATE", i);
+      }
+    }
 
     // 00. Lethal on an open field: with it already standing, straight to battle (nothing more to lose to a trap);
     // with it in reach, every body turned up and the strongest summoned, then battle.
