@@ -136,6 +136,9 @@ export async function leaveResult(page:Page,timeout = 60000):Promise<void> { awa
 /** In the lobby: main's menu bar with its Duel key, the map drawn (or none to draw: no original art; or its art
  * unreachable, the map's own failure with Retry Map). */
 const mapShown = `(document.querySelector('.de-world-view')?.dataset.mapReady!=='false'||document.querySelector('.de-world-view')?.dataset.mapFailed==='true')`;
+/** The client runs with the original art (openClient's assets): without it there is no world view to wait for and no
+ * collision to walk on. */
+const withArt = `new URLSearchParams(location.search).has('assets')`;
 /** In My Room (live's first stop online: the room, its bar with the Main Menu key and no Duel key). */
 export const roomShown = `(!!document.querySelector('[data-key="main-menu"]')&&!document.querySelector('[data-key="menubar-duel"]')&&window.__deApp?.getState().location==='my-room'&&${mapShown})`;
 /** In the lobby: main's menu bar with its Duel key, the map drawn (or none to draw: no original art; or its art
@@ -147,7 +150,7 @@ export const roomShown = `(!!document.querySelector('[data-key="main-menu"]')&&!
  * collision to walk out on either) is as far as the player gets. A client run without the original art (openClient
  * assets:false: no world view, no collision) leaves by the door's own move (the app's myRoom leave, what crossing the red
  * door sends), as no walk can reach the door there. */
-export const lobbyShown = `((!!document.querySelector('[data-key="menubar-duel"]')&&${mapShown})||(${roomShown}&&(!!document.getElementById('starter')||document.querySelector('.de-world-view')?.dataset.mapFailed==='true'||((w,t)=>{const s=w.__deApp.getState().starter;if(!w.__inRoomAt||t-w.__inRoomSeen>2000)w.__inRoomAt=t;w.__inRoomSeen=t;if(s?.claimable||!s&&t-w.__inRoomAt<8000)return false;if(!w.__leaveRoomAt||t-w.__leaveRoomAt>15000){w.__leaveRoomAt=t;void w.__deApp.dispatch(document.querySelector('.de-world-view')?{type:'move',x:860,y:360}:{type:'myRoom',enter:false}).catch(()=>{});}return false;})(window,Date.now()))))`;
+export const lobbyShown = `((!!document.querySelector('[data-key="menubar-duel"]')&&${mapShown})||(${roomShown}&&(!!document.getElementById('starter')||document.querySelector('.de-world-view')?.dataset.mapFailed==='true'||((w,t)=>{const s=w.__deApp.getState().starter;if(!w.__inRoomAt||t-w.__inRoomSeen>2000)w.__inRoomAt=t;w.__inRoomSeen=t;if(s?.claimable||!s&&t-w.__inRoomAt<8000)return false;if(!w.__leaveRoomAt||t-w.__leaveRoomAt>15000){w.__leaveRoomAt=t;void w.__deApp.dispatch(${withArt}?{type:'move',x:860,y:360}:{type:'myRoom',enter:false}).catch(()=>{});}return false;})(window,Date.now()))))`;
 /** A row's name: its label past the level live's rows lead with ("Lv 1 Name"; an NPC's row has none). */
 const rowName = `(b=>(b.getAttribute('aria-label')??'').replace(/^Lv \\d+ /,''))`;
 export const listRow = (name:string) => `[...document.querySelectorAll('#htmlui-host .pl-row')].find(b=>${rowName}(b)===${JSON.stringify(name)}&&b.getClientRects().length)`;
@@ -178,7 +181,7 @@ export async function moveToArea(page:Page,area:number) {
   }
   if (!(await page.ev(`Boolean(${row})`))) throw new Error(`no area ${area} in the Move list: ${await page.ev(`[...document.querySelectorAll('[data-key^="move-area:"]')].map(b=>b.dataset.key).join(' ')`)}`);
   await press(page,row);
-  await until(page,`window.__deApp?.getState().lobby?.mapId===${area}&&${lobbyShown}&&window.__deWorld?.()?.ready`,60000);
+  await until(page,`window.__deApp?.getState().lobby?.mapId===${area}&&${lobbyShown}&&(!${withArt}||window.__deWorld?.()?.ready)`,60000);
 }
 /** Where a player finds an NPC: here, or the area whose map holds its spot (a character comes online in My Room and
  * leaves it for Duel Academy, as live; the famous Domino City NPCs stand elsewhere), moved to through the Move list. */
@@ -198,9 +201,17 @@ export async function openNpcCard(page:Page,npc:string) {
   await findNpc(page,npc);
   const id = await page.ev(`(window.__deApp?.getState().lobby?.avatars??[]).find(a=>a.npc&&a.name===${JSON.stringify(npc)})?.id`) as number | undefined;
   if (id === undefined) throw new Error(`no NPC ${npc} here`);
-  await until(page,`document.querySelector('[data-key="avatar:${id}"]')`,20000);
-  await page.ev(`document.querySelector('[data-key="avatar:${id}"]').click()`);
-  await until(page,`document.querySelector('button[data-key="npc-talk:next"],[data-key="npc-start:yes"]')`,20000);
+  const talk = `document.querySelector('button[data-key="npc-talk:next"],[data-key="npc-start:yes"]')`;
+  // (the area's entry requests may still run as the avatar shows, the map's art not there to wait for: a press then is
+  // refused with "Wait for the current action to finish.", closed with its OK and pressed again, as a player would)
+  for (let i = 0; ; i++) {
+    await until(page,`document.querySelector('[data-key="avatar:${id}"]')&&!window.__deApp.getState().busy`,20000);
+    await page.ev(`document.querySelector('[data-key="avatar:${id}"]').click()`);
+    try { await until(page,talk,i < 2 ? 10000 : 20000); return; } catch (e) {
+      if (i >= 2) throw e;
+      for (const ok of ['error-ok','dialog-ok']) if (await page.ev(`Boolean(${byKey(ok)})`)) await press(page,byKey(ok)).catch(() => {});
+    }
+  }
 }
 /** The Main Menu's entries (main's CMainMenu, src/ui/htmlui) while it is closed: reached through the menu bar's MAIN key. */
 const MAIN_MENU = ['Edit Deck','My Profile','Create Comment','DUEL OPTIONS','D-Mail','Audio','Duel Log','Ignore List','Friend List','Team List','Return to your Room','Return to Duel','Return to Lobby','Return to Title'];
