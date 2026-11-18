@@ -38,6 +38,9 @@ describe('world actors (pure rules of the PixiJS world)', () => {
     const drawn = drawnAvatars(avatars, { x: 0, y: 0, width: 1024, height: 768 });
     expect(drawn.size).toBe(MAX_DRAWN_AVATARS); expect(drawn.has(39)).toBe(true); expect(drawn.has(0)).toBe(false);
     expect(drawnAvatars([{ id: 1, x: 5000, y: 5000, parts: new Uint8Array(16) }], { x: 0, y: 0, width: 1024, height: 768 }).size).toBe(0);
+ 
+    // one's own avatar whatever the view (the camera follows it)
+    expect(drawnAvatars([{ id: 1, x: 5000, y: 5000, parts: new Uint8Array(16), self: true }], { x: 0, y: 0, width: 1024, height: 768 }).has(1)).toBe(true);
   });
   it('bakes each movie frame into its own clipped 128 x 160 cell with the feet at (64, 144)', () => {
     const calls: string[] = [];

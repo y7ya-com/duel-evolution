@@ -128,6 +128,13 @@ describe('the PixiJS world renderer', () => {
     for (let i = 0; i < 30; i++) f.view.show(0, { x: 512, y: 384 });
     expect(source.frames).toHaveLength(1); expect(f.view.ready).toBe(false); expect(failed.release).toHaveBeenCalledOnce(); expect(f.parent.textContent).toContain('Retry Map');
   });
+  it('one\'s own look arriving after the area\'s list (My Room: nothing else follows) is drawn, not left a capsule', async () => {
+    const source = scene(), b = bakes(4, 12), f = setup({ loadScene: async () => source.result, loadAvatar: b.loadAvatar, bake: b.bake });
+    f.view.show(0, { x: 512, y: 384 }); await flush(); source.reply(0); await flush();
+    f.view.setAvatars([actor(1, 512, 384, { self: true, parts: undefined })]);
+    f.view.setAvatars([actor(1, 512, 384, { self: true })]); await flush();
+    const self = f.view.actors.get(1)!; expect(self.body.visible).toBe(true); expect(self.placeholder.visible).toBe(false);
+  });
   it('animates the walk cycle by swapping strip frames, one load per pose shared by every avatar wearing it', async () => {
     const source = scene(), b = bakes(4, 12), now = { t: 0 }, f = setup({ loadScene: async () => source.result, loadAvatar: b.loadAvatar, bake: b.bake }, now);
     f.view.show(0, { x: 512, y: 384 }); await flush(); source.reply(0); await flush();
