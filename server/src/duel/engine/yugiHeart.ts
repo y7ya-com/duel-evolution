@@ -1,10 +1,15 @@
 /** Yugi's private draw skill. The engine owns every materialisation, so commands and
  * archives replay it exactly. It adds no chain, hint or extra draw event. */
 export interface HeartCopyState { used: Map<number, number>; aliases: Map<number, number> }
+/** A blank Spell with no effects (no real passcode is this large). A drawn card becomes it before the chosen card:
+ * the engine keeps a card's old effects when the new card is a Normal Monster, so a materialised Summoned Skull still
+ * resolved as the Giant Trunade it replaced. */
+export const YUGI_HEART_BLANK = 0x59475550;
 const luaTable = (entries: ReadonlyMap<number, number>) => `{${[...entries].map(([k, v]) => `[${k}]=${v}`).join(",")}}`;
 export function yugiHeartLua(player: 0 | 1, pool: readonly number[], copies?: HeartCopyState): string {
   return `
 local yugi=${player}
+c${YUGI_HEART_BLANK}={initial_effect=function(c) end}
 local pool={${pool.join(",")}}
 local allowed={}
 for _,code in ipairs(pool) do allowed[code]=true end
@@ -59,7 +64,9 @@ local function prepare(n)
       local code
       repeat code=Duel.AnnounceCard(yugi,table.unpack(filter)) until allowed[code] and available(code,current)
       if capped and identity(code)~=current then used[identity(code)]=(used[identity(code)] or 0)+1 end
-      -- Reuse the hidden card's slot and install the new card's real effects.
+      -- Reuse the hidden card's slot and install the new card's real effects. The blank first clears the old card's
+      -- effects: replacing them is skipped when the new card is a Normal Monster.
+      c:Recreate(${YUGI_HEART_BLANK},nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,true)
       c:Recreate(code,nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,true)
     end
   end

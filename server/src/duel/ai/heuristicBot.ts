@@ -791,6 +791,12 @@ export class HeuristicBot {
     if (!step) return null;
     // Keep an already available lethal attack rather than tributing it away.
     if (ev.canBattlePhase && planBattle(this.#planInput(), this.#planOpts()).outcome.lethal) return respIdle("TO_BP");
+    // Three real monsters worth 3500+ ATK are a better board than one 4000 god (lab: Dark Paladin, Dark Magician and
+    // King of the Swamp tributed, Obelisk removed the next turn).
+    if (step.action === "SELECT_SUMMON") {
+      const bodies = this.#monstersOf(this.#me()).map(m => m.faceDown ? Math.max(m.atk, 1000) : m.atk).sort((a, b) => a - b);
+      if (bodies.length >= 3 && bodies[0]! + bodies[1]! + bodies[2]! >= 3500) return null;
+    }
     const list = step.action === "SELECT_SUMMON" ? ev.summonable : step.action === "SELECT_SPECIAL_SUMMON" ? ev.spSummonable : ev.activatable;
     const index = list.findIndex(c => this.#nameOf(c.code) === step.name);
     if (index < 0) return null; // native legality, including summon/tribute locks
@@ -986,18 +992,47 @@ export class HeuristicBot {
           && this.#board?.phase === PHASE.BATTLE_START
           : this.#attack && !this.#attack.resolved && gladiators.some(m => m.seq === this.#attack!.sequence);
         return (oppTurn && !!deniesTag) || (existing?.(ctx) ?? false);
-      } };
+      // A copy about to be destroyed is used on the opponent's monster or not at all (lab: CED bounced his own only
+      // monster in response to Mystical Space Typhoon).
+      }, ...(name === "compulsory evacuation device" ? { doomed: () => this.#oppMonsters().length > 0 } : {}) };
     }
     if (name === "solemn judgment" || name === "dark bribe" || name === "magic jammer") {
       // A fusion or ritual spell is the summon itself: negate it there (the lab let Dark Fusion and Dark Calling
       // resolve into two Dark Gaias with Solemn Judgment set, because neither spell hit Yugi's own cards).
-      const existing = this.#rules[name]?.chainReact;
-      return { chainReact: ctx => {
+      // Otherwise negate only what is worth the price (lab review: 13 of 14 Solemns paid 4000 LP, on Book of Moon, Shrink
+      // and MST, while Mirror Force on his attackers resolved): a 2000+ ATK summon, or a link taking more of his board
+      // (attack of the monsters hit, 1000 per Spell/Trap, 1000 more for two or more cards) than the negation costs.
+      // A set copy about to be destroyed anyway counts the same way, itself left out (Solemn on Heavy Storm, 8000 LP).
+      const worth = (ctx: RuleCtx): boolean => {
         const link = this.#links.at(-1);
         const k = link && link.controller !== this.seat ? this.#cards.brain.get(link.code) : undefined;
-        const summons = !!k && (k.type & TYPE_SPELL) !== 0 && ((k.type & TYPE_RITUAL) !== 0 || SUMMON_SPELL.test(this.#nameOf(link!.code)));
-        return summons || (existing?.(ctx) ?? false);
-      } };
+        if (k && (k.type & TYPE_SPELL) !== 0 && ((k.type & TYPE_RITUAL) !== 0 || SUMMON_SPELL.test(this.#nameOf(link!.code)))) return true;
+        const ext = ctx.ext;
+        if (name === "solemn judgment" && ext?.oppSummoning && (ext.oppSummonAtk ?? 0) >= 2000) return true;
+        if (!k) return false;
+        const self = ext?.selfThreatened ? 1 : 0;
+        const hits = (ext?.oppChainHitsMine ?? 0) - self;
+        const value = (ext?.oppChainThreat ?? 0) - self * 1000 + (hits >= 2 ? 1000 : 0);
+        const cost = name === "solemn judgment" ? Math.floor(ctx.myLp / 2) : 1500;
+        return hits > 0 && value > cost;
+      };
+      return { chainReact: worth, doomed: worth };
+    }
+    if (name === "magical dimension") {
+      // Its optional destroy is the point of the card (lab: answered no, and Overdragon then took his field).
+      return { yesNo: () => this.#oppMonsters().length > 0 };
+    }
+    if (name === "giant trunade") {
+      // Only for set cards or a real face-up lock: bouncing Crystal Beasts handed the opponent three cards (lab).
+      const existing = this.#rules[name]?.idleActivate;
+      return { idleActivate: ctx => (existing?.(ctx) ?? true) && !!this.#opp()?.szone.some(c => c
+        && (isFaceDown(c.position) || ((this.#cards.brain.get(c.code)?.type ?? 0) & TYPE_MONSTER) === 0)) };
+    }
+    if (name === "monster reborn" || name === "premature burial") {
+      // An attacker with the opponent's field open, not only a bigger one than theirs (lab: Reborn held in 37 duels).
+      const existing = this.#rules[name]?.idleActivate;
+      return { idleActivate: ctx => (existing?.(ctx) ?? false)
+        || (this.#oppMonsters().length === 0 && Math.max(ctx.myGraveMaxAtk ?? 0, ctx.oppGraveMaxAtk ?? 0) >= 1500 && this.#battleAhead()) };
     }
     if (name === "book of moon") {
       // A Gladiator Beast flipped face-down mid-attack cannot tag out; a direct
@@ -1008,7 +1043,7 @@ export class HeuristicBot {
         const attacker = this.#turnPlayer !== this.seat && this.#attack && !this.#attack.resolved
           ? this.#oppMonsters().find(m => m.seq === this.#attack!.sequence && !m.faceDown) : undefined;
         return !!attacker && (attacker.battleTrigger || ctx.attackAtk >= 1200) || (existing?.(ctx) ?? false);
-      } };
+      }, doomed: () => this.#oppMonsters().some(m => !m.faceDown) };
     }
     if (name === "system down" || name === "acid rain") {
       const machines = (p: PlayerBoard | null) => this.#monstersOf(p).filter(m => !m.faceDown && this.#cards.brain.get(m.code)?.race === 0x20).length;
@@ -1065,7 +1100,7 @@ export class HeuristicBot {
         && ((t & TYPE_TRAP) || ((t & TYPE_QUICKPLAY) && (this.#opp()?.szone.filter(Boolean).length ?? 0) === 0))) continue;
       // not into a face-up Royal Decree / Jinzo (a port choice: Master Duel's set routine has no lock check), and never a
       // card dead in hand (the Spirit Messages, the Sarcophagi: Master Duel never sets them on their own)
-      if (this.#locked(ev.spellSet[i]!.code) || neverSet(ev.spellSet[i]!.code)) continue;
+      if (this.#locked(ev.spellSet[i]!.code) || neverSet(ev.spellSet[i]!.code) || this.#yugiIdle(ev.spellSet[i]!.code)) continue;
       if (t & TYPE_TRAP) return i;
       if (quick < 0 && (t & TYPE_QUICKPLAY)) quick = i;
     }
@@ -1159,8 +1194,12 @@ export class HeuristicBot {
     if (!ev.canBattlePhase || !this.#battleAhead() || this.#probed === `${this.#turn}:${this.#idleActions}`) return null;
     this.#probed = `${this.#turn}:${this.#idleActions}`;
     const mine = this.#monstersOf(this.#me()).filter((m) => m.attackPos && !m.faceDown);
-    const reach = mine.reduce((s, m) => s + m.atk, 0);
-    if (mine.length === 0 || (this.#opp()?.lp ?? 8000) > 2 * reach + 1000 || this.#lethalInfo().through) return null;
+    // Yugi's revival is an attacker too (lab: two Monster Reborns held; Reborn on Celtic Guard was 5700 against 5500).
+    const ctx0 = this.#ctx();
+    const revive = this.#heartSkill && this.#me()?.hand.some(c => /^(monster reborn|premature burial)$/.test(this.#nameOf(c)))
+      ? Math.max(ctx0.myGraveMaxAtk ?? 0, ctx0.oppGraveMaxAtk ?? 0) : 0;
+    const reach = mine.reduce((s, m) => s + m.atk, 0) + revive;
+    if (reach === 0 || (this.#opp()?.lp ?? 8000) > 2 * reach + 1000 || this.#lethalInfo().through) return null;
     const ctx = this.#ctx();
     let probes = 0;
     for (const [i, a] of ev.activatable.entries()) {
@@ -1221,6 +1260,19 @@ export class HeuristicBot {
     // preference belongs only to a seat that actually has Heart of the Cards.
     if (this.#heartSkill && /^(mystical space typhoon|dust tornado|heavy storm|harpie's feather duster|giant trunade)$/.test(name)
       && this.#board?.players.some(p => p.szone.some(c => c && !isFaceDown(c.position) && this.#nameOf(c.code) === "convulsion of nature"))) return 1000;
+    // Yugi's Dark Hole never takes more of his own board than of the opponent's (lab: cast on his own Obelisk).
+    if (this.#heartSkill && name === "dark hole") {
+      const atk = (p: PlayerBoard | null) => this.#monstersOf(p).reduce((t, m) => t + Math.max(m.atk, 500), 0);
+      if (atk(this.#me()) >= atk(this.#opp())) return -Infinity;
+    }
+    // Yugi clears set Spells/Traps before committing removal or monsters into them (lab review: about 50 removal
+    // spells and revivals cast into set cards with Heavy Storm or Giant Trunade in hand; 13 negated by Solemn Judgment).
+    if (this.#heartSkill && this.#turnPlayer === this.seat && this.#board?.phase === PHASE.MAIN1) {
+      const sets = this.#opp()?.szone.filter(c => c && isFaceDown(c.position)).length ?? 0;
+      const mine = this.#me()?.szone.filter(c => c && isFaceDown(c.position)).length ?? 0;
+      if (sets > 0 && (name === "harpie's feather duster" || (name === "heavy storm" && mine < sets) || (name === "giant trunade" && mine <= sets))) return 140;
+      if (sets > 0 && /^(mystical space typhoon|dust tornado)$/.test(name) && (ref?.location ?? LOCATION.HAND) & LOCATION.HAND) return 135;
+    }
     if (this.#combo?.afterPayoff?.includes(name) && !this.#comboPayoffLive()) return -Infinity;
     // Returning our own Cyberdark equip can turn a lethal direct attack into
     // nonlethal damage (2066). Check the resolved public board before clearing backrow.
@@ -1439,6 +1491,49 @@ export class HeuristicBot {
       || /^(reload|magical mallet|card destruction|hand destruction)$/.test(this.#nameOf(code));
   }
 
+  /** Yugi's revival target: the strongest attacker in either graveyard; a wall only when the opponent's attack threatens
+   *  his LP (lab: 13 Monster Reborns on Big Shield Gardna in defence, one over Jinzo with the opponent's hand empty). */
+  #yugiReviveTarget(ev: P<"selectCard">): Json | null {
+    if (!this.#heartSkill || this.#obeliskRevive || ev.min !== 1 || ev.max !== 1 || this.#hint !== H_SPSUMMON
+      || !/^(monster reborn|premature burial)$/.test(this.#nameOf(this.#pickSubject()))) return null;
+    // The Obelisk plan's own tribute body first.
+    const planned = obeliskPlan(this.#obeliskResources())?.find(st => st.name === "monster reborn")?.target;
+    const fodder = planned ? ev.cards.findIndex(c => c.controller === this.seat && this.#nameOf(c.code) === planned) : -1;
+    if (fodder >= 0) return respCards([fodder]);
+    const oppMax = Math.max(0, ...this.#oppMonsters().map(m => m.atk));
+    const danger = (this.#me()?.lp ?? 8000) <= oppMax * 2 && this.#monstersOf(this.#me()).length === 0;
+    const score = (c: CardRef) => {
+      // A Special Summoned Egyptian God cannot stay (it goes back to the graveyard at the End Phase).
+      if (/^(obelisk the tormentor|slifer the sky dragon|the winged dragon of ra)$/.test(this.#nameOf(c.code))) return -1;
+      const st = this.#stat(c.code);
+      return Math.max(st.atk + (st.atk > oppMax ? 1000 : 0), danger && st.def > oppMax ? st.def : 0);
+    };
+    let best = 0;
+    ev.cards.forEach((c, i) => { if (score(c) > score(ev.cards[best]!)) best = i; });
+    return respCards([best]);
+  }
+
+  /** A Yugi card that does nothing in this position: Thousand Knives / Dark Magic Attack with no Dark Magician out,
+   *  Magical Dimension without Spellcasters on the field and in hand, Ancient Rules without a Level 5+ Normal Monster,
+   *  a Ritual Monster without a Ritual Spell, Polymerization without its fusion ready. The review of 96 lab duels found
+   *  84 such draws (Magical Dimension drawn 40 times, activated once), discards kept over Monster Reborn, and all five
+   *  zones filled with them. */
+  #yugiIdle(code: number): boolean {
+    if (!this.#heartSkill) return false;
+    const name = this.#nameOf(code), me = this.#me();
+    const field = (me?.mzone ?? []).filter(m => m && !isFaceDown(m.position)).map(m => m!.code);
+    const hand = me?.hand ?? [];
+    const caster = (c: number) => ((this.#cards.brain.get(c)?.race ?? 0) & 2) !== 0 && ((this.#cards.brain.get(c)?.type ?? 0) & TYPE_MONSTER) !== 0;
+    if (/^(thousand knives|dark magic attack)$/.test(name)) return !field.some(c => this.#nameOf(c) === "dark magician");
+    if (name === "magical dimension") return !field.some(caster) || !hand.some(caster);
+    if (name === "ancient rules") return !hand.some(c => { const k = this.#cards.brain.get(c); return !!k && (k.type & TYPE_MONSTER) !== 0 && !(k.type & TYPE_EFFECT) && this.#stat(c).level >= 5; });
+    if (name === "polymerization") return !this.#comboState()?.ready;
+    const k = this.#cards.brain.get(code);
+    if (k && (k.type & TYPE_MONSTER) && (k.type & TYPE_RITUAL))
+      return !hand.some(c => { const h = this.#cards.brain.get(c); return !!h && (h.type & TYPE_SPELL) !== 0 && (h.type & TYPE_RITUAL) !== 0; });
+    return false;
+  }
+
   /** One of Yugi's draw effects he may not use (#locked). */
   #lockedDraw(code: number): boolean {
     return this.#heartSkill && this.#isDrawCard(code) && this.#locked(code);
@@ -1572,6 +1667,7 @@ export class HeuristicBot {
   decide(ev: Prompt, sel?: Json): Json | null {
     if (ev.kind === "selectIdleCmd") { const god = this.#obeliskAction(ev); if (god) return god; }
     if (ev.kind === "selectCard" && this.#obeliskRevive && this.#nameOf(this.#pickSubject()) === "monster reborn") return this.respond(ev);
+    if (ev.kind === "selectCard") { const revive = this.#yugiReviveTarget(ev); if (revive) return revive; }
     if (ev.kind === "selectIdleCmd" && this.#hasForcedComboAction(ev)) return this.respond(ev);
     if (this.#blunder > 0 && ev.kind === "selectIdleCmd" && this.#rng() < this.#blunder) {
       // a random line among the plays, never "end the turn" (production: an easy NPC skipped two turns holding six traps)
@@ -1739,6 +1835,12 @@ export class HeuristicBot {
     const resources = this.#obeliskResources(this.#heartPending.map(c => this.#nameOf(c)));
     const finishesObelisk = new Set(!this.#heartSkill || obeliskPlan(resources) ? [] : OBELISK_PIECES.filter(name =>
       !!obeliskPlan({ ...resources, hand: [...resources.hand, name] })));
+    // A card is a draw only when it works now (#yugiIdle): production drew Magical Dimension and Thousand Knives off
+    // his first Pot with no Spellcaster out.
+    const idleSignature = (code: number) => this.#yugiIdle(code);
+    // The same card twice from one Pot (three Monster Reborns), or a second copy of a defence already set.
+    const repeats = (code: number, name: string) => this.#heartPending.filter(p => p === code).length
+      + (fragileDefense.test(name) && held.has(name) ? 1 : 0);
     const rank = (c: CardRef): number => {
       const name = this.#nameOf(c.code), k = this.#cards.brain.get(c.code), st = this.#normalSummonStats(c.code);
       let score = this.#worth(c.code, true);
@@ -1752,6 +1854,7 @@ export class HeuristicBot {
         if (name === "dark magician" && has("ancient rules")) score += 11000;
         if (completesFusion(name)) score += 30000;
         if (completesMagnets(name)) score += 30000;
+        if (idleSignature(c.code)) score -= 8000;
         if (has(name)) score -= 500;
         // A signature name alone is not a plan: on turn one the 2000-DEF wall
         // already in hand will be set instead of another vanilla-sized beater.
@@ -1763,7 +1866,7 @@ export class HeuristicBot {
         if (!ctx.ext?.fieldMonsterEffectsNegated && /^(exiled force|tribe-infecting virus|snipe hunter)$/.test(name) && ctx.oppMon.length > 0
           && (name === "exiled force" || hand.length > 0)) score += 11000;
       } else {
-        if (YUGI_SIGNATURE.test(name)) score += 6000;
+        if (YUGI_SIGNATURE.test(name)) score += idleSignature(c.code) ? -4000 : 6000;
         if (/^(pot of greed|graceful charity)$/.test(name)) score += 8500
           + (clutter ? (name === "graceful charity" && hand.length >= 3 ? 8000 : 3500) : 0)
           + (hiddenBackrow >= 2 || publicNegate ? 4000 : 0);
@@ -1793,6 +1896,7 @@ export class HeuristicBot {
         if (gravePressure && graveCounter.test(name)) score += 9000;
         if ((storm || effectPressure) && pressure(c)) score += 3500;
       }
+      if (!completesFusion(name) && !completesMagnets(name)) score -= repeats(c.code, name) * 6000;
       if (finishesObelisk.has(name)) score += 45000;
       score += matchupBonus.get(name) ?? 0;
       score -= this.#heartDrawRisk(c.code);
@@ -1810,8 +1914,12 @@ export class HeuristicBot {
     const finisherKind = (c: CardRef): number => {
       const name = this.#nameOf(c.code), k = this.#cards.brain.get(c.code);
       if (this.#locked(c.code) || !k) return 0;
-      if (BURN_SPELL[name] !== undefined) return BURN_SPELL[name]! >= oppLp && (name !== "tremendous fire" || ctx.myLp > 500) ? 4 : 0;
+      const open = !(foe?.mzone ?? []).some(Boolean);
+      if (BURN_SPELL[name] !== undefined) return name === "tremendous fire" && ctx.myLp <= 500 ? 0
+        : BURN_SPELL[name]! >= oppLp ? 4 : open && BURN_SPELL[name]! + reach >= oppLp ? 3 : 0;
       if ((k.type & TYPE_SPELL) === 0) return 0;
+      // Snatch Steal on Prisma plus the attack was 3600 against 2500 (lab); the stolen body attacks too.
+      if (/^(snatch steal|brain control)$/.test(name)) return reach + Math.max(0, ...this.#monstersOf(foe).map(m => m.atk)) >= oppLp ? 3 : 0;
       if (/^(monster reborn|premature burial)$/.test(name)) return graveBody >= 1000 && reach + graveBody >= oppLp ? 2 : 0;
       if (reach < oppLp) return 0;
       if ((foe?.mzone ?? []).some(Boolean) && /^(raigeki|dark hole|lightning vortex|smashing ground|fissure|snatch steal|brain control|tribute to the doomed|shield crush|nobleman of crossout|book of moon|enemy controller)$/.test(name)) return 3;
@@ -1855,7 +1963,7 @@ export class HeuristicBot {
       // win/loss still overrides this preference in #searchDecide.
       const name = this.#nameOf(code);
       const singleSpell = /^(raigeki|dark hole|lightning vortex|snatch steal|brain control|smashing ground|fissure)$/.test(name);
-      const risk = (finishesObelisk.has(name) ? -6000 : completesFusion(name) || completesMagnets(name) ? -4000 : YUGI_SIGNATURE.test(name) ? -1500 : 1500)
+      const risk = (finishesObelisk.has(name) ? -6000 : completesFusion(name) || completesMagnets(name) ? -4000 : YUGI_SIGNATURE.test(name) && !idleSignature(code) ? -1500 : 1500)
         + this.#heartDrawRisk(code) + (singleSpell ? Math.min(2, hiddenBackrow) * 1300 : 0)
         + (fragileDefense.test(name) ? storm ? 3000 : effectPressure ? 1800 : 0 : 0)
         + (waits(code, name) ? Math.min(3000, hate * 150) : 0)
@@ -1959,7 +2067,8 @@ export class HeuristicBot {
       // a card whose rule says not now is not a line (production: Rush Recklessly on the opponent's Brron in Main 1)
       const react = this.#ruleFor(c.code)?.chainReact;
       if (react && !react(this.#withSelf(ctx, c.code, c))) return;
-      out.push({ resp: respChain(i), commit: () => { this.#chainedThisWindow.add(key); } });
+      // #activated: a pick made during the activation (Tribe-Infecting Virus's Type) is that card's pick.
+      out.push({ resp: respChain(i), commit: () => { this.#chainedThisWindow.add(key); this.#activated(c.code); } });
     });
     return out;
   }
@@ -1972,7 +2081,7 @@ export class HeuristicBot {
       case "selectIdleCmd": return this.#idle(ev);
       case "selectBattleCmd": return this.#battle(ev);
       case "selectChain": return this.#chain(ev);
-      case "selectCard": return this.#selectCard(ev);
+      case "selectCard": return this.#yugiReviveTarget(ev) ?? this.#selectCard(ev);
       case "selectUnselectCard": return this.#selectUnselect(ev);
       case "selectTribute": return this.#selectTribute(ev);
       case "selectPosition": return respPosition(this.#position(ev.code, ev.positions));
@@ -2305,6 +2414,8 @@ export class HeuristicBot {
    *  Main 2 and turns with no Battle Phase: #mainTwoPosition. */
   #positionPass(ev: P<"selectIdleCmd">): Json | null {
     if (this.#style.attackOnly || ev.repositionable.length === 0) return null;
+    // Yugi does not turn a 0-DEF attacker sideways: it dies to the same attack and stops threatening (Banisher, 2378).
+    const flimsy = (m: OppMon) => this.#heartSkill && m.def <= 500 && m.atk > m.def;
     const mine = this.#monstersOf(this.#me());
     const at = (r: CardRef) => mine.find((m) => m.seq === r.sequence && (r.location & LOCATION.MZONE) !== 0);
     const input = this.#planInput();
@@ -2314,12 +2425,14 @@ export class HeuristicBot {
       for (let i = 0; i < ev.repositionable.length; i++) {
         const m = at(ev.repositionable[i]!);
         if (!m || m.faceDown) continue;
-        if (inPlan.has(m.seq) ? !m.attackPos && this.#raisePays(m.seq) : m.attackPos && this.#betterInDefence(m, input)) return respIdle("SELECT_POS_CHANGE", i);
+        if (inPlan.has(m.seq) ? !m.attackPos && this.#raisePays(m.seq) : m.attackPos && !flimsy(m) && this.#betterInDefence(m, input)) return respIdle("SELECT_POS_CHANGE", i);
       }
       // a set monster without a flip effect: flipped when the battle plan with it face-up uses it
       for (let i = 0; i < ev.repositionable.length; i++) {
         const m = at(ev.repositionable[i]!);
         if (!m || !m.faceDown || this.#isFlip(m.code) || STAYS_SET.test(this.#nameOf(m.code))) continue;
+        // Yugi's wall stays a wall: Big Shield Gardna flipped up for 100 damage was then hit for 1700 (lab).
+        if (this.#heartSkill && this.#stat(m.code).atk < 1000 && this.#stat(m.code).def > this.#stat(m.code).atk) continue;
         if (this.#mainOnePlan(new Set([m.seq])).some((a) => a.seq === m.seq) && this.#raisePays(m.seq)) return respIdle("SELECT_POS_CHANGE", i);
       }
       return null;
@@ -2329,7 +2442,7 @@ export class HeuristicBot {
       if (!m) continue;
       const want = this.#mainTwoPosition(m, input);
       if (want === "atk" && (m.faceDown || !m.attackPos)) return respIdle("SELECT_POS_CHANGE", i);
-      if (want === "def" && !m.faceDown && m.attackPos) return respIdle("SELECT_POS_CHANGE", i);
+      if (want === "def" && !m.faceDown && m.attackPos && !flimsy(m)) return respIdle("SELECT_POS_CHANGE", i);
     }
     return null;
   }
@@ -3315,8 +3428,9 @@ export class HeuristicBot {
    *  listed), more still with the opponent's attackers on the field; a second lasting copy of a card already face-up
    *  on my field (another Field Spell, a lock already running) is worth little. */
   #worth(code: number, inHand = false): number {
-    // Yugi's spent draw spell: the first card to discard, the last to recover.
+    // Yugi's spent draw spell, or a card that does nothing for him now: the first to discard, the last to recover.
     if (this.#lockedDraw(code)) return 0;
+    if (this.#yugiIdle(code)) return 100;
     if (this.#ruleFor(code)?.keepInHand) return 9000;
     const k = this.#cards.brain.get(code);
     if (!k) return this.#stat(code).atk || 1000;

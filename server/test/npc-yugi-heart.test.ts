@@ -240,3 +240,18 @@ it("does not cast a second draw spell once his Pot of Greed has resolved", () =>
   expect(npcActivated(p, "Dark Magician of Chaos")).toBe(true);
   expect(npcActivated(p, "Pot of Greed")).toBe(false);
 });
+
+it("a materialised Normal Monster has no effect left from the deck card it replaced", () => {
+  // Lab and production: the engine keeps old effects when the new card is a Normal Monster, so a drawn Summoned
+  // Skull still activated as the Giant Trunade it replaced, and a Beta was set as Swords of Revealing Light.
+  const p = play(dc, { npcId: 52, heart_of_cards: 1, heart_pool: [code("Summoned Skull"), code("Beta The Magnet Warrior")],
+    first: "player", turns: 2,
+    npc: { deck: Array(20).fill("Giant Trunade"), szone: ["Mirror Force"] },
+    player: { szone: ["Waboku"] } });
+  const drawn = p.npc.filter(x => x.sel.heart_of_cards).map(x => Number(x.resp?.card));
+  expect(drawn.length).toBeGreaterThan(0);
+  const offered = p.npc.filter(x => x.sel.type === "SELECT_IDLECMD")
+    .flatMap(x => ((x.sel.activates ?? []) as { code: number }[]).map(a => a.code));
+  expect(offered.filter(c => drawn.includes(c))).toEqual([]);
+  expect(npcActivated(p, "Summoned Skull") || npcActivated(p, "Beta The Magnet Warrior")).toBe(false);
+});

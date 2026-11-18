@@ -123,3 +123,50 @@ it("never uses a draw effect other than his one Pot of Greed", () => {
   });
   expect(npcActivated(p, "Cyber Valley")).toBe(false);
 });
+
+it("declares the opposing Type with a Tribe-Infecting Virus activated right after its summon", () => {
+  // Lab: activated from the summon's chain window, its Type pick did not know the card and declared Aqua, its own.
+  const p = play(dc, {
+    npcId: 51, heart_of_cards: 1, handAwareDraw: true, first: "npc", turns: 1,
+    heart_pool: [code("Marshmallon")],
+    npc: { hand: ["Tribe-Infecting Virus", "Breaker the Magical Warrior", "Book of Moon"] },
+    player: { mzone: [["Gladiator Beast Hoplomus", "def"], "Gladiator Beast Heraklinos"], szone: ["Waboku", "Mirror Force"] },
+  });
+  expect(p.npc.find(x => x.sel.type === "ANNOUNCE_RACE")?.resp?.races).toEqual([0x8000]);
+  expect(leftField(p, "Gladiator Beast Heraklinos")).toBe(true);
+});
+
+it("keeps Solemn Judgment instead of paying 4000 LP for a Book of Moon", () => {
+  // Lab review: 13 of 14 Solemns paid 4000, on Book of Moon, Shrink and MST.
+  const p = play(dc, {
+    npcId: 53, heart_of_cards: 1, handAwareDraw: true, first: "player", turns: 1,
+    heart_pool: [code("Marshmallon")],
+    npc: { szone: ["Solemn Judgment"], mzone: ["Beta The Magnet Warrior"] },
+    player: { hand: ["Book of Moon"] },
+    player_policy: activating("Book of Moon"),
+  });
+  expect(npcActivated(p, "Solemn Judgment")).toBe(false);
+});
+
+it("does not draw Thousand Knives or Magical Dimension with no Dark Magician or Spellcaster out", () => {
+  const p = play(dc, {
+    npcId: 52, heart_of_cards: 1, handAwareDraw: true, first: "player", turns: 2,
+    heart_pool: ["Thousand Knives", "Magical Dimension", "Dark Magic Attack", "Summoned Skull", "Raigeki"].map(code),
+    npc: { mzone: ["Beta The Magnet Warrior"] },
+    player: { mzone: ["Gladiator Beast Darius"] },
+  });
+  const drawn = p.npc.filter(x => x.sel.heart_of_cards).map(x => dc.cardDB.name(Number(x.resp?.card)));
+  expect(drawn.length).toBeGreaterThan(0);
+  expect(drawn.filter(n => /^(Thousand Knives|Magical Dimension|Dark Magic Attack)$/.test(n))).toEqual([]);
+});
+
+it("revives an attacker with Monster Reborn, not Big Shield Gardna, when the opponent's field is weak", () => {
+  // Lab review: 13 Monster Reborns on Big Shield Gardna in defence.
+  const p = play(dc, {
+    npcId: 52, heart_of_cards: 1, handAwareDraw: true, first: "npc", turns: 1,
+    heart_pool: [code("Marshmallon")],
+    npc: { hand: ["Monster Reborn"], grave: ["Big Shield Gardna", "Summoned Skull"] },
+    player: { mzone: ["Gladiator Beast Darius"] },
+  });
+  expect(p.msgs.some(m => m.type === "SPSUMMONING" && m.code === code("Summoned Skull"))).toBe(true);
+});

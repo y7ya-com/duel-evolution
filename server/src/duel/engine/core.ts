@@ -22,7 +22,7 @@ import createCore, {
   type OcgResponse,
 } from "ocgcore-wasm";
 import { Bot } from "./bot.ts";
-import { yugiHeartLua, type HeartCopyState } from "./yugiHeart.ts";
+import { yugiHeartLua, YUGI_HEART_BLANK, type HeartCopyState } from "./yugiHeart.ts";
 import { YUGI_HEART_POOL, YUGI_HEART_MARKER } from "../yugiHeartPool.ts";
 import { placeOrderFrom, type PlaceOrder } from "../zones.ts";
 import { CardDB, ScriptPack, type CardsJson, type StringsJson } from "./data.ts";
@@ -541,7 +541,7 @@ export class DuelCore {
       seed: seedWords(seed),
       team1: { startingLP: lps[0]!, startingDrawCount: draw, drawCountPerTurn: 1 },
       team2: { startingLP: lps[1]!, startingDrawCount: draw, drawCountPerTurn: 1 },
-      cardReader: (code) => db.get(code),
+      cardReader: (code) => code === YUGI_HEART_BLANK ? { code, alias: 0, setcodes: [], type: 0x2, level: 0, attribute: 0, race: 0n, attack: 0, defense: 0, lscale: 0, rscale: 0, link_marker: 0 } : db.get(code),
       scriptReader: (name) => scripts.read2008(name),
       errorHandler: (type, text) => {
         // As engine.ts: normal monsters have no script and that is not an error
