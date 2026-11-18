@@ -61,13 +61,28 @@ describe('deterministic bounded duel presentation timeline', () => {
     const done = t.advance(16);
     expect(done.acknowledgedThrough).toBe(after.sequence); expect(done.consumedEvents).toBe(2);
   });
-  it('flushes a backlog explicitly without losing final state or event accounting', () => {
+  it('fast-forwards only the oldest of a backlog, so what comes next still plays', () => {
     const before = initial(), t = new DuelTimeline(before, { maxBatches: 2 }); let state = before;
     for (let i = 0; i < 3; i++) { const next = cmd(state, engine(0x25, 0, 100)); t.enqueue(state, next); state = next; }
     const sample = t.sample();
-    expect(sample.pending).toBe(false); expect(sample.lp).toEqual([7700, 8000]);
-    expect(sample.acknowledgedThrough).toBe(state.sequence); expect(sample.consumedEvents).toBe(3); expect(sample.skippedEvents).toBe(3);
-    expect(sample.retainedCards).toBe(0);
+    expect(sample.pending).toBe(true); expect(sample.queuedBatches).toBe(2); expect(sample.lp).toEqual([7900, 8000]);
+    expect(sample.consumedEvents).toBe(1); expect(sample.skippedEvents).toBe(1);
+    const done = t.skip();
+    expect(done.pending).toBe(false); expect(done.lp).toEqual([7700, 8000]);
+    expect(done.acknowledgedThrough).toBe(state.sequence); expect(done.consumedEvents).toBe(3); expect(done.skippedEvents).toBe(3);
+    expect(done.retainedCards).toBe(0);
+  });
+  it('never counts packets with nothing to show against the backlog budget', () => {
+    const before = deck(), t = new DuelTimeline(before, { maxBatches: 1 }); let state = before;
+    const moved = cmd(state, engine(0x55, 0, 0xffff, 1)); t.enqueue(state, moved); state = moved;
+    for (let i = 0; i < 5; i++) { const next = cmd(state, set_card(0, 13, 0, 123 + i, 1)); t.enqueue(state, next); state = next; }
+    expect(t.sample()).toMatchObject({ pending: true, queuedBatches: 6, skippedEvents: 0 });
+  });
+  it("holds a packet for its effects' frames before the next plays", () => {
+    const before = initial(), middle = cmd(before, engine(0x25, 0, 100)), after = cmd(middle, engine(0x25, 0, 100));
+    const t = new DuelTimeline(before); t.enqueue(before, middle, 60); t.enqueue(middle, after);
+    expect(t.advance(59).acknowledgedThrough).toBe(before.sequence);
+    expect(t.advance(1).acknowledgedThrough).toBe(middle.sequence);
   });
   it('bounds retained card snapshots independently of the batch count', () => {
     const before = deck(), after = cmd(before, engine(0x55, 0, 0xffff, 1));

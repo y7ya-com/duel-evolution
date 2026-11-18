@@ -7,7 +7,16 @@ import type { DuelCue, DuelCuePlace } from '../ui/contracts';
  * A cue is released when the visual timeline reaches the packet it came with, so it plays with its card motion. */
 const ZONES: Record<Zone, DuelCuePlace['zone']> = { monster: 'monster', spell: 'spell', hand: 'hand', deck: 'deck', extra: 'extra', grave: 'graveyard', banish: 'banished' };
 const PHASES: Record<number, NonNullable<DuelCue['phase']>> = { 0x0c: 'draw', 0x0d: 'standby', 0x0e: 'main1', 0x0f: 'battle', 0x10: 'main2', 0x11: 'end' };
-const MAX_PENDING = 256, MAX_RELEASED = 48;
+const MAX_PENDING = 1024, MAX_RELEASED = 48;
+/** 30 Hz frames the duel waits for a cue's effect before its next command plays (the original's duel scene finishes each
+ * command's effect first): the effects layer's own lengths (ui/duel-fx.ts); a banner lets the next start at 70% of
+ * its own, as the banner line does; coins and the die until they have landed. Attacks and LP are the timeline's own. */
+const HOLD_MS: Partial<Record<DuelCue['kind'], (cue: DuelCue) => number>> = {
+  phase: () => 770, turn: () => 840, field: () => 1260, summon: () => 700, set: () => 600, flip: () => 450,
+  activate: () => 700, destroy: () => 900, tribute: () => 900,
+  coin: cue => (Math.max(1, cue.values?.length ?? 1) - 1) * 500 + 1500, dice: () => 1880,
+};
+export function cueHoldFrames(cue: DuelCue): number { return Math.round((HOLD_MS[cue.kind]?.(cue) ?? 0) * 30 / 1000); }
 
 export interface CueResolver {
   /** 'monster' | 'spell' | 'trap' of a known passcode. */
@@ -33,10 +42,11 @@ export class DuelCueQueue {
 
   constructor(private readonly resolver: CueResolver = {}) {}
 
-  /** Read the presentation events of one reduced packet. `previous` must be the state before it. */
-  collect(previous: DuelState, next: DuelState): void {
+  /** Read the presentation events of one reduced packet. `previous` must be the state before it. Returns the frames its
+   *  cues' effects hold the duel (cueHoldFrames, the longest). */
+  collect(previous: DuelState, next: DuelState): number {
     const events = next.events.filter(e => e.sequence > previous.sequence);
-    const seen = new Set<string>();
+    const seen = new Set<string>(); let hold = 0;
     for (const e of events) {
       const cue = this.cue(previous, next, e);
       if (!cue) continue;
@@ -44,9 +54,10 @@ export class DuelCueQueue {
       const key = `${cue.kind}:${cue.at?.controller}:${cue.at?.zone}:${cue.at?.index}`;
       if (['summon', 'set', 'flip', 'destroy'].includes(cue.kind) && seen.has(key)) continue;
       seen.add(key);
-      this.pending.push({ after: previous.sequence, cue });
+      this.pending.push({ after: previous.sequence, cue }); hold = Math.max(hold, cueHoldFrames(cue));
     }
     if (this.pending.length > MAX_PENDING) this.pending.splice(0, this.pending.length - MAX_PENDING);
+    return hold;
   }
 
   /** Cues whose packet the timeline has reached. Returns the same array until something new is released. */

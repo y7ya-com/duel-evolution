@@ -13,7 +13,7 @@ export interface CardPlacement {
   uid: number; owner: Player; player: Player; zone: Zone; index: number;
   faceUp: boolean; defense: boolean; passcode: number | null; handCount: number;
 }
-interface DisplayFrame { cards: CardPlacement[]; lp: [number, number] }
+interface DisplayFrame { cards: CardPlacement[]; lp: [number, number]; turn: number; turnPlayer: Player; phase: DuelState['phase'] }
 interface Batch {
   sequence: number; from: DisplayFrame; to: DisplayFrame;
   events: PresentationEvent[]; duration: number; elapsed: number;
@@ -27,6 +27,8 @@ export interface TimelineCard {
 export interface TimelineEffect { event: PresentationEvent; progress: number }
 export interface TimelineSample {
   cards: TimelineCard[]; lp: [number, number]; effects: TimelineEffect[];
+  /** The turn and phase on screen: the playing packet's (its banner plays as it starts), not the latest received. */
+  turn: number; turnPlayer: Player; phase: DuelState['phase'];
   pending: boolean; queuedBatches: number; retainedCards: number;
   acknowledgedThrough: number; consumedEvents: number; skippedEvents: number;
 }
@@ -69,7 +71,7 @@ function capture(state: DuelState): DisplayFrame {
   return { cards: visibleCards(state).map((card: DuelCard) => ({ uid: card.uid, owner: card.owner,
     player: card.player, zone: card.zone, index: card.index, faceUp: card.faceUp, defense: card.defense,
     passcode: card.passcode, handCount: state.sides[card.player].hand.length })),
-    lp: [state.sides[0].lp, state.sides[1].lp] };
+    lp: [state.sides[0].lp, state.sides[1].lp], turn: state.turn, turnPlayer: state.turnPlayer, phase: state.phase };
 }
 function samePose(a: CardPlacement, b: CardPlacement): boolean {
   return a.player === b.player && a.zone === b.zone && a.index === b.index && a.faceUp === b.faceUp &&
@@ -110,7 +112,7 @@ export class DuelTimeline {
 
   constructor(initial: DuelState, options: TimelineOptions = {}) {
     this.display = capture(initial); this.enqueuedThrough = initial.sequence; this.acknowledged = initial.sequence;
-    this.maxBatches = bounded(options.maxBatches, 32, 256); this.maxCards = bounded(options.maxRetainedCards, 8192, 131072);
+    this.maxBatches = bounded(options.maxBatches, 128, 1024); this.maxCards = bounded(options.maxRetainedCards, 65536, 262144);
     this.lpFrames = bounded(options.lpFrames, TIMING_EVIDENCE.lpFrames.frames, 120);
     this.attackFrames = bounded(options.attackFrames, TIMING_EVIDENCE.attackFrames.frames, 120);
     this.chainFrames = bounded(options.chainFrames, TIMING_EVIDENCE.chainFrames.frames, 120);
@@ -120,7 +122,9 @@ export class DuelTimeline {
   get pending(): boolean { return this.queue.length > 0; }
   get acknowledgedThrough(): number { return this.acknowledged; }
 
-  enqueue(previous: DuelState, next: DuelState): TimelineSample {
+  /** `hold`: frames the packet's effects (its cues: a phase banner, a summon's sparkle, a destroy...) take before the next
+   *  packet may play, as the original's duel scene finishes each command's effect before it reads the next one. */
+  enqueue(previous: DuelState, next: DuelState, hold = 0): TimelineSample {
     if (next.sequence <= this.enqueuedThrough || previous.sequence !== this.enqueuedThrough || next.sequence <= previous.sequence) {
       throw new Error('Timeline states must be enqueued exactly once in packet order');
     }
@@ -135,27 +139,33 @@ export class DuelTimeline {
     // an LP change: its number rolls in and holds (lpFrames; a battle's from its hit, BATTLE_COUNT_FRAMES), then the
     // gauge counts it at its fixed rate
     const attack = events.find(e => ATTACKS.includes(e.type)), lpChange = from.lp[0] !== to.lp[0] || from.lp[1] !== to.lp[1];
-    let hold = this.lpFrames;
+    let lpHold = this.lpFrames;
     if (lpChange && !this.reducedMotion) {
-      if (attack) hold = Math.max(hold, attackHit(attack) + BATTLE_COUNT_FRAMES);
-      else if (this.battle) hold = Math.max(hold, this.battle.hit + BATTLE_COUNT_FRAMES - this.battle.after);
-      duration = Math.max(duration, hold + Math.max(...[0, 1].map(p => lpCountFrames(to.lp[p] - from.lp[p]))));
+      if (attack) lpHold = Math.max(lpHold, attackHit(attack) + BATTLE_COUNT_FRAMES);
+      else if (this.battle) lpHold = Math.max(lpHold, this.battle.hit + BATTLE_COUNT_FRAMES - this.battle.after);
+      duration = Math.max(duration, lpHold + Math.max(...[0, 1].map(p => lpCountFrames(to.lp[p] - from.lp[p]))));
     }
     for (const e of events) {
       if (ATTACKS.includes(e.type)) duration = Math.max(duration, this.attackFrames);
       if (['engine:12', 'engine:13'].includes(e.type)) duration = Math.max(duration, this.chainFrames);
       if (['engine:30', 'engine:3c'].includes(e.type)) duration = Math.max(duration, TIMING_EVIDENCE.flashFrames.frames);
     }
+    if (!this.reducedMotion && hold > 0) duration = Math.max(duration, Math.min(Math.floor(hold), 300));
     // an attack whose damage comes in a later packet: its hit, and the frames played since the attack began
     if (lpChange || events.some(e => TURN_EVENTS.test(e.type))) this.battle = null;
     else if (attack) this.battle = { hit: attackHit(attack), after: duration };
     else if (this.battle) this.battle.after += duration;
     this.enqueuedThrough = next.sequence;
-    this.queue.push({ sequence: next.sequence, from, to, events, duration, elapsed: 0, hold });
-    if (this.reducedMotion || this.queue.length > this.maxBatches || this.retainedCards() > this.maxCards) this.skip();
-    else this.advance(0);
-    return this.sample();
+    this.queue.push({ sequence: next.sequence, from, to, events, duration, elapsed: 0, hold: lpHold });
+    if (this.reducedMotion) return this.skip();
+    // Far behind (more animated packets queued than the budget): the oldest are fast-forwarded, never the whole queue,
+    // so what comes next still plays. (Packets with nothing to show cost no time and never count.)
+    while (this.queue.length > 1 && (this.animatedBatches() > this.maxBatches || this.retainedCards() > this.maxCards)) this.complete(this.queue.shift()!, true);
+    if (this.queue.length === 1 && this.retainedCards() > this.maxCards) this.skip();
+    return this.advance(0);
   }
+
+  private animatedBatches(): number { return this.queue.reduce((n, b) => n + (b.duration > 0 ? 1 : 0), 0); }
 
   private retainedCards(): number { return this.queue.reduce((n, b) => n + b.from.cards.length + b.to.cards.length, 0); }
   private complete(batch: Batch, skip: boolean): void {
@@ -200,6 +210,7 @@ export class DuelTimeline {
       return to.lp[p] - Math.sign(change) * lpLeft(change, Math.max(0, counted));
     }) as [number, number];
     return { cards, lp, effects: (head?.events ?? []).map(event => ({ event: cloneEvent(event), progress })),
+      turn: to.turn, turnPlayer: to.turnPlayer, phase: to.phase,
       pending: this.pending, queuedBatches: this.queue.length, retainedCards: this.retainedCards(),
       acknowledgedThrough: this.acknowledged, consumedEvents: this.consumed, skippedEvents: this.skipped };
   }
