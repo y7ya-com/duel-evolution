@@ -37,6 +37,10 @@ const REPLAY = process.env.NPC_LAB_REPLAY ?? "";
 const haveEngine = existsSync(join(ENGINE_DATA_DIR, "scripts.pack"));
 const haveData = haveEngine && !!DECKS && existsSync(DECKS);
 const MAX_DECISIONS = 3000; // ocgSession.MAX_NPC_DECISIONS
+// NPC_LAB_RECIPES=<recipes.json> ({ "<npc id>": { main, extra } }): the NPC plays this recipe instead of its own (a deck
+// candidate, measured before it goes in the source). NPC_LAB_SEED=<n>: another set of seeds (a holdout run).
+const RECIPES: Record<string, { main: number[]; extra?: number[] }> = process.env.NPC_LAB_RECIPES ? JSON.parse(readFileSync(process.env.NPC_LAB_RECIPES, "utf8")) : {};
+const SEED = Number(process.env.NPC_LAB_SEED ?? 0);
 
 type AiModule = typeof Ai;
 interface Outcome { winner: "npc" | "player" | "draw" | "stall" | "error"; turns: number; illegal: number; lp: [number, number]; ms: number; decisions: number }
@@ -82,7 +86,7 @@ function rulesFrom(mod: AiModule, file: string | undefined): Ai.RuleSet | undefi
 }
 
 function duel(dc: DuelCore, npcMod: AiModule, pilotMod: AiModule, npcId: number, player: { main: number[]; extra: number[] }, first: 0 | 1, seed: number, trace: string[] | null, rules?: Ai.RuleSet): Outcome {
-  const nd = npcDeck(npcId)!;
+  const rec = RECIPES[String(npcId)], nd = rec ? { main: rec.main, extra: rec.extra ?? [] } : npcDeck(npcId)!;
   const decks = [{ main: toCodes(player.main), extra: toCodes(player.extra ?? []) }, { main: toCodes(nd.main), extra: toCodes(nd.extra) }];
   const opts: NewOptions = { first, seed, shuffle: true, rule: PY_DUEL_RULE, brain: [true, true], auto_chain: true };
   const id = `lab-${++seq}`;
@@ -151,7 +155,7 @@ describe.skipIf(!haveData || !N)("NPC lab", () => {
       for (let g = 0; g < N; g++) {
         const trace: string[] | null = TRACE ? [] : null;
         const deck = players[(npcId * 7 + g) % players.length]!;
-        const r = duel(dc, npcMod, pilotMod, npcId, deck, (g % 2) as 0 | 1, 5000 * npcId + g, trace, npcRules);
+        const r = duel(dc, npcMod, pilotMod, npcId, deck, (g % 2) as 0 | 1, 5000 * npcId + g + 1_000_003 * SEED, trace, npcRules);
         if (r.winner === "npc") npc++; else if (r.winner === "player") player++; else other++;
         if (r.winner === "stall" || r.winner === "error") total.bad++;
         illegal += r.illegal; turns += r.turns; ms += r.ms; dec += r.decisions; lpDiff += r.lp[1] - r.lp[0];
