@@ -53,7 +53,7 @@ const PHASE_MS = 770, TURN_MS = 840, FIELD_MS = 1260;
 
 interface Anim { cue: DuelCue; start: number; duration: number; draw(ctx: PixiPainter, t: number): void;
   /** Held at its first frame while this says its art is still loading (at most ART_HOLD ms after it was cued). */
-  ready?: () => boolean; cued?: number; begun?: boolean; /** when it was cued (never shifted) */ born?: number }
+  ready?: () => boolean; cued?: number; begun?: boolean; /** when it was cued, on the page's clock (never shifted, not the duel speed's) */ born?: number }
 /** How long a cue whose whole picture matters (START DUEL) waits for its art before it plays with what it has. */
 const ART_HOLD = 2500;
 /** The duel's opening (CDuelStartTask: data/y/duel/effect/duel_ef_start_a01_j, 48 frames at 30 fps on the 1024 x 768
@@ -229,13 +229,13 @@ export class DuelFx {
   private push(cue: DuelCue, duration: number, draw: Anim['draw']): void {
     this.played[cue.kind] = (this.played[cue.kind] ?? 0) + 1;
     // (everything cued with START DUEL plays after it, as the original's duel begins once its opening is over)
-    let start = Math.max(this.now(), this.bannersAfter);
+    let start = Math.max(this.now() + (cue.delay ?? 0), this.bannersAfter);
     if (BANNERS.has(cue.kind)) {
       // Phases the server sends back to back show in turn; far behind (a fast opponent turn), the line catches up.
       if (this.bannerFree - start > 1600) { this.anims = this.anims.filter(a => !BANNERS.has(a.cue.kind)); this.bannerFree = start; }
       start = Math.max(start, this.bannerFree); this.bannerFree = start + duration;
     }
-    this.anims.push({ cue, start, duration, draw, born: this.now() });
+    this.anims.push({ cue, start, duration, draw, born: this.clock() });
     if (this.anims.length > MAX_ANIMS) this.anims.splice(0, this.anims.length - MAX_ANIMS);
   }
   private play(cue: DuelCue): void {
@@ -400,8 +400,13 @@ export class DuelFx {
     this.schedule();
   }
   get thinking(): 0 | 1 | null { return this.thinkingSide; }
+  /** The last cue this layer has taken (DuelView.cues ids): a cue the app released after it has not reached the screen. */
+  get seenCue(): number { return this.seen; }
   /** START DUEL is cued but not playing yet (its layer not on the page, its art still coming): the duel's clock waits. */
-  get openingPending(): boolean { const now = this.now(); return !this.disposed && this.anims.some(a => a.cue.kind === 'start' && !a.begun && now - (a.born ?? now) < 6000); }
+  get openingPending(): boolean {
+    // (at most 15 s of the page's clock: the janken's result can show a while first; the duel speed does not shorten it)
+    const now = this.clock(); return !this.disposed && this.anims.some(a => a.cue.kind === 'start' && !a.begun && now - (a.born ?? now) < 15000);
+  }
   private draw(): void {
     const ctx = this.ctx; if (this.disposed) return;
     const now = this.now();

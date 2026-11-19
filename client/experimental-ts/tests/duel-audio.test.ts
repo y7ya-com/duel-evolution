@@ -160,6 +160,21 @@ describe('card_move (view 0x19) and the se.txt per-file volume', () => {
     const audio = new DuelAudioDirector(), a = withDeck(3, 1), b = next(a, event('55', [0xffff, 2, 0]), event('55', [0xffff, 2, 0]), event('55', [0xffff, 2, 0], 1));
     audio.enqueue(a, b); expect(audio.consumeSample(sample(1)).map(c => [c.ordinal, c.player])).toEqual([[0, 0], [0, 0], [1, 0], [2, 1]]);
   });
+  it('plays each dealt card\'s card_move with its own flight (one 8-frame flight apart); at once with reduced motion', () => {
+    for (const reducedMotion of [false, true]) {
+      const audio = new DuelAudioDirector(0, { reducedMotion }), a = withDeck(40), b = next(a, event('55', [0xffff, 3, 0]));
+      audio.enqueue(a, b);
+      expect(audio.consumeSample(sample(1)).map(c => c.delay)).toEqual(reducedMotion ? [undefined, undefined, undefined] : [undefined, 8000 / 30, 16000 / 30]);
+    }
+  });
+  it('times a dealt card\'s card_move from the board\'s clock (frames into the packet), so it waits while the board waits', () => {
+    const audio = new DuelAudioDirector(), a = withDeck(40), b = next(a, event('55', [0xffff, 3, 0])), playing = b.events.filter(e => e.sequence > a.sequence);
+    audio.enqueue(a, b);
+    const at = (elapsed: number) => audio.consumeSample({ ...sample(0, playing), elapsed }).length;
+    expect([at(0), at(0), at(7.9), at(8), at(15), at(16)]).toEqual([1, 0, 0, 1, 0, 1]);
+    const late = new DuelAudioDirector(), c = next(a, event('55', [0xffff, 3, 0])); late.enqueue(a, c);
+    expect(late.consumeSample({ ...sample(1), elapsed: 0 })).toHaveLength(3);   // the packet done between two frames
+  });
   it.each(['4f', '50', '3d', '3f', '40', '41'])('plays card_move once for view-0x19 subkind 0/1/3/4 command %s', type => {
     const audio = new DuelAudioDirector(), a = createDuelState(), b = next(a, event(type, [0, 0x4000, 0], 1));
     audio.enqueue(a, b);

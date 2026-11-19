@@ -117,6 +117,8 @@ export interface DuelCue {
   value?: number;
   /** Coin faces, 1 = heads. */
   values?: number[];
+  /** ms (at 1x duel speed) after its packet starts that the effect begins: a set card's ring waits for it to land. */
+  delay?: number;
 }
 export interface SocialEntry { id: number | string; name: string; status?: string; online?: boolean; }
 export interface SocialView { friends: SocialEntry[]; mail?: { id: string; sender: string; subject: string; body: string }[]; loading?: boolean; }
@@ -273,6 +275,11 @@ export type ClientCommand =
 export interface ClientController {
   /** Set by the UI: true while the duel's opening movie waits to begin (the board's clock waits with it). */
   duelOpeningHold?: (() => boolean) | null;
+  /** Set by the UI: the last duel cue id its effects layer has taken (START DUEL released but not yet on screen holds the
+   *  board's clock as well: a duel screen still being built). */
+  duelCueSeen?: (() => number) | null;
+  /** The Duel speed the effects layer plays at (1, 1.5 or 2): the board's clock and the duel's sounds follow it. */
+  duelSpeed?: (() => number) | null;
   getState(): ClientView;
   subscribe(listener: (state: ClientView) => void): () => void;
   dispatch(command: ClientCommand): void | Promise<void>;

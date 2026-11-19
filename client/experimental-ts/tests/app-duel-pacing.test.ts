@@ -33,6 +33,16 @@ function fixture() {
 const timer = (who: number, seconds: number) => { const b = new Uint8Array(10), v = new DataView(b.buffer); b[0] = who; v.setInt32(1, seconds); b[5] = 0; v.setInt32(6, 180); return b; };
 
 describe('the duel screen follows the board, not the latest packet', () => {
+  it('holds the board until the UI has taken START DUEL (a duel screen still being built plays nothing unseen)', async () => {
+    const f = fixture(); await f.enter(); let seen = 0;
+    f.app.duelCueSeen = () => seen;
+    f.send(0x6202, engine(1)); f.send(0x6202, engine(0x25, 0, 1000));
+    for (let i = 0; i < 300; i++) f.tick();
+    expect(f.app.getState().duel!.players[0].lp).toBe(8000);
+    seen = Math.max(...f.app.getState().duel!.cues!.map(c => c.id));
+    while (f.tick()) { /* START DUEL, then the damage */ }
+    expect(f.app.getState().duel!.players[0].lp).toBe(7000);
+  });
   it('holds the log, an information box, the clock and the end until the board has played what came before', async () => {
     const f = fixture(); await f.enter();
     f.send(0x6202, engine(1)); while (f.tick()) { /* the start */ }

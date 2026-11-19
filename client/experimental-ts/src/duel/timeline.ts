@@ -36,6 +36,8 @@ export interface TimelineSample {
   turn: number; turnPlayer: Player; phase: DuelState['phase'];
   pending: boolean; queuedBatches: number; retainedCards: number;
   acknowledgedThrough: number; consumedEvents: number; skippedEvents: number;
+  /** Frames the playing packet has played (0 with none): its effects' sounds time themselves from it. */
+  elapsed: number;
 }
 export interface TimelineOptions {
   maxBatches?: number; maxRetainedCards?: number; reducedMotion?: boolean;
@@ -231,6 +233,6 @@ export class DuelTimeline {
     return { cards, lp, effects: (head?.events ?? []).map(event => ({ event: cloneEvent(event), progress })),
       turn: to.turn, turnPlayer: to.turnPlayer, phase: to.phase,
       pending: this.pending, queuedBatches: this.queue.length, retainedCards: this.retainedCards(),
-      acknowledgedThrough: this.acknowledged, consumedEvents: this.consumed, skippedEvents: this.skipped };
+      acknowledgedThrough: this.acknowledged, consumedEvents: this.consumed, skippedEvents: this.skipped, elapsed: head?.elapsed ?? 0 };
   }
 }

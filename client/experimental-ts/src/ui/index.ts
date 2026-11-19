@@ -1020,6 +1020,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const duelNpcSets = (): void => { const id = state.npc?.stage === 'duel' || state.npc?.stage === 'after-duel' ? state.npc.npc?.id : undefined; duelScene.npcSets = [null, id === undefined ? null : npcWaistUpSet(id)]; };
   duelScene.fx.speed = loadDuelSpeed();
   controller.duelOpeningHold = () => duelScene.fx.openingPending;
+  controller.duelSpeed = () => duelScene.fx.speed;
+  controller.duelCueSeen = () => duelScene.fx.seenCue;
   const avatarNodes = new Map<number, HTMLElement>();
   let effectsLayer: HTMLElement | null = null;
   let sideboardClock: ReturnType<typeof setInterval> | null = null;

@@ -411,6 +411,15 @@ export class BrowserAudioManager {
       return true;
     } catch (error) { if (!this.closed) this.report(error); return false; }
   }
+  /** Fetch and decode effects ahead of their first play (a duel's, when it starts), one at a time, so the first summon
+   *  or attack sounds as it shows instead of after its archive read. Never throws; does nothing before activation. */
+  async preloadEffects(paths: readonly string[]): Promise<void> {
+    for (const raw of paths) {
+      if (this.closed || !this.activated || this.context?.state !== 'running') return;
+      const path = normalizeAssetPath(raw); if (!/^se\/.+\.wav$/.test(path) || this.decoded.has(path)) continue;
+      try { await this.decodeEffect(path); } catch { return; }
+    }
+  }
   private decodeEffect(path: string): Promise<Decoded> {
     const cached = this.decoded.get(path);
     if (cached) { this.decoded.delete(path); this.decoded.set(path, cached); return Promise.resolve(cached); }

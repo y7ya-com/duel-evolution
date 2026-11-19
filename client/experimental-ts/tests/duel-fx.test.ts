@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { engine, set_card } from '../../../server/src/duel/translator/lockstep';
+import { engine, loc, set_card } from '../../../server/src/duel/translator/lockstep';
 import { createDuelState, reduceDuelMessage } from '../src/duel/model';
-import { DuelCueQueue } from '../src/duel/cues';
+import { CARD_MS, cueHoldFrames, DuelCueQueue } from '../src/duel/cues';
 import { parseSwfText, SwfInstance } from '../src/duel/swf-text';
 import { parseWaistUpData, waistUpLayers } from '../src/ui/duel-portrait';
 import { cardKindLine } from '../src/ui/duel-scene';
@@ -104,6 +104,25 @@ describe('duel presentation cues', () => {
     expect(new Set(cues.map(c => c.id)).size).toBe(cues.length);
     q.reset(); const again = cmd(s, engine(0x0c, 0)); q.collect(s, again);
     expect(q.release(again.sequence)[0]!.id).toBeGreaterThan(cues[cues.length - 1]!.id);
+  });
+});
+
+describe('a card played from the hand', () => {
+  const play = (face: number) => {
+    const q = new DuelCueQueue({ cardKind: () => 'monster' });
+    const s = cmd(initial(), set_card(0, 11, 0, 123, 1)), next = cmd(s, engine(0x4f, 0, 0, loc(0, 2, face, 0), (1 << 1) | 1));
+    const hold = q.collect(s, next); return { cues: [...q.release(next.sequence)], hold, next };
+  };
+  it('shows a set card\'s ring as it lands, not while it flies', () => {
+    const { cues, hold, next } = play(0);
+    expect(next.sides[0].monster[2]).not.toBeNull();
+    expect(cues).toMatchObject([{ kind: 'set', delay: CARD_MS, at: { controller: 0, zone: 'monster', index: 2 } }]);
+    expect(hold).toBe(cueHoldFrames(cues[0]!)); expect(hold).toBe(Math.round((600 + CARD_MS) * 30 / 1000));
+  });
+  it('leaves a face-up summon\'s effect to the 0x2c after its flight (no sparkle on the empty zone, none twice)', () => {
+    expect(play(1).cues).toEqual([]);
+    const q = new DuelCueQueue(), s = initial(), next = cmd(s, engine(0x2c, 0, 0, 2, 2));
+    q.collect(s, next); expect(q.release(next.sequence)).toMatchObject([{ kind: 'summon', at: { controller: 0, zone: 'monster', index: 2 } }]);
   });
 });
 

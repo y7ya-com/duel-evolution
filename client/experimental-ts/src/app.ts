@@ -33,7 +33,7 @@ import { DuelTextCatalog } from './duel/text';
 import { DuelTimeline } from './duel/timeline';
 import { PacedQueue } from './duel/paced';
 import { DuelCueQueue } from './duel/cues';
-import { DuelAudioDirector } from './duel/audio';
+import { DUEL_SOUND_PRELOAD, DuelAudioDirector } from './duel/audio';
 import { duelRewards, pduNpcRecord, type NpcRecord, type ProfileSnapshot } from './duel/rewards';
 import { fieldAudioSlotForPasscode } from './duel/theme';
 import { AccountController } from './features/account';
@@ -168,6 +168,12 @@ export class ClientApp implements ClientController {
   private timeline = new DuelTimeline(this.duelState);
   /** ClientController.duelOpeningHold (the UI's START DUEL still waiting to play). */
   duelOpeningHold: (() => boolean) | null = null;
+  /** ClientController.duelCueSeen (the last cue the UI's effects layer has taken). */
+  duelCueSeen: (() => number) | null = null;
+  /** The duel's START DUEL cue once released, and when (performance.now): the board waits until the UI has it. */
+  private openingCue: { id: number; at: number } | null = null;
+  /** ClientController.duelSpeed (the Duel speed button's 1x / 1.5x / 2x, which the UI's effects run at). */
+  duelSpeed: (() => number) | null = null;
   private duelCues = new DuelCueQueue({ cardKind: pc => { const t = this.catalog.card(pc).type?.toLowerCase() ?? ''; return t.startsWith('spell') ? 'spell' : t.startsWith('trap') ? 'trap' : t ? 'monster' : undefined; },
     fieldKind: pc => { try { return fieldThemeKindForPasscode(pc, id => this.options.cardDetails?.get(id)?.internalId); } catch { return null; } } });
   private duelPortraits: [Uint8Array | undefined, Uint8Array | undefined] = [undefined, undefined];
@@ -836,6 +842,7 @@ export class ClientApp implements ClientController {
     this.cancelAnimation(); this.duelState = createDuelState(); this.duelLog = []; this.submittedPrompt = null; this.lastDuelAction = null;
     this.timeline = new DuelTimeline(this.duelState, { reducedMotion: this.view.settings.reducedMotion || !this.frameRequest });
     this.duelAudio.reset(this.duelState.sequence); this.duelCues.reset(); this.duelPortraits = [undefined, undefined];
+    void this.options.audio?.preloadEffects(DUEL_SOUND_PRELOAD); this.openingCue = null;
     this.settledDuel = null;
     this.fieldPasscode=0;this.fieldAudioSlot=11; this.duelIsPvp = false; this.duelNotice = null; this.duelPaced.clear(); this.duelTimer = null;
     const profile = this.game?.state.profile; this.duelStartProfile = profile ? { level: profile.level, score: profile.score, mp: profile.mp } : null; this.duelNpcRecord = null;
@@ -922,16 +929,23 @@ export class ClientApp implements ClientController {
     // (the result board's rewards with the result: once the board has played everything)
     const parts = this.duelParts(), duel = { ...shown, ...(sample.pending ? {} : this.duelResultExtras()), cues: this.duelCues.release(this.timeline.acknowledgedThrough),
       players: timed.players.map((p, i) => parts[i] ? { ...p, parts: parts[i] } : p) as unknown as typeof timed.players };
-    for (const cue of this.duelAudio.consumeSample(sample)) {
-      const play = () => { if (!this.disposed) void this.options.audio?.playEffect(cue.path, cue.gain).catch(error=>this.failure(error)); };
-      // Frame-timed sounds (the die's landings) play at their moment of the effect that starts now.
-      if (cue.delay) setTimeout(play, cue.delay); else play();
-    }
+    for (const cue of duel.cues) if (cue.kind === 'start' && cue.id > (this.openingCue?.id ?? 0)) this.openingCue = { id: cue.id, at: performance.now() };
+    // (none while the board's clock stands: the opening hands' first card_move waits for START DUEL as the cards do;
+    // frame-timed sounds, a dealt card's or the die's landings, come due as the board plays its packet)
+    if (this.boardRunning()) for (const cue of this.duelAudio.consumeSample(sample))
+      void this.options.audio?.playEffect(cue.path, cue.gain).catch(error=>this.failure(error));
     // a replay answers nothing: its prompts are the record's, already answered by the commands after them
     if (this.replay) { const { waiting: _w, ...rest } = duel; this.patch({ duel: { ...rest, prompt: null, actions: [] } }); }
     else this.patch({ duel: relay && !relay.canAct ? { ...duel, prompt:null, actions:[], waiting:relay.self === 255 ? 'Watching a tag duel.' : duel.turnPlayer === 1 ? `The opponents are playing. ${relay.players[relay.active[0]]?.name ?? 'Your teammate'} answers for your team.` : `Waiting for ${relay.players[relay.active[0]]?.name ?? 'your teammate'} to play.` } : duel });
     this.duelState = acknowledgePresentation(this.duelState, this.timeline.acknowledgedThrough);
   }
+  private boardRunning(): boolean {
+    // START DUEL released but not yet taken by the effects layer (the duel screen still being built: a slow device) holds
+    // the board as its waiting to play does (duelOpeningHold), at most 15 s (a screen that never comes)
+    const o = this.openingCue, unseen = !!o && (this.duelCueSeen?.() ?? Infinity) < o.id && performance.now() - o.at < 15000;
+    return this.view.scene === 'duel' && !this.view.preparation && !unseen && !this.duelOpeningHold?.();
+  }
+  private speed(): number { const k = this.duelSpeed?.() ?? 1; return Number.isFinite(k) && k > 0 ? k : 1; }
   private scheduleAnimation(): void {
     if (this.animationFrame !== null || !this.timeline.pending || this.disposed) return;
     const request = this.frameRequest;
@@ -944,8 +958,8 @@ export class ClientApp implements ClientController {
       const delta = this.lastFrame === null ? 1 : Math.max(0, Math.min(30, (time - this.lastFrame) * 30 / 1000));
       // the board's clock stands while the duel screen is not up yet (the janken scene still shows): START DUEL plays
       // once the field is shown, and the opening hands are dealt after it, as live's
-      const shown = this.view.scene === 'duel' && !this.view.preparation && !this.duelOpeningHold?.();
-      this.lastFrame = time; this.timeline.advance(shown ? delta : 0); this.renderDuelFrame();
+      // (at the Duel speed the effects play at, so a card lands, its sound plays and its sparkle shows together)
+      this.lastFrame = time; this.timeline.advance(this.boardRunning() ? delta * this.speed() : 0); this.renderDuelFrame();
       if (this.timeline.pending) this.scheduleAnimation(); else { this.lastFrame = null; this.duelSettled(); }
     });
   }

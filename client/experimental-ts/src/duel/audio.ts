@@ -20,6 +20,9 @@ export const DUEL_SOUND_EVIDENCE = {
   coin: { id: 0x10000019, path: 'se/coin.wav', volume: 127, source: '0x007ab4f0, push 0x10000019 at 0x007ab5ee: at each coin\'s relative counter 0 (0x5c)' },
   dice: { id: 0x10000018, path: 'se/dice.wav', volume: 127, source: '0x007aa990, push 0x10000018 at 0x007aafa1: counter == 0x100 and == 0x180, the die\'s two landings (0x5d)' },
 } as const;
+/** The sounds nearly every duel plays, decoded when it starts (BrowserAudioManager.preloadEffects). */
+export const DUEL_SOUND_PRELOAD = [...new Set((['move', 'summon', 'attack', 'damage', 'destroy', 'battleDestroy', 'activate', 'turn', 'battlePhase'] as const)
+  .map(k => DUEL_SOUND_EVIDENCE[k].path))];
 /** Relative linear gain for a se.txt volume (127 = 1). The original's conversion of this
  * value into DirectSound attenuation is not verified; this is a proportional scale only. */
 export function duelSoundGain(volume: number): number {
@@ -29,15 +32,16 @@ export function duelSoundGain(volume: number): number {
 /** When a frame-timed sound plays after its cue starts, in the rewrite's duel-fx timeline (ui/duel-fx.ts, live's films
  * L-dice1 / L-coin3). The original's die lands twice (at 0x100 and 0x180 of its roll): in the fx it comes down in the
  * field's middle at 870 ms and its roll there ends at 1150. Each coin sounds at its own relative counter 0: its toss,
- * 500 ms after the last coin's. The chain plaque and the activation effect start with their cue. */
-export const DUEL_SOUND_DELAYS = { dice: [870, 1150], coinStagger: 500 } as const;
+ * 500 ms after the last coin's. The chain plaque and the activation effect start with their cue. A draw of several
+ * cards plays each card_move one card flight (8 frames at 30 Hz) after the last. All are ms at 1x duel speed. */
+export const DUEL_SOUND_DELAYS = { dice: [870, 1150], coinStagger: 500, card: 8 * 1000 / 30 } as const;
 export interface DuelSoundCue {
   readonly sequence: number; readonly ordinal: number; readonly player: Player;
   readonly kind: keyof typeof DUEL_SOUND_EVIDENCE;
   readonly id: number; readonly path: string;
   /** se.txt per-file volume (0..127) and its relative gain; see duelSoundGain. */
   readonly volume: number; readonly gain: number;
-  /** Milliseconds after the cue's effect starts (frame-timed sounds); absent = at once. */
+  /** Milliseconds (at 1x: board-clock frames x 1000 / 30) after its packet starts playing; absent = at once. */
   readonly delay?: number;
 }
 export interface DuelAudioOptions { maxQueuedCues?: number; maxCuesPerSample?: number; muted?: boolean; reducedMotion?: boolean; }
@@ -134,17 +138,22 @@ export class DuelAudioDirector {
     }
     if (event.type === 'engine:55') {
       // engCmdDraw issues one view 0x19 subkind0 per drawn card (EngineCmd5.cpp step1, repeated P1 times).
+      // Several are dealt a card at a time (timeline.ts deal: each card's flight starts one flight after the last's), so
+      // each card's sound starts with its own flight.
       const n = Math.max(0, Math.min(p[1] ?? 0, this.deckLeft[event.player])); this.deckLeft[event.player] -= n;
-      return Array.from({ length: n }, () => ({ kind: 'move' as const }));
+      return Array.from({ length: n }, (_, k) => k && !this.reducedMotion ? { kind: 'move' as const, delay: k * DUEL_SOUND_DELAYS.card } : { kind: 'move' as const });
     }
     // View 0x19 subkind0: moves 0x3d / 0x3f / 0x40 / 0x41; subkind1/4: 0x4f face-up summon / set;
     // subkind3/4: 0x50 face-up / face-down spell-trap placement. 0x2d uses subkind2 (no card_move).
     if (MOVE_COMMANDS.has(event.type)) return [{ kind: 'move' }];
     if (['engine:1', 'engine:4', 'engine:5', 'engine:15', 'engine:1c'].includes(event.type)) { this.attack = null; this.battleGauge = [0, 0]; }
-    return event.type === 'engine:2d' ? [{ kind: 'summon' }] : event.type === 'engine:4' ? [{ kind: 'turn', player: (event.player ^ 1) as Player }]
+    // 0x2d: reborn.wav with its RUN_SUMMON view, after the card's flight (view 0x19) to its zone
+    return event.type === 'engine:2d' ? [this.reducedMotion ? { kind: 'summon' } : { kind: 'summon', delay: DUEL_SOUND_DELAYS.card }] : event.type === 'engine:4' ? [{ kind: 'turn', player: (event.player ^ 1) as Player }]
       : event.type === 'engine:f' ? [{ kind: 'battlePhase' }] : [];
   }
-  consumeSample(sample: Pick<TimelineSample, 'effects' | 'acknowledgedThrough' | 'skippedEvents'>): DuelSoundCue[] {
+  /** `elapsed` (frames into the playing packet, on the board's clock): a cue with a delay waits for it, so a dealt card's
+   *  sound starts with its own flight at any duel speed, and waits while the board does. */
+  consumeSample(sample: Pick<TimelineSample, 'effects' | 'acknowledgedThrough' | 'skippedEvents'> & { elapsed?: number }): DuelSoundCue[] {
     if (this.closed) return [];
     const ack = sequence(sample.acknowledgedThrough), skipped = sequence(sample.skippedEvents);
     if (ack < this.acknowledged || ack > this.enqueuedThrough || skipped < this.skippedEvents) throw new Error('Duel audio timeline sample is out of order');
@@ -152,7 +161,7 @@ export class DuelAudioDirector {
     const visible = new Set(sample.effects.map(e => e.event.sequence)), output: DuelSoundCue[] = [], future: DuelSoundCue[] = [];
     for (const cue of this.queue) {
       const started = visible.has(cue.sequence), completed = cue.sequence <= ack;
-      if (!started && !completed) { future.push(cue); continue; }
+      if (!started && !completed || !completed && cue.delay && (sample.elapsed ?? Infinity) * 1000 / 30 < cue.delay) { future.push(cue); continue; }
       if (skip && completed && !started) { this.counts.skipped++; continue; }
       if (this.muted) { this.counts.muted++; continue; }
       if (output.length >= this.maxSample) { this.counts.dropped++; continue; }

@@ -17,7 +17,9 @@ const HOLD_MS: Partial<Record<DuelCue['kind'], (cue: DuelCue) => number>> = {
   activate: () => 700, destroy: () => 900, tribute: () => 900,
   coin: cue => (Math.max(1, cue.values?.length ?? 1) - 1) * 500 + 1500, dice: () => 1880,
 };
-export function cueHoldFrames(cue: DuelCue): number { return Math.round((HOLD_MS[cue.kind]?.(cue) ?? 0) * 30 / 1000); }
+/** A card's flight (timeline.ts cardFrames, 8 frames at 30 Hz) in ms: what an effect on its landing waits. */
+export const CARD_MS = 8 * 1000 / 30;
+export function cueHoldFrames(cue: DuelCue): number { return Math.round(((HOLD_MS[cue.kind]?.(cue) ?? 0) + (cue.delay ?? 0)) * 30 / 1000); }
 
 export interface CueResolver {
   /** 'monster' | 'spell' | 'trap' of a known passcode. */
@@ -85,11 +87,14 @@ export class DuelCueQueue {
       case 0x01: return make('start');
       case 0x04: return make('turn', { player: (who ^ 1) as Player });
       case 0x2c: { const at = slot(who, p[1] ?? -1); return at ? make('summon', { at }) : null; }
-      case 0x2d: case 0x48: { const at = place(now) ?? slot((p[0]! & 1) as Player, (p[0]! >>> 1) & 31); return at ? make('summon', { at, ...withKind(now) }) : null; }
+      // 0x2d: the card's flight (view 0x19) and then its summon (view 0x35 RUN_SUMMON): the effect as it lands
+      case 0x2d: case 0x48: { const at = place(now) ?? slot((p[0]! & 1) as Player, (p[0]! >>> 1) & 31); return at ? make('summon', { at, ...withKind(now), ...(cmd === 0x2d ? { delay: CARD_MS } : {}) }) : null; }
       case 0x4f: case 0x50: {
-        const at = place(now); if (!at) return null;
-        const faceUp = !!(p[1]! & 0x4000);
-        return make(cmd === 0x4f ? faceUp ? 'summon' : 'set' : faceUp ? 'activate' : 'set', { at, ...withKind(now) });
+        // A card played from the hand. Face up, this command is only its flight (view 0x19): its summon's effect is the
+        // 0x2c that follows it, an activation's the chain's 0x12, each played once the card is down. A set card's ring
+        // shows as it lands (CARD_MS), not on the empty zone it is still flying to.
+        const at = place(now); if (!at || p[1]! & 0x4000) return null;
+        return make('set', { at, delay: CARD_MS, ...withKind(now) });
       }
       case 0x35: { const at = slot(who, p[0]!) ?? place(now); return at && !(p[2]! & 8) ? make('flip', { at, ...withKind(now) }) : null; }
       case 0x12: {
