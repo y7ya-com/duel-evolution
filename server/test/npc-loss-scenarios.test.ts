@@ -600,4 +600,23 @@ describe.skipIf(!haveData)("NPC scenarios: production losses (real engine)", () 
     });
     expect(npcActivated(p, "Crystal Abundance")).toBe(false);
   });
+
+  // ---- lab A/B regressions (npc71 g29, g22)
+  it("does not tribute a 2600 monster that already attacked for Panther Warrior's hit on a defender (lab npc71-g29)", () => {
+    const p = play(dc, {
+      npcId: 71, first: "player", turns: 2,
+      npc: { mzone: ["Panther Warrior", "Divine Knight Ishzark"], deck: Array(20).fill("Reckless Greed") },
+      player: { lp: 8000, mzone: [["Ehren, Lightsworn Monk", "def"], "Petit Moth"] },
+    });
+    expect(leftField(p, "Divine Knight Ishzark")).toBe(false);
+  });
+
+  it("Jinzo still attacks into set cards at low LP: no trap can be activated (lab npc71-g22)", () => {
+    const p = play(dc, {
+      npcId: 71, first: "player", turns: 2,
+      npc: { lp: 2200, mzone: ["Jinzo"], deck: Array(20).fill("Reckless Greed") },
+      player: { lp: 2500, mzone: [["Petit Moth", "def"]], szone: ["Magic Cylinder", "Mirror Force"] },
+    });
+    expect(leftField(p, "Petit Moth")).toBe(true);
+  });
 });

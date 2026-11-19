@@ -2490,8 +2490,10 @@ export class HeuristicBot {
     return THREE_TRIBUTES.test(this.#nameOf(code)) ? 3 : this.#cards.brain.get(code)?.tributes() ?? 0;
   }
 
-  /** The opponent's face-down Spell/Trap cards. */
+  /** The opponent's face-down Spell/Trap cards that may be a Magic Cylinder (none while a Jinzo or a Royal Decree stops
+   *  Traps: the lab A/B held a Jinzo back from a winning attack). */
   #oppSetBackrow(): number {
+    if (this.#trapLock()) return 0;
     return this.#opp()?.szone.filter((c) => c && isFaceDown(c.position)).length ?? 0;
   }
 
@@ -3572,18 +3574,19 @@ export class HeuristicBot {
     return choose(pick ?? 0);
   }
 
-  /** The Tribute for the attack I just declared (Panther Warrior), or undefined when this is no such prompt: a monster
-   *  that has attacked already or cannot attack, the weakest; any monster when this attack alone wins; else null, and
-   *  the attack waits until another monster has attacked (the generic pick cancelled it as an optional cost, and
-   *  production went to Main Phase 2 with Panther Warrior's lethal 2000 still on the field: deck lab, NPC 71). */
+  /** The Tribute for the attack I just declared (Panther Warrior), or undefined when this is no such prompt: a small
+   *  monster (1000 or less) that has attacked already or cannot attack; any monster, the weakest, when this attack alone
+   *  wins; else null, and the attack waits until another monster has attacked (the generic pick cancelled it as an
+   *  optional cost, and production went to Main Phase 2 with Panther Warrior's lethal 2000 still on the field: deck
+   *  lab, NPC 71). A bigger monster stays a blocker (the lab A/B tributed a 2600 Ishzark for a hit on a defender). */
   #attackCost(ev: P<"selectUnselectCard">): number | null | undefined {
     const a = this.#declaredAttacker, phase = this.#board?.phase ?? 0;
     if (!a || this.#attackSeen || this.#turnPlayer !== this.seat || phase <= PHASE.MAIN1 || phase >= PHASE.MAIN2 || ev.unselectable.length > 0
       || !ev.selectable.every((c) => c.controller === this.seat && (c.location & LOCATION.MZONE) !== 0 && c.sequence !== a.sequence)) return undefined;
-    const atk = (c: CardRef) => this.#liveAtk(c) ?? 0;
+    const atk = (c: CardRef) => { const st = c.code ? this.#stat(c.code) : { atk: 0, def: 0 }; return Math.max(this.#liveAtk(c) ?? st.atk, st.def); };
     const spent = (c: CardRef) => this.#attackedThisTurn.has(c.sequence) || isFaceDown(c.position ?? 0) || ((c.position ?? 0) & POS.ATTACK) === 0;
     const pick = (ok: (c: CardRef) => boolean) => ev.selectable.map((c, i) => ({ c, i })).filter(({ c }) => ok(c)).sort((x, y) => atk(x.c) - atk(y.c))[0]?.i;
-    const free = pick(spent);
+    const free = pick((c) => spent(c) && atk(c) <= 1000);
     if (free !== undefined) return free;
     const lethal = this.#oppMonsters().length === 0 && (this.#me()?.mzone[a.sequence]?.attack ?? 0) >= (this.#opp()?.lp ?? 8000);
     if (lethal) return pick(() => true) ?? null;
