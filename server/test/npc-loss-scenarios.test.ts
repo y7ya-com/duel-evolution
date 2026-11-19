@@ -619,4 +619,25 @@ describe.skipIf(!haveData)("NPC scenarios: production losses (real engine)", () 
     });
     expect(leftField(p, "Petit Moth")).toBe(true);
   });
+
+  // ---- deck lab findings (orig1 REPORT.md)
+  it("Tribute Summons Mobius over a spent Zaborg to take the opponent's set card (npc7-g11)", () => {
+    const p = play(dc, {
+      npcId: 7, first: "player", turns: 2,
+      npc: { lp: 1100, hand: ["Mobius the Frost Monarch", "Spell Canceller"], mzone: ["Zaborg the Thunder Monarch", "Zaborg the Thunder Monarch"],
+        szone: ["Bottomless Trap Hole"], deck: Array(20).fill("Reckless Greed") },
+      player: { lp: 3200, mzone: [["Petit Moth", "set"]], szone: ["Mirror Force"] },
+    });
+    expect(msgs(p, "SUMMONING", "Mobius the Frost Monarch")).toHaveLength(1);
+  });
+
+  it("keeps its Zaborgs when Mobius would have no Spell or Trap to take (control, npc7-g11)", () => {
+    const p = play(dc, {
+      npcId: 7, first: "player", turns: 2,
+      npc: { lp: 1100, hand: ["Mobius the Frost Monarch", "Spell Canceller"], mzone: ["Zaborg the Thunder Monarch", "Zaborg the Thunder Monarch"],
+        szone: ["Bottomless Trap Hole"], deck: Array(20).fill("Reckless Greed") },
+      player: { lp: 3200, mzone: [["Petit Moth", "set"]] },
+    });
+    expect(msgs(p, "SUMMONING", "Mobius the Frost Monarch")).toHaveLength(0);
+  });
 });

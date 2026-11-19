@@ -297,7 +297,7 @@
     "jinzo": {"summonScore": {"+": [{"*": ["oppFaceUpBackrow", 300]}, {"*": ["oppBackrow", 100]}]}},
     "night assailant": {"summonScore": {"if": [{">=": [{"count": "oppMon"}, 1]}, 400, -200]}, "pick": {"score": {"if": ["mine", {"if": ["inGrave", "atk", -1]}, "atk"]}}},
     "dark necrofear": {"pick": {"score": {"if": ["mine", {"-": [0, "atk"]}, "atk"]}}},
-    "mobius the frost monarch": {"yesNo": {">=": ["oppBackrow", 1]}, "pick": {"score": {"if": ["mine", -100, {"if": ["faceDown", 30, 20]}]}, "min": 0}},
+    "mobius the frost monarch": {"summonScore": {"if": [{">=": ["oppBackrow", 1]}, 900, -300]}, "yesNo": {">=": ["oppBackrow", 1]}, "pick": {"score": {"if": ["mine", -100, {"if": ["faceDown", 30, 20]}]}, "min": 0}},
     "raiza the storm monarch": {"pick": {"score": {"if": ["mine", {"if": [{"is": "raiza the storm monarch"}, -10000, {"-": [-1000, "worth"]}]}, {"if": ["faceDown", 600, {"+": [500, "atk"]}]}]}}},
     "dimension wall": {"chainReact": {"all": [{">": ["incomingDamage", 0]}, {"any": ["attackLethal", {">=": ["incomingDamage", "oppLp"]}, {">=": ["incomingDamage", 1500]}]}]}},
     "crystal beast sapphire pegasus": {"pick": {"score": {"+": ["atk", {"if": ["copyInHand", 0, 10000]}, {"if": [{"is": "crystal beast ruby carbuncle"}, 20000, 0]}]}}},
