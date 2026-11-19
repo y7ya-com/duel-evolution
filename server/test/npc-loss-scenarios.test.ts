@@ -550,4 +550,22 @@ describe.skipIf(!haveData)("NPC scenarios: production losses (real engine)", () 
     expect(npcActivated(p, "Brain Control")).toBe(true);
     expect(msgs(p, "SUMMONING", "Skull Archfiend of Lightning")).toHaveLength(1);
   });
+
+  it("Tribute Summons The Wicked Avatar with three monsters to tribute (npc34-g11)", () => {
+    const p = play(dc, {
+      npcId: 34, first: "player", turns: 2,
+      npc: { hand: ["The Wicked Avatar"], mzone: [["Giant Germ", "def"], ["Petit Moth", "def"], ["Nimble Momonga", "def"]], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: ["Wulf, Lightsworn Beast"] },
+    });
+    expect(msgs(p, "SUMMONING", "The Wicked Avatar")).toHaveLength(1);
+  });
+
+  it("Tribute Summons The Wicked Eraser against a full opposing field (npc34)", () => {
+    const p = play(dc, {
+      npcId: 34, first: "player", turns: 2,
+      npc: { hand: ["The Wicked Eraser"], mzone: [["Giant Germ", "def"], ["Petit Moth", "def"], ["Nimble Momonga", "def"]], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: ["Wulf, Lightsworn Beast", "Garoth, Lightsworn Warrior"], szone: ["Mirror Force", "Magic Cylinder"] },
+    });
+    expect(msgs(p, "SUMMONING", "The Wicked Eraser")).toHaveLength(1);
+  });
 });

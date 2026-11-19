@@ -171,6 +171,8 @@ const DESTROYS_ATTACKERS = /^(mirror force|justi-break)$/;
 /** Field Spells that raise the monsters of one Attribute on both sides (its bit). */
 const ATTRIBUTE_FIELD: Record<string, number> = { "gaia power": 0x01, "umiiruka": 0x02, "molten destruction": 0x04, "rising air current": 0x08,
   "luminous spark": 0x10, "mystic plasma zone": 0x20 };
+/** The Egyptian and the Wicked Gods: three tributes. */
+const THREE_TRIBUTES = /^(slifer the sky dragon|obelisk the tormentor|the winged dragon of ra|the wicked avatar|the wicked eraser|the wicked dreadroot)$/;
 /** Monsters that burn their own controller every turn (Lava Golem): never revived onto my field. */
 const SELF_BURN = /^(lava golem)$/;
 /** Set cards whose cost is a discard: the last card in hand is kept for them. */
@@ -2485,7 +2487,7 @@ export class HeuristicBot {
 
   /** The tributes a monster's Tribute Summon takes (the Egyptian Gods three). */
   #tributeCount(code: number): number {
-    return /^(slifer the sky dragon|obelisk the tormentor|the winged dragon of ra)$/.test(this.#nameOf(code)) ? 3 : this.#cards.brain.get(code)?.tributes() ?? 0;
+    return THREE_TRIBUTES.test(this.#nameOf(code)) ? 3 : this.#cards.brain.get(code)?.tributes() ?? 0;
   }
 
   /** The opponent's face-down Spell/Trap cards. */
@@ -2728,6 +2730,12 @@ export class HeuristicBot {
       const drained = this.#board?.players.some(p => p.szone.some(c => c && !isFaceDown(c.position) && this.#nameOf(c.code) === "skill drain"));
       st.atk = st.def = drained ? 0 : Math.max(0, me.hand.length - 1) * 1000;
     }
+    // the Wicked Gods' ATK: printed -2 (variable), read as what it will be: The Wicked Avatar 100 over the strongest
+    // other face-up monster (mine are its tributes), The Wicked Eraser 1000 per card of the opponent's on the field
+    // (production never summoned either: deck lab, NPC 34)
+    const opp = this.#opp(), name = this.#nameOf(code);
+    if (opp && name === "the wicked avatar") st.atk = st.def = 100 + this.#oppMonsters().reduce((n, m) => (m.faceDown ? n : Math.max(n, m.atk)), 0);
+    if (opp && name === "the wicked eraser") st.atk = st.def = 1000 * [...opp.mzone, ...opp.szone].filter(Boolean).length;
     if (me && st.level <= 4 && ((this.#cards.brain.get(code)?.race ?? 0) & 1) !== 0) {
       const allies = me.mzone.filter(c => c && !isFaceDown(c.position) && ((this.#cards.brain.get(c.code)?.race ?? 0) & 3) !== 0).length + 1;
       const forces = me.szone.filter(c => c && !isFaceDown(c.position) && this.#nameOf(c.code) === "the a. forces" && !this.#locked(c.code)).length;
@@ -2883,7 +2891,7 @@ export class HeuristicBot {
       const heart = this.#heartEffectBody(c.code), ruled = this.#ruleFor(c.code)?.summonScore?.(this.#withSelf(ctx, c.code, c)) ?? 0;
       const bonus = heart > 0 ? Math.max(heart, ruled) : ruled;
       const setIndex = ev.monsterSet.findIndex((x) => x.code === c.code);
-      let n = /^(slifer the sky dragon|obelisk the tormentor|the winged dragon of ra)$/.test(this.#nameOf(c.code)) ? 3 : st.level > 6 ? 2 : st.level > 4 ? 1 : 0;
+      let n = THREE_TRIBUTES.test(this.#nameOf(c.code)) ? 3 : st.level > 6 ? 2 : st.level > 4 ? 1 : 0;
       // offered with fewer monsters than its tributes: its own summon without tributes (Fusilier Dragon at half its
       // stats: production never played it, counting two tributes it did not have)
       if (n > mine.length + (marked ? 1 : 0)) { n = 0; st = { ...st, ...NO_TRIBUTE_STATS[this.#nameOf(c.code)] }; }
