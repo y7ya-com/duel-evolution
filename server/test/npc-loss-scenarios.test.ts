@@ -518,6 +518,16 @@ describe.skipIf(!haveData)("NPC scenarios: production losses (real engine)", () 
     expect(leftField(p, "Mystic Tomato")).toBe(true);
   });
 
+  it("two Panther Warriors with only each other to pay do not loop on their attack costs (final lab npc71 seed 7)", () => {
+    const p = play(dc, {
+      npcId: 71, first: "player", turns: 2,
+      npc: { hand: ["Gearfried the Iron Knight"], mzone: ["Panther Warrior", "Panther Warrior"], deck: Array(20).fill("Reckless Greed") },
+      player: { lp: 4000, mzone: [["Mystic Tomato", "set"]] },
+    });
+    expect(p.npc.filter((d) => d.turn === 2 && d.sel.type === "SELECT_BATTLECMD").length).toBeLessThan(12);
+    expect(p.npc.filter((d) => d.sel.type === "SELECT_UNSELECT_CARD").length).toBeLessThan(8);
+  });
+
   // ---- deck lab findings (orig2 REPORT.md)
   it("returns two cards to the Deck when Sillva asks for two (npc34-g3: one was an illegal answer)", () => {
     const p = play(dc, {

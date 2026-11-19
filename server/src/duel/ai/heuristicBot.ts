@@ -316,9 +316,10 @@ export class HeuristicBot {
   #honestBoost: { turn: number; seq: number; atk: number } | null = null;
   /** The LP my Wall of Revealing Light was paid with: the opponent's monsters up to that ATK cannot attack. */
   #wallPaid = 0;
-  /** An attacker whose attack cost (Panther Warrior's Tribute) waits for another monster to attack first: its zone, the
-   *  turn, and how many of my monsters had attacked when it was put off. */
-  #deferredAttacker: { seq: number; turn: number; attacks: number; force?: boolean } | null = null;
+  /** Attackers whose attack cost (Panther Warrior's Tribute) waits for another monster to attack first, by zone: the
+   *  turn, and how many of my monsters had attacked when it was put off. One per attacker: two Panther Warriors put each
+   *  other off in turn and looped to the decision cap (deck lab, NPC 71). */
+  #deferredAttackers = new Map<number, { turn: number; attacks: number; force?: boolean }>();
   /** Lethal was counted this turn: turn every body up, summon the strongest, attack. */
   #allIn = false;
   #rules: Record<string, CardRule>;
@@ -538,6 +539,7 @@ export class HeuristicBot {
       this.#declaredAttacker = null;
       this.#attackSeen = true;
       this.#deadAttackers.clear();
+      this.#deferredAttackers.clear();
       if (this.#turnPlayer === this.seat) { this.#idleActions = 0; this.#activatedThisTurn.clear(); this.#allIn = false; this.#attackSetupSummon = 0; }
     }
     this.#board = (this.#vision && this.#peek ? boardFromState(this.#peek(), this.seat, true) : null) ?? boardFromView(sel, this.seat) ?? this.#board;
@@ -573,7 +575,7 @@ export class HeuristicBot {
     this.#soulMark = from.#soulMark;
     this.#honestBoost = from.#honestBoost;
     this.#wallPaid = from.#wallPaid;
-    this.#deferredAttacker = from.#deferredAttacker;
+    this.#deferredAttackers = new Map(from.#deferredAttackers);
     this.#attackSeen = from.#attackSeen;
     this.#deadAttackers = new Set(from.#deadAttackers);
     this.#attackedThisTurn = new Set(from.#attackedThisTurn);
@@ -2269,8 +2271,11 @@ export class HeuristicBot {
     const me = this.#me();
     const out: Candidate[] = [];
     this.#noteDeadAttacker();
+    // an attacker put off by its attack cost waits while another can attack; with none left it may go, forced to pay small
+    const live = ev.attackable.filter((a) => !this.#deadAttackers.has(a.sequence));
+    const waitOnly = live.length > 0 && live.every((a) => this.#deferred(a.sequence));
     ev.attackable.forEach((a, i) => {
-      if (this.#deadAttackers.has(a.sequence)) return;
+      if (this.#deadAttackers.has(a.sequence) || (!waitOnly && this.#deferred(a.sequence))) return;
       const atk = me?.mzone[a.sequence]?.attack ?? this.#stat(a.code).atk;
       out.push({ resp: respBattle("SELECT_BATTLE", i), commit: () => { this.#declaredAttacker = a; this.#attackSeen = false; this.#pendingAttacker = atk; } });
     });
@@ -3100,9 +3105,9 @@ export class HeuristicBot {
       let { input, plan } = this.#planBattle(ev);
       let first = plan.outcome.lethal || input.oppAttackNegates > 0 ? plan.attacks[0] : nextAttack(input);
       // an attacker put off by its attack cost while nothing else attacks: it attacks now, if a small body pays
-      const d = this.#deferredAttacker;
-      if (!first && d && !d.force && this.#deferred(d.seq)) {
-        this.#deferredAttacker = { ...d, force: true };
+      const put = [...this.#deferredAttackers.keys()].filter((seq) => this.#deferred(seq));
+      if (!first && put.length) {
+        for (const seq of put) this.#deferredAttackers.set(seq, { ...this.#deferredAttackers.get(seq)!, force: true });
         ({ input, plan } = this.#planBattle(ev));
         first = plan.outcome.lethal || input.oppAttackNegates > 0 ? plan.attacks[0] : nextAttack(input);
       }
@@ -3644,16 +3649,20 @@ export class HeuristicBot {
     const lethal = this.#oppMonsters().length === 0 && (this.#me()?.mzone[a.sequence]?.attack ?? 0) >= (this.#opp()?.lp ?? 8000);
     if (lethal) return pick(() => true) ?? null;
     // nothing else attacks this turn: a small body pays, a real one stays
-    const d = this.#deferredAttacker;
-    if (d?.force && d.seq === a.sequence && d.turn === this.#turn) return pick((c) => atk(c) <= 1000) ?? null;
-    this.#deferredAttacker = { seq: a.sequence, turn: this.#turn, attacks: this.#attackedThisTurn.size };
+    // forced now, or declared again while still put off: a small body pays or it is out for the turn (#noteDeadAttacker)
+    const d = this.#deferredAttackers.get(a.sequence);
+    if (d?.turn === this.#turn) {
+      this.#deferredAttackers.set(a.sequence, { ...d, force: true });
+      return pick((c) => atk(c) <= 1000) ?? null;
+    }
+    this.#deferredAttackers.set(a.sequence, { turn: this.#turn, attacks: this.#attackedThisTurn.size });
     return null;
   }
 
   /** My attacker put off by its attack cost (#attackCost) while no other monster has attacked since. */
   #deferred(seq: number): boolean {
-    const d = this.#deferredAttacker;
-    return !!d && !d.force && d.seq === seq && d.turn === this.#turn && d.attacks === this.#attackedThisTurn.size;
+    const d = this.#deferredAttackers.get(seq);
+    return !!d && !d.force && d.turn === this.#turn && d.attacks === this.#attackedThisTurn.size;
   }
 
   #selectTribute(ev: P<"selectTribute">): Json {
