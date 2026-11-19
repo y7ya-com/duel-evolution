@@ -973,6 +973,19 @@ export class HeuristicBot {
     return (locks.has("gravity bind") || locks.has("level limit - area b")) && m.level >= 4;
   }
 
+  /** The ATK of the opponent's attacks next turn that the battle lock `name` of mine would stop: its face-up attackers
+   *  no lock stops yet (and its set monsters, flipped up by Swords of Revealing Light, at the unknown-wall estimate). */
+  #lockStops(name: string): number {
+    const locks = this.#faceUpLocks();
+    const mine = new Map(locks);
+    mine.set(name, new Set([...(locks.get(name) ?? []), this.seat]));
+    return this.#oppMonsters().reduce((n, m) => {
+      if (m.noAttack || this.#attackLocked(m, 1 - this.seat, locks)) return n;
+      if (m.faceDown) return name === "swords of revealing light" ? n + (m.known ? m.atk : UNKNOWN_WALL) : n;
+      return m.attackPos && this.#attackLocked(m, 1 - this.seat, mine) ? n + m.atk : n;
+    }, 0);
+  }
+
   /** How many of the opponent's set cards are KNOWN board/attack answers (spy vision only: 0 otherwise). */
   #threatSetCount(): number {
     if (!this.#vision) return 0;
@@ -1307,6 +1320,10 @@ export class HeuristicBot {
     if (name === "giant trunade" && ctx.ext?.lethalThrough && action && this.#whatIf(action).lethal === false) return -Infinity;
     const rule = this.#ruleFor(code);
     if (rule?.idleActivate && !rule.idleActivate(this.#withSelf(ctx, code, ref, action))) return -Infinity;
+    // a battle lock its rule allows goes up first when the attacks it stops threaten 40% of my LP next turn: the
+    // rollouts price the card kept in hand over the LP it saves (production held Swords of Revealing Light and
+    // Messenger of Peace into lethal, duels 2448 and 2439)
+    if (rule?.idleActivate && ATTACK_LOCKS.test(name) && this.#lockStops(name) * 10 >= ctx.myLp * 4) return Math.max(rule.idlePriority ?? 0, 100);
     // a Field Spell already face-up on our field: a second copy only replaces it (production: Luminous Spark over Luminous
     // Spark); the face-up one's own effect is not a copy (production never used Mausoleum of the Emperor's summon)
     const fromField = !!ref && ref.controller === this.seat && (ref.location & LOCATION.SZONE) !== 0;

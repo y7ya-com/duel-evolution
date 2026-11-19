@@ -171,4 +171,27 @@ describe.skipIf(!haveData)("NPC scenarios: production losses (real engine)", () 
     });
     expect(leftField(p, "Petit Moth")).toBe(true);
   });
+
+  // ---- battle locks held while the attacks they stop take the duel
+  it("raises Swords of Revealing Light on an empty field against Celestia at 3400 LP (2448)", () => {
+    const p = play(dc, {
+      npcId: 44, first: "player", turns: 2,
+      npc: { lp: 3400, hand: ["Swords of Revealing Light", "Dark Factory of Mass Production", "Monster Reincarnation", "Left Leg of the Forbidden One"],
+        deck: ["Exodia the Forbidden One", ...Array(19).fill("Reckless Greed")] },
+      player: { lp: 5700, mzone: ["Celestia, Lightsworn Angel"] },
+    });
+    expect(npcActivated(p, "Swords of Revealing Light")).toBe(true);
+  });
+
+  it("raises Messenger of Peace against Jain and Celestia with Exodia pieces in hand (2439)", () => {
+    const p = play(dc, {
+      npcId: 44, first: "player", turns: 2,
+      npc: { lp: 5700, hand: ["Right Arm of the Forbidden One", "Monster Reincarnation", "Dark Factory of Mass Production", "Left Arm of the Forbidden One", "Messenger of Peace"],
+        mzone: [["Marshmallon", "set"]], szone: ["Ring of Destruction"],
+        deck: ["Exodia the Forbidden One", "Left Leg of the Forbidden One", "Right Leg of the Forbidden One", ...Array(17).fill("Reckless Greed")] },
+      player: { mzone: ["Jain, Lightsworn Paladin", "Celestia, Lightsworn Angel", ["Ryko, Lightsworn Hunter", "set"]], szone: [["Royal Decree", "up"]],
+        hand: ["Foolish Burial", "Honest", "Lyla, Lightsworn Sorceress", "Honest", "Necro Gardna"] },
+    });
+    expect(npcActivated(p, "Messenger of Peace")).toBe(true);
+  });
 });
