@@ -53,6 +53,9 @@ const KEY_ART: Record<string, string> = Object.fromEntries([
 ]);
 /** What the detail's power strip shows a monster (its race, attribute and level icons, holes in main's module). */
 export interface PowerIcons { race: number; attr: number; level: number }
+/** The detail's card: its big picture, a monster's power icons, and the colour behind the picture (live's grey 178
+ * when absent). */
+export interface DetailView { passcode: number; power: PowerIcons | null; backing?: string }
 
 const DECK_CLASSES = new Set(['CWindowModelDeck', 'CWindowModelKaban', 'CCardDetailViewDlg']);
 const CARD_BACK = 'data/card/0000.png';
@@ -126,7 +129,7 @@ export class DeckDom {
   }
 
   /** The deck windows shown now (none: the editor is closed), the detail's card and power icons, the card dragged. */
-  show(specs: readonly WindowSpec[], detail: { passcode: number; power: PowerIcons | null } | null, drag: { passcode: number; at: [number, number] } | null): void {
+  show(specs: readonly WindowSpec[], detail: DetailView | null, drag: { passcode: number; at: [number, number] } | null): void {
     if (this.disposed) return;
     const wins = specs.map(s => s.win).filter(w => DECK_CLASSES.has(w.cls) && (this.options.owns?.(w) ?? true));
     const modal = !!(this.scene.ui.files || this.scene.ui.dialog);
@@ -174,7 +177,7 @@ export class DeckDom {
   // One window's cards and art (main's holes): its card faces (deck cards and trunk rows: elements that take the mouse),
   // the detail's big card and power icons, the trunk's count box, and what main's module co-draws under those holes
   // (plan's co-drawn items: the count text), painter's order by world z.
-  private draw(win: HtmlWindow, detail: { passcode: number; power: PowerIcons | null } | null): void {
+  private draw(win: HtmlWindow, detail: DetailView | null): void {
     const top = this.scene.ui.top, key = JSON.stringify([win, detail, top, craftPeek()], (k, v) => k === 'mouse' || k === 'scene' ? undefined : v);
     let r = this.roots.get(win.id);
     if (r?.key === key) { for (const img of r.el.querySelectorAll('img')) this.touch(img as HTMLImageElement); return; }
@@ -223,10 +226,11 @@ export class DeckDom {
     if (detail && win.cls === 'CCardDetailViewDlg') {
       const holes = (win.holes ?? []) as { x: number; y: number; w: number; h: number }[];
       const big = holes[0];
-      // the big card as live's engine draws it there: on the card window's grey (178), the card's art through the
-      // engine's 256 x 256 card texture (CDeckCardLoader), so it is as soft as live's, fitted in the hole
+      // the big card as live's engine draws it there: on the card window's grey (178; the scene's own backing when it
+      // has one), the card's art through the engine's 256 x 256 card texture (CDeckCardLoader), so it is as soft as
+      // live's, fitted in the hole
       if (big) items.push({ z: 1e9, draw: () => {
-        const grey = this.box(root, 'div', big.x, big.y, big.w, big.h); grey.style.background = 'rgb(178, 178, 178)'; grey.style.pointerEvents = 'none';
+        const grey = this.box(root, 'div', big.x, big.y, big.w, big.h); grey.style.background = detail.backing ?? 'rgb(178, 178, 178)'; grey.style.pointerEvents = 'none';
         const img = this.card(root, detail.passcode, big.x, big.y, big.w, big.h); img.style.objectFit = 'contain'; img.dataset.detail = String(detail.passcode);
         if (detail.passcode > 0) img.setAttribute('aria-label', this.scene.card(detail.passcode)?.name ?? `Card ${detail.passcode}`);
         this.texture(img, big);

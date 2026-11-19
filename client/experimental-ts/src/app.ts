@@ -955,11 +955,16 @@ export class ClientApp implements ClientController {
       if (this.disposed) return;
       // the timeline counts the original's frames: its duel scene steps at 30 Hz (live's engine logs 30.3 fps; a card's
       // 8-frame glide from the hand to its zone takes 267 ms on live, a hand card's lift 10 frames in 333 ms)
-      const delta = this.lastFrame === null ? 1 : Math.max(0, Math.min(30, (time - this.lastFrame) * 30 / 1000));
+      // (a slow frame, art being decoded, moves the board at most six frames on, less than a card's glide: the opening hands are still dealt card
+      // by card after a stall rather than already in the hand when it ends)
+      const delta = this.lastFrame === null ? 1 : Math.max(0, Math.min(6, (time - this.lastFrame) * 30 / 1000));
       // the board's clock stands while the duel screen is not up yet (the janken scene still shows): START DUEL plays
       // once the field is shown, and the opening hands are dealt after it, as live's
       // (at the Duel speed the effects play at, so a card lands, its sound plays and its sparkle shows together)
-      this.lastFrame = time; this.timeline.advance(this.boardRunning() ? delta * this.speed() : 0); this.renderDuelFrame();
+      // A standing board draws nothing new: the frame only looks whether it may go on (each frame's full render of the
+      // janken scene held the page at about 10 fps; a packet that comes meanwhile draws itself)
+      this.lastFrame = time;
+      if (this.boardRunning()) { this.timeline.advance(delta * this.speed()); this.renderDuelFrame(); }
       if (this.timeline.pending) this.scheduleAnimation(); else { this.lastFrame = null; this.duelSettled(); }
     });
   }

@@ -481,7 +481,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const rewardBarSpecs = (): WindowSpec[] => {
     if (!rewardScene() || sceneVeilUp()) return [];
     const card = cardGetUp() && state.npc?.packStatus !== 'pending', picked = npcPackOpen(state.npc) ? state.npc.packs[npcPack.selected] : undefined;
-    return [rewardBar(htmlIds, { message: picked !== undefined ? state.packInfo?.[picked]?.description ?? '' : '', ring: card, dim: card, load: controller.loadArchiveImage ? loadArchiveArt : null })];
+    return [rewardBar(htmlIds, { message: picked !== undefined ? state.packInfo?.[picked]?.description ?? '' : '', ring: card, load: controller.loadArchiveImage ? loadArchiveArt : null })];
   };
   const npcItems = npcItemGetUi();
   const npcItemSpecs = (): WindowSpec[] => {
@@ -574,7 +574,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // the hands goes straight on into the duel (live has no Start Duel: the app begins it, app.ts autoBeginDuel)
   // The scene plays by its moments (JankenTimes: when it came, the deal, this side's pick, the hands shown, the plates,
   // the plate chosen); each render draws it where those say it is by now, and a render is woken at each moment's end
-  let jk: JankenTimes | null = null, jkRound = 0, jkVeiled = false;
+  let jk: JankenTimes | null = null, jkRound = 0, jkVeiled = false, jkFieldWait = false;
   const jkWake = new Set<number>();
   const VEILED_MS = 3_600_000;
   /** The longest the chosen plate waits for the field's pictures. */
@@ -599,10 +599,14 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       // and it stays until the field's pictures are in (live holds its plate until the duel's scene has loaded, 0.7 to
       // 4 s on its films; the field had come bare, its art seconds later), the LP plates' too: live's first field frame
       // has both plates up at 8000 (v2hand-me l66), where v2's field stood without them until START DUEL had played
-      const fieldIn = !until || !duel || [duel.background, FIELD_SHEET, FIELD_LINES, CARD_BACK, ...LP_PLATE_ART].every(path => !path || warmArt(path));
-      if (jk && !state.sideboarding && (now < until || !fieldIn && now < until + FIELD_WAIT_MS)) { wakeAt(now < until ? until : now + 100); return { phase: 'wait', busy: true, thinking: false, times: jk, now: clock }; }
-      jk = null; jkRound = 0; return null;
+      // (every picture asked for at once, each render: they load side by side, not one after another; a picture that comes
+      // in wakes the scene, as does the longest wait, where each 100 ms woke a full render of the janken scene)
+      const fieldIn = !until || !duel || [duel.background, FIELD_SHEET, FIELD_LINES, CARD_BACK, ...LP_PLATE_ART].map(path => !path || warmArt(path)).every(Boolean);
+      jkFieldWait = !fieldIn;
+      if (jk && !state.sideboarding && (now < until || !fieldIn && now < until + FIELD_WAIT_MS)) { wakeAt(now < until ? until : until + FIELD_WAIT_MS); return { phase: 'wait', busy: true, thinking: false, times: jk, now: clock }; }
+      jk = null; jkRound = 0; jkFieldWait = false; return null;
     }
+    jkFieldWait = false;
     // the scene starts (its fade from black, then the deal) as the scene-loading veil comes off it, as live's does once
     // its scene has loaded: under the veil, and at the first render after it, it starts anew (under the veil it stays
     // black, its start not yet come: live's screen is black while its scene loads, then the scene fades in)
@@ -1102,7 +1106,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const url = safeImageUrl(lease.url); if (!url) { lease.release(); entry.failed = true; return; }
       entry.lease = lease;
       for (const image of entry.images) image.src = url;
-    }).catch(() => { entry.failed = true; }).finally(() => { entry.pending = false; });
+    }).catch(() => { entry.failed = true; }).finally(() => { entry.pending = false; if (jkFieldWait && !disposed) requestRender(); });
   };
   const observer = typeof IntersectionObserver === 'function' ? new IntersectionObserver(entries => {
     for (const observed of entries) if (observed.isIntersecting) { const entry = imageEntries.get(observed.target); if (entry) startArt(entry); observer?.unobserve(observed.target); }

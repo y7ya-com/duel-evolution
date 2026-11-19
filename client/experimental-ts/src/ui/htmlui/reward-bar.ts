@@ -2,8 +2,8 @@
 // bar but the duel's bar without its wrench: the strip (a horizontal gradient, cyan at the left, brightest round the
 // ring's spot at 212..285, deep blue at the right; light top rows, a darker foot), the ring's spot left open over the
 // pack scene and holding the sword ring over the card get, and the help field (391..1017 x 743..761, white rim, a
-// little see-through) with the scene's line (the pack's description). Live draws the card get's under its dim veil:
-// `dim` (the card get, as live), not the pack pick (live's dimming of the pack scene is a bug the rewrite does not copy).
+// little see-through) with the scene's line (the pack's description). Live draws the card get's strip under its dim
+// veil (and dims the pack scene): glitches the rewrite does not copy, its strip stays lit in both scenes.
 import { WindowBuilder, type Ids, type WindowSpec } from './snapshot';
 import { pictureUrl } from './pictures';
 
@@ -11,10 +11,10 @@ import { pictureUrl } from './pictures';
 export const BAR_STRIP = 'linear-gradient(to bottom, rgba(255,255,255,.6) 0 3px, transparent 3px calc(100% - 5px), rgba(0,40,90,.3) calc(100% - 5px)), '
   + 'linear-gradient(to right, #63e2ff 0, #a8efff 9.8%, #c9feff 19.5%, #c1feff 22.5%, #98ecff 29.3%, #6cc4fe 37.1%, #237bfd 68.4%, #0056fb 99.2%)';
 
-export function rewardBar(ids: Ids, o: { message: string; ring: boolean; dim: boolean; load?: ((path: string, image: HTMLImageElement) => void) | null }): WindowSpec {
+export function rewardBar(ids: Ids, o: { message: string; ring: boolean; load?: ((path: string, image: HTMLImageElement) => void) | null }): WindowSpec {
   // (`load`, the stage's art loader, is not used: see the ring below)
   // (what it shows is in the window, so the layer redraws it when that changes)
-  const b = new WindowBuilder(ids, 'reward-bar', 'CRewardBar', { x: 0, y: 736, w: 1024, h: 32 }, { z: 51320, modal: false, message: o.message, ring: o.ring, dim: o.dim });
+  const b = new WindowBuilder(ids, 'reward-bar', 'CRewardBar', { x: 0, y: 736, w: 1024, h: 32 }, { z: 51320, modal: false, message: o.message, ring: o.ring });
   const spec = b.spec();
   spec.after = root => {
     let bar = root.querySelector<HTMLElement>('.de-reward-bar');
@@ -48,9 +48,6 @@ export function rewardBar(ids: Ids, o: { message: string; ring: boolean; dim: bo
     }
     const field = bar.querySelector<HTMLElement>('.de-reward-field')!; if (field.textContent !== o.message) field.textContent = o.message;
     bar.setAttribute('aria-label', o.message);
-    // live dims the strip under the card get, not its ring's spot (lit, the sword ring on it) nor the help field
-    // (v2r3 duelui rw4-L: 186,251,255 at the ring, the field 200,202,224 over the checker; the strip 84,119,128)
-    for (const piece of Array.from(bar.children) as HTMLElement[]) if (piece !== ring && piece !== field) piece.style.filter = o.dim ? 'brightness(.5)' : '';
   };
   return spec;
 }

@@ -76,7 +76,28 @@ describe('tournament windows (Legacy look)', () => {
   });
   it('the duel help strip shows the prompt line', () => {
     expect(duelHelpStrip(new Ids(), '')).toBeNull();
-    expect(duelHelpStrip(new Ids(), 'Select a card.\nmore')!.win.controls.find(c => c.cls === 'CWindowTaskHelp')!.text).toBe('Select a card.');
+    const cs = duelHelpStrip(new Ids(), 'Select a card.\nmore')!.win.controls;
+    const help = cs.find(c => c.cls === 'CWindowTaskHelp')!, text = cs.find(c => c.cls === 'CWindowTaskText')!;
+    expect(text.text).toBe('Select a card.');
+    expect(text.parent).toBe(help.id);
+  });
+  it('the End Phase discard strip carries its line where main\'s duel.js draws it (live\'s CHelpDialog)', async () => {
+    // (the hand-limit discard is a board choice: no dialog, its question on this strip, the hand cards the targets)
+    const spec = duelHelpStrip(new Ids(), 'Choose 1 card to discard.')!, cs = spec.win.controls;
+    const byId = new Map(cs.map(c => [c.id, c]));
+    // duel.js draws FrameThin, BackPlane and Text controls; a CWindowTaskHelp has no drawer: a text on it is never shown
+    expect(cs.filter(c => c.cls === 'CWindowTaskHelp').every(c => c.text === undefined)).toBe(true);
+    const text = cs.find(c => c.cls === 'CWindowTaskText' && c.text === 'Choose 1 card to discard.')!;
+    expect(byId.get(text.parent)?.cls).toBe('CWindowTaskHelp');
+    expect(cs.find(c => c.cls === 'CWindowTaskBackPlane')?.parent).toBe(text.parent);
+    // live's look: a see-through silver thin frame (style 5, 0.7) over a white back plane, the line in black
+    expect(cs.find(c => c.cls === 'CWindowTaskFrameThin')).toMatchObject({ style: 5, alpha: 0.7 });
+    expect(text.color).toEqual([0, 0, 0, 1]);
+    // the line sits inside the strip where duel.js places it (a control's place under its parents: loc)
+    const { loc } = await import('@htmlui/screens/duel.js') as { loc(c: unknown, byId: Map<number, unknown>, win: unknown): { x: number; y: number } };
+    const at = loc(text, byId, spec.win);
+    expect(at).toEqual({ x: 12, y: 12 });
+    expect(at.x + Number(text.w)).toBeLessThanOrEqual(spec.win.w); expect(at.y + Number(text.h)).toBeLessThanOrEqual(spec.win.h);
   });
 });
 

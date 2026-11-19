@@ -1,7 +1,7 @@
 // live's reward scenes after an NPC duel (livetour 48-pack-pick, 49-card-get): the pack pick over the card get backdrop
 // with the pack's cover, then the card get scene (the card, its detail, Back) once per card of the pack.
 import { describe, expect, it } from 'vitest';
-import { CardGetScene, CARD_GET_BACK, CARD_GET_CARD, isCardGet } from '../src/ui/htmlui/card-get';
+import { CardGetScene, CARD_GET_BACK, CARD_GET_CARD, CARD_GET_DETAIL_BACKING, isCardGet } from '../src/ui/htmlui/card-get';
 import { cardGetBackdrop, npcPackSelect, npcPackUi, packSprites } from '../src/ui/htmlui/npc-pack';
 import { Ids } from '../src/ui/htmlui/snapshot';
 import type { CardView } from '../src/ui/contracts';
@@ -50,7 +50,11 @@ describe('the card get scene', () => {
     const pic = (specs[2]!.win.pics as { source: { card: number }; x: number; y: number }[])[0]!;
     expect(pic.source.card).toBe(111); expect([pic.x, pic.y]).toEqual([CARD_GET_CARD.x, CARD_GET_CARD.y]);
     expect([specs[3]!.win.x, specs[3]!.win.y]).toEqual([CARD_GET_BACK.x, CARD_GET_BACK.y]);
-    expect(scene.detailView()).toMatchObject({ passcode: 111 });
+    expect(scene.detailView()).toMatchObject({ passcode: 111, backing: CARD_GET_DETAIL_BACKING });
+    // the detail is drawn lit, as the deck screen's (not under live's grey dim veil)
+    const root = { style: {} as Record<string, string> };
+    specs[1]!.after?.(root as unknown as HTMLElement);
+    expect(root.style.filter ?? '').toBe('');
     const back = () => [...scene.windows(ids, key, [111, 222])[3]!.handlers.values()].find(h => h.key === 'card-get-back')!.click!();
     back(); expect(renders).toBe(1);
     specs = scene.windows(ids, key, [111, 222]);

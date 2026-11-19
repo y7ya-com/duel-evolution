@@ -96,11 +96,18 @@ export function informationWindow(ids: Ids, e: EventInfo, t: TournamentState | n
   return b.spec();
 }
 
-/** CWindowModelHelp: the duel's thin-framed strip with the prompt's guidance (the duel screen's panel asks). */
+/** CWindowModelHelp: the duel's thin-framed strip with the prompt's guidance (the duel screen's panel asks: a zone, a
+ * card on the field, the End Phase's hand-limit discard). Built as live's CHelpDialog is (main's mock/duel-ok.json): a
+ * see-through silver FrameThin (style 5, 0.7), and a CWindowTaskHelp at 8, 8 holding a white back plane (0.7) and the
+ * line as a CWindowTaskText child at 4, 4. The Help itself draws nothing (main's duel.js has no drawer for it; nor has
+ * the engine: CWindowTaskHelp.h's back plane and text are its parts), so a text set on the Help showed an empty frame. */
 export function duelHelpStrip(ids: Ids, text: string): WindowSpec | null {
   const line = text.split('\n')[0]?.trim(); if (!line) return null;
-  const b = new WindowBuilder(ids, 'duelhelp', 'CWindowModelHelp', { x: 262, y: 6, w: 500, h: 32 }, { z: 51170 });
-  b.add('CWindowTaskFrameThin', 'frame', { x: 0, y: 0, w: 500, h: 32 }, { style: 0 });
-  b.add('CWindowTaskHelp', 'help', { x: 8, y: 8, w: 484, h: 16 }, { text: line, align: 1, fontSize: 16, color: BLACK });
+  const w = 500, h = 40;
+  const b = new WindowBuilder(ids, 'duelhelp', 'CWindowModelHelp', { x: 512 - w / 2, y: 6, w, h }, { z: 51170 });
+  b.add('CWindowTaskFrameThin', 'frame', { x: 0, y: 0, w, h }, { style: 5, alpha: 0.7 });
+  const help = b.add('CWindowTaskHelp', 'help', { x: 8, y: 8, w: w - 16, h: 24 });
+  b.add('CWindowTaskBackPlane', 'plane', { x: 0, y: 0, w: w - 16, h: 24 }, { parent: help.id, alpha: 0.7 });
+  b.add('CWindowTaskText', 'text', { x: 4, y: 4, w: w - 24, h: 16 }, { parent: help.id, text: line, align: 1, fontSize: 16, lineGap: 0, firstLine: 0, pageLines: 1, color: BLACK });
   return b.spec();
 }

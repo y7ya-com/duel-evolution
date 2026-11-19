@@ -6,7 +6,7 @@
 // lobby). One scene per card of the pack (the server's 0x4803 receipt).
 import type { CardView } from '../contracts';
 import { attrOf, deckUi, detailWindow, isMonster, raceOf, type DeckFrom } from './deck';
-import type { DeckDomScene, PowerIcons } from './deck-dom';
+import type { DeckDomScene, DetailView } from './deck-dom';
 import { cardGetBackdrop } from './npc-pack';
 import { peekTable } from '@htmlui/crafting/cards.js';
 import { WindowBuilder, type HtmlWindow, type Ids, type WindowSpec } from './snapshot';
@@ -19,6 +19,7 @@ export interface CardGetDeps {
 export const isCardGet = (w: HtmlWindow): boolean => w.cardGet === true;
 export const CARD_GET_CARD = { x: 512, y: 271, w: 100, h: 144 } as const;
 export const CARD_GET_BACK = { x: 800, y: 680, w: 162, h: 42 } as const;
+export const CARD_GET_DETAIL_BACKING = 'rgb(219, 231, 247)';
 /** The Back plate's look per state (normal / hover / pressed): live's measured colours (cardget_btn_01 as the engine
  * draws it), the hovered one lighter and the pressed one darker. */
 export function CARD_GET_BACK_LOOK(state: string | undefined): Partial<CSSStyleDeclaration> {
@@ -46,12 +47,11 @@ export class CardGetScene implements DeckDomScene {
     const passcode = cards[this.at]; if (passcode === undefined) { this.ui.shown = 0; return []; }
     this.ui.shown = passcode;
     const c = this.d.card(passcode), out: WindowSpec[] = this.waiting(ids);
-    // live's card detail here: "[Fairy/LIGHT]" (no Normal kind) and grey (its frame, bars and planes under the scene's
-    // dim; the card's picture, the card layer's, keeps its colours)
+    // live's card detail here: "[Fairy/LIGHT]" (no Normal kind). Live draws its frame, bars and planes grey under the
+    // scene's dim veil while the card's picture keeps its colours; the rewrite keeps the whole panel lit, as the deck
+    // screen's (owner 2026-11-19: the dimmed panel read as broken)
     const plain = (pc: number) => { const c = this.d.card(pc); return c && { ...c, type: (c.type ?? '').split('/').filter(k => k.trim() !== 'Normal').join('/') }; };
-    const detail = detailWindow({ ids, ui: this.ui, deck: null, card: plain, trunk: [], busy: false, yo2: pc => peekTable()?.id(pc) ?? 0, owned: 0 });
-    const after = detail.after; detail.after = root => { after?.(root); root.style.filter = 'brightness(.56)'; };
-    out.push(detail);
+    out.push(detailWindow({ ids, ui: this.ui, deck: null, card: plain, trunk: [], busy: false, yo2: pc => peekTable()?.id(pc) ?? 0, owned: 0 }));
     out.push(new WindowBuilder(ids, 'card-get:card', 'CEnginePictures', { x: 0, y: 0, w: 1024, h: 768 }, { z: 51305,
       pics: [{ key: 'card', source: { card: passcode }, ...CARD_GET_CARD, z: 0, shown: true, label: c?.name ?? 'The card' }] }).spec());
     const { x, y, w, h } = CARD_GET_BACK, b = new WindowBuilder(ids, 'card-get:back', 'CWindowResultNext', { x, y, w, h }, { z: 51310 });
@@ -76,10 +76,11 @@ export class CardGetScene implements DeckDomScene {
     host.snap = { packScene: { backdrop: cardGetBackdrop(), packs: [], frame: null } };
     return [host];
   }
-  /** What the card layer draws in the detail: the big picture and a monster's power icons. */
-  detailView(): { passcode: number; power: PowerIcons | null } | null {
+  /** What the card layer draws in the detail: the big picture and a monster's power icons, the picture on live's pale
+   * blue-white here (livetour 49-card-get-L: 219, 231, 247 either side of the card), not the deck screen's grey. */
+  detailView(): DetailView | null {
     const c = this.ui.shown ? this.d.card(this.ui.shown) : undefined; if (!c) return null;
-    return { passcode: c.passcode ?? 0, power: isMonster(c) ? { race: raceOf(c), attr: attrOf(c), level: c.level ?? 0 } : null };
+    return { passcode: c.passcode ?? 0, power: isMonster(c) ? { race: raceOf(c), attr: attrOf(c), level: c.level ?? 0 } : null, backing: CARD_GET_DETAIL_BACKING };
   }
   card(passcode: number): CardView | undefined { return this.d.card(passcode); }
   pick(_zone: DeckFrom, _index: number, passcode: number): void { this.ui.shown = passcode; this.d.rerender(); }
