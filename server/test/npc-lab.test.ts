@@ -29,6 +29,8 @@ import { DuelLog } from "../src/duel/duelText.ts";
 import { PY_DUEL_RULE, type DuelCore, type Json, type NewOptions } from "../src/duel/engine/core.ts";
 import { createNodeDuelCore, ENGINE_DATA_DIR } from "../src/duel/engine/node.ts";
 import { unpackCommands } from "../src/duel/duelArchive.ts";
+import { YUGI_HEART_POOL } from "../src/duel/yugiHeartPool.ts";
+import { chooseYugiOpening } from "../src/duel/ai/yugiOpening.ts";
 
 const N = Number(process.env.NPC_LAB ?? 0);
 const DECKS = process.env.NPC_LAB_DECKS ?? "";
@@ -89,10 +91,17 @@ function duel(dc: DuelCore, npcMod: AiModule, pilotMod: AiModule, npcId: number,
   const rec = RECIPES[String(npcId)], nd = rec ? { main: rec.main, extra: rec.extra ?? [] } : npcDeck(npcId)!;
   const decks = [{ main: toCodes(player.main), extra: toCodes(player.extra ?? []) }, { main: toCodes(nd.main), extra: toCodes(nd.extra) }];
   const opts: NewOptions = { first, seed, shuffle: true, rule: PY_DUEL_RULE, brain: [true, true], auto_chain: true };
+  // Yugi (51-53) duels as production sets him up (ocgSession.ts): Heart of the Cards over his pool, his chosen opening
+  const yugi = [51, 52, 53].includes(npcId);
+  if (yugi) {
+    Object.assign(opts, { heart_of_cards: 1, heart_pool: [...YUGI_HEART_POOL], heart_copy_limit: 3 });
+    const opening = chooseYugiOpening(dc, decks, opts, npcId, npcMod.cardInfo(dc.cardDB, brainDb()));
+    if (opening.length === 5) Object.assign(opts, { heart_opening: opening });
+  }
   const id = `lab-${++seq}`;
   const log: Ai.LoggedCmd[] = [];
   const tier = npcMod.tierFor(npcId, NPC_PROFILES);
-  const npc = new npcMod.NpcAi({ npcId, seat: 1, seed, cards: npcMod.cardInfo(dc.cardDB, brainDb()), tier, link: () => ({ dc, decks, opts, log }), peek: () => dc.query(id), rules });
+  const npc = new npcMod.NpcAi({ npcId, seat: 1, seed, cards: npcMod.cardInfo(dc.cardDB, brainDb()), tier, handAwareDraw: yugi, link: () => ({ dc, decks, opts, log }), peek: () => dc.query(id), rules });
   // The player's pilot: the hard tier (no blunders, no lookahead) with no NPC plan, on the player's own deck.
   const pilot = new pilotMod.NpcAi({ npcId: 0, seat: 0, seed: seed + 1, cards: pilotMod.cardInfo(dc.cardDB, brainDb()), tier: "hard" });
   const text = trace ? new DuelLog(["Player", "NPC"], { name: (c) => (dc.cardDB.get(c) ? dc.cardDB.name(c) : ""), stats: (c) => ({ atk: dc.cardDB.get(c)?.attack ?? 0, def: dc.cardDB.get(c)?.defense ?? 0 }) }) : null;
