@@ -181,9 +181,11 @@ function forkPlay(access: SearchAccess, seat: number, live: Json, prompt: Prompt
  * Fork + replay + inject + roll out. The end-of-horizon score for `seat` (+-1e9 on a decided duel), or null when the
  * fork failed structurally (the replay did not reach the live select): the caller falls back to the heuristic.
  */
-export function rolloutScore(access: SearchAccess, seat: number, live: Json, prompt: Prompt, inject: Json, liveBot: HeuristicBot): number | null {
+export function rolloutScore(access: SearchAccess, seat: number, live: Json, prompt: Prompt, inject: Json, liveBot: HeuristicBot,
+  thisTurn = false): number | null {
   const pilot = access.makePolicy(seat, true, () => ({}));
-  const forecast = !!access.opposingHand && prompt.kind === "announceCard" && prompt.heart;
+  // thisTurn: stop at the end of the turn even for a forecast draw (what the card does now, #lightestFit)
+  const forecast = !thisTurn && !!access.opposingHand && prompt.kind === "announceCard" && prompt.heart;
   // honest: the end of the NPC's own turn (spy: its next turn, stopped in forkPlay)
   const scores: number[] = [];
   const replies = access.publicReplies && !access.spy && hasPublicCounter(live, seat) ? ["first", "payoff"] as const : ["first"] as const;

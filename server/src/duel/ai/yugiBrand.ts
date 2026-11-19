@@ -26,3 +26,19 @@ const ON_BRAND = new Set([
 
 /** How many copies of this card Yugi's draw skill may give him in one duel. */
 export const yugiCopyLimit = (name: string): number => ON_BRAND.has(name) ? 3 : 1;
+
+/** Owner: the lightest card that does the job: Smashing Ground for one monster, Dark Hole for several, Raigeki only
+ * when Yugi would lose without it. Listed cards keep this order whoever's they are; any other card weighs 0 if it
+ * is Yugi's own and 10 if not. */
+const WEIGHT: Record<string, number> = {
+  "smashing ground": 5, "fissure": 5, "hammer shot": 5, "mystical space typhoon": 5, "dust tornado": 5, "book of moon": 5,
+  "change of heart": 6, "brain control": 6, "snatch steal": 12,
+  "dark hole": 15, "lightning vortex": 15, "torrential tribute": 15,
+  "raigeki": 30, "heavy storm": 30, "giant trunade": 30, "harpie's feather duster": 30,
+};
+
+/** Board wipes Yugi draws only when every other draw leaves him losing (owner: Raigeki on one monster confuses players). */
+export const YUGI_LAST_RESORT = new Set(["raigeki", "heavy storm", "giant trunade", "harpie's feather duster"]);
+
+/** Lower is lighter (#lightestFit in heuristicBot.ts). */
+export const yugiDrawWeight = (name: string): number => WEIGHT[name] ?? (ON_BRAND.has(name) ? 0 : 10);

@@ -257,13 +257,14 @@ it("a materialised Normal Monster has no effect left from the deck card it repla
 });
 
 it("draws an off-brand card once a duel and his own cards up to three times", () => {
-  // Owner: no Raigeki three times; Dark Hole and Yugi's own cards can repeat.
+  // Owner: no Raigeki three times; Dark Hole and Yugi's own cards can repeat. (Raigeki itself now waits until he is
+  // losing, npc-yugi-lightest.test.ts, so the one-of is checked on Smashing Ground.)
   const drawn = (removal: string) => play(dc, { npcId: 53, heart_of_cards: 1, handAwareDraw: true, first: "player", turns: 10,
-    heart_pool: [removal, "Kuriboh"].map(code),
+    heart_pool: [removal, removal === "Dark Hole" ? "Kuriboh" : "Petit Moth"].map(code),
     npc: { deck: Array(20).fill("Petit Moth") },
     player: { hand: Array(6).fill("Gladiator Beast Darius"), mzone: ["Gladiator Beast Laquari", "Gladiator Beast Darius"],
       deck: Array(20).fill("Gladiator Beast Laquari") },
     player_policy: summoning(attacker) }).npc.filter(x => x.sel.heart_of_cards).map(x => dc.cardDB.name(Number(x.resp?.card)));
-  expect(drawn("Raigeki").filter(n => n === "Raigeki")).toHaveLength(1);
+  expect(drawn("Smashing Ground").filter(n => n === "Smashing Ground")).toHaveLength(1);
   expect(drawn("Dark Hole").filter(n => n === "Dark Hole").length).toBeGreaterThan(1);
 });

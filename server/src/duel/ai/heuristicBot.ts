@@ -45,7 +45,7 @@ import {
 } from "./prompt.ts";
 import { rolloutScore, searchable, whatIf, type SearchAccess } from "./simSearch.ts";
 import { yugiPlaybook } from "./yugiMatchups.ts";
-import { yugiCopyLimit } from "./yugiBrand.ts";
+import { yugiCopyLimit, yugiDrawWeight, YUGI_LAST_RESORT } from "./yugiBrand.ts";
 import type { CardDB as BrainDB } from "../brain/index.ts";
 import { zoneOrder } from "../zones.ts";
 
@@ -55,6 +55,8 @@ const TAG_RULES = new Map<number, CardRule | null>();
 const MAX_IDLE_ACTIONS = 24; // hard safety cap on plays per turn (prevents pathological loops)
 // Reactive cards (Mirror Force, Magic Cylinder, Swords) are not on the list: a signature bonus made Mirror Force the
 // draw over Heavy Storm or Raigeki (owner: "why not Dark Hole instead of Mirror Force").
+/** About one card in hand (evaluate.ts CARD): two draws closer than this do the same job (#lightestFit). */
+const HEART_FIT_MARGIN = 1000;
 const YUGI_SIGNATURE = /^(dark magician(?: girl| of chaos)?|skilled dark magician|apprentice magician|buster blader|summoned skull|gaia the fierce knight|swift gaia the fierce knight|curse of dragon|gazelle the king of mythical beasts|berfomet|kuriboh|big shield gardna|obnoxious celtic guard|alpha the magnet warrior|beta the magnet warrior|gamma the magnet warrior|valkyrion the magna warrior|king's knight|queen's knight|jack's knight|slifer the sky dragon|obelisk the tormentor|the winged dragon of ra|black luster soldier(?: - envoy of the beginning)?|gandora the dragon of destruction|polymerization|ancient rules|magical dimension|dark magic attack|thousand knives|monster reborn)$/;
 
 /** Spells whose resolution is a Fusion or Ritual Summon (ritual spells are also found by type). */
@@ -1728,7 +1730,8 @@ export class HeuristicBot {
     if (ev.kind !== "selectCard") this.#pendingAttacker = null;
     const t0 = performance.now();
     const scored: { c: Candidate; s: number }[] = [];
-    const uncertainDraw = ev.kind === "announceCard" && ev.heart && this.#heartSkill && !this.#trapLock()
+    const heartDraw = ev.kind === "announceCard" && ev.heart && this.#heartSkill;
+    const uncertainDraw = heartDraw && !this.#trapLock()
       && this.#opp()?.szone.some(c => c && isFaceDown(c.position));
     try {
       const handForecast = !!search.opposingHand && ev.kind === "announceCard" && ev.heart;
@@ -1745,7 +1748,8 @@ export class HeuristicBot {
         // comparing plans and charge the same interruption stress budget.
         scored.push({ c, s: s >= 1e9 && uncertainDraw ? 30000 - (c.risk ?? 0)
           : Math.abs(s) >= 1e9 ? s : s - (c.risk ?? 0) });
-        if (s >= 1e9 && !uncertainDraw) break;
+        // A draw keeps looking: a lighter card may win just as surely (#lightestFit).
+        if (s >= 1e9 && !uncertainDraw && !heartDraw) break;
       }
     } catch {
       return this.respond(ev);
@@ -1753,9 +1757,38 @@ export class HeuristicBot {
     if (scored.length === 0) return this.respond(ev);
     // Stable sort: on a tie the earlier (heuristic-ordered) candidate wins.
     scored.sort((a, b) => b.s - a.s);
+    if (heartDraw) {
+      const pick = this.#lightestFit(scored, c => rolloutScore(search, this.seat, sel, ev, c.resp, this, true));
+      pick.c.commit?.();
+      return pick.c.resp;
+    }
     const pick = this.#mistakeRate > 0 && scored.length > 1 && this.#rng() < this.#mistakeRate ? scored[1]! : scored[0]!;
     pick.c.commit?.();
     return pick.c.resp;
+  }
+
+  /** Owner: Yugi draws the lightest card that does the job (yugiDrawWeight), his own before anyone else's. A draw fits
+   * when its played-out score is within HEART_FIT_MARGIN of the best one, both over the forecast (`scored`, best
+   * first) and by the end of this turn (`now`): the forecast expects his next draw to finish what a light card leaves.
+   * A last resort (Raigeki) is drawn only when every other draw leaves him losing and it clearly does better. */
+  #lightestFit(scored: { c: Candidate; s: number }[], now: (c: Candidate) => number | null): { c: Candidate; s: number } {
+    const name = (x: { c: Candidate }) => this.#nameOf(Number((x.c.resp as { card?: number }).card));
+    const others = scored.filter(x => !YUGI_LAST_RESORT.has(name(x)));
+    if (!others.length) return scored[0]!;
+    const otherBest = others[0]!.s;
+    const foeAttack = this.#monstersOf(this.#opp()).filter(m => !m.faceDown).reduce((t, m) => t + m.atk, 0);
+    const losing = otherBest <= -1e9 || foeAttack >= (this.#me()?.lp ?? 8000);
+    const pool = scored.filter(x => others.includes(x) || losing && x.s > otherBest + HEART_FIT_MARGIN);
+    const best = pool[0]!.s;
+    let fit = pool.filter(x => x.s >= best - HEART_FIT_MARGIN);
+    if (fit.length > 1) {
+      let turn: { x: { c: Candidate; s: number }; s: number }[] = [];
+      try { turn = fit.map(x => ({ x, s: now(x.c) ?? -Infinity })); } catch { /* replay drift: the forecast alone */ }
+      const turnBest = Math.max(...turn.map(t => t.s));
+      if (turnBest > -Infinity) fit = turn.filter(t => t.s >= turnBest - HEART_FIT_MARGIN).map(t => t.x);
+    }
+    // Stable: equal weights keep the better score.
+    return fit.reduce((a, b) => yugiDrawWeight(name(b)) < yugiDrawWeight(name(a)) ? b : a);
   }
 
   // ---- candidate enumeration (search / blunder) -------------------------------------------------------------------
@@ -1853,9 +1886,11 @@ export class HeuristicBot {
     // The same card twice from one Pot (three Monster Reborns), or a second copy of a defence already set.
     const repeats = (code: number, name: string) => this.#heartPending.filter(p => p === code).length
       + (fragileDefense.test(name) && held.has(name) ? 1 : 0);
+    // Without the engine (#lightestFit) a last resort still waits until his life is on the line.
+    const threatened = this.#monstersOf(foe).filter(m => !m.faceDown).reduce((t, m) => t + m.atk, 0) >= ctx.myLp;
     const rank = (c: CardRef): number => {
       const name = this.#nameOf(c.code), k = this.#cards.brain.get(c.code), st = this.#normalSummonStats(c.code);
-      let score = this.#worth(c.code, true);
+      let score = this.#worth(c.code, true) - (YUGI_LAST_RESORT.has(name) && !threatened ? 15000 : 0);
       if ((k?.type ?? 0) & TYPE_MONSTER) {
         const tributes = /^(slifer the sky dragon|obelisk the tormentor|the winged dragon of ra)$/.test(name) ? 3 : k?.tributes() ?? 0;
         score += tributes > field ? -5000 : st.atk + (st.atk > ctx.oppMaxAtk ? 1500 : 0);
@@ -1942,7 +1977,8 @@ export class HeuristicBot {
       return myAttack > 0 && /^(megamorph|rush recklessly|limiter removal|riryoku|black pendant|axe of despair|united we stand|mage power)$/.test(name) ? 1 : 0;
     };
     const finishers = cards.map((c, i) => ({ i, kind: finisherKind(c) })).filter(f => f.kind > 0)
-      .sort((a, b) => b.kind - a.kind || rank(cards[b.i]!) - rank(cards[a.i]!)).slice(0, 6).map(f => f.i);
+      .sort((a, b) => b.kind - a.kind || yugiDrawWeight(this.#nameOf(cards[a.i]!.code)) - yugiDrawWeight(this.#nameOf(cards[b.i]!.code))
+        || rank(cards[b.i]!) - rank(cards[a.i]!)).slice(0, 6).map(f => f.i);
     // Choosing every draw makes draw spells pointless, and a chain of them looks rigged. Yugi's one is a signature
     // Pot of Greed, once per duel, counting one dealt in his opening (owner): no other draw or cycling card.
     const mine = [...(me?.hand ?? []), ...(me?.grave ?? []), ...(me?.removed ?? []), ...this.#heartPending,
@@ -1963,7 +1999,11 @@ export class HeuristicBot {
       (c: CardRef) => /^(pot of greed|graceful charity)$/.test(this.#nameOf(c.code)),
       (c: CardRef) => /^(giant trunade|heavy storm|royal decree|spiritualism)$/.test(this.#nameOf(c.code)),
       (c: CardRef) => /^(marshmallon|spirit reaper|swords of revealing light)$/.test(this.#nameOf(c.code)),
-      (c: CardRef) => /^(raigeki|dark hole)$/.test(this.#nameOf(c.code)),
+      // The light answers reach the engine too (#lightestFit): one monster, one set card, several monsters.
+      (c: CardRef) => /^(smashing ground|fissure|hammer shot)$/.test(this.#nameOf(c.code)),
+      (c: CardRef) => /^(mystical space typhoon|dust tornado)$/.test(this.#nameOf(c.code)),
+      (c: CardRef) => this.#nameOf(c.code) === "dark hole",
+      (c: CardRef) => this.#nameOf(c.code) === "raigeki",
     ];
     if (opposingHand) {
       categories.push(pressure);
