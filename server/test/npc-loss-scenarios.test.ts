@@ -259,4 +259,32 @@ describe.skipIf(!haveData)("NPC scenarios: production losses (real engine)", () 
     expect(npcActivated(p, "Raigeki Break")).toBe(true);
     expect(leftField(p, "Chaos Command Magician")).toBe(true);
   });
+
+  // ---- Card Destruction
+  it("casts Card Destruction to refresh a hand of tribute monsters it cannot summon (2588)", () => {
+    const p = play(dc, {
+      npcId: 56, first: "player", turns: 2,
+      npc: { hand: ["Card Destruction", "Obelisk the Tormentor", "Vampire Lord", "Vampire Lord"], szone: ["Sakuretsu Armor"], deck: Array(20).fill("Reckless Greed") },
+      player: { lp: 4000, mzone: ["Lyla, Lightsworn Sorceress"], szone: ["Mirror Force"], hand: ["Petit Moth", "Petit Moth", "Petit Moth"] },
+    });
+    expect(npcActivated(p, "Card Destruction")).toBe(true);
+  });
+
+  it("casts Card Destruction to discard its Dark World monsters (2565)", () => {
+    const p = play(dc, {
+      npcId: 5, first: "player", turns: 2,
+      npc: { hand: ["Goldd, Wu-Lord of Dark World", "Card Destruction", "Call of the Haunted", "Gateway to Dark World", "Sillva, Warlord of Dark World"], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: [["Spirit Reaper", "set"]], szone: ["Macro Cosmos"], hand: ["Petit Moth", "Petit Moth", "Petit Moth", "Petit Moth"] },
+    });
+    expect(npcActivated(p, "Card Destruction")).toBe(true);
+  });
+
+  it("keeps Card Destruction with a hand it can play (control)", () => {
+    const p = play(dc, {
+      npcId: 56, first: "player", turns: 2,
+      npc: { hand: ["Card Destruction", "Gemini Elf", "Vorse Raider", "Mirror Force"], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: ["Lyla, Lightsworn Sorceress"], hand: ["Petit Moth", "Petit Moth", "Petit Moth"] },
+    });
+    expect(npcActivated(p, "Card Destruction")).toBe(false);
+  });
 });
