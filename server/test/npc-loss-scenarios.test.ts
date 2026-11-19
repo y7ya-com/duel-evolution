@@ -315,4 +315,42 @@ describe.skipIf(!haveData)("NPC scenarios: production losses (real engine)", () 
     });
     expect(msgs(p, "SUMMONING", "Dark Jeroid")).toHaveLength(1);
   });
+
+  // ---- battle walls in attack position
+  it("sets Marshmallon under its own Swords of Revealing Light (2474)", () => {
+    const p = play(dc, {
+      npcId: 44, first: "player", turns: 2,
+      npc: { lp: 5700, hand: ["Manticore of Darkness", "Left Leg of the Forbidden One", "Dark Factory of Mass Production", "Monster Reincarnation", "Marshmallon"],
+        szone: [["Swords of Revealing Light", "up"], "Backup Soldier"], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: [["Necro Gardna", "def"], "Celestia, Lightsworn Angel", ["Petit Moth", "set"]], szone: [["Royal Decree", "up"]] },
+    });
+    expect(msgs(p, "SUMMONING", "Marshmallon")).toHaveLength(0);
+  });
+
+  it("sets Spirit Reaper when it cannot attack this turn (2443)", () => {
+    const p = play(dc, {
+      npcId: 44, first: "player", turns: 2,
+      npc: { hand: ["Ring of Destruction", "Spirit Reaper", "Exodia the Forbidden One"], szone: [["Swords of Revealing Light", "up"]], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: ["Lyla, Lightsworn Sorceress"], szone: ["Mirror Force"] },
+    });
+    expect(msgs(p, "SUMMONING", "Spirit Reaper")).toHaveLength(0);
+  });
+
+  it("does not Flip Summon its set Marshmallon in Main Phase 2 (2447)", () => {
+    const p = play(dc, {
+      npcId: 3, first: "player", turns: 2,
+      npc: { lp: 1600, mzone: [["Marshmallon", "set"], ["Treeborn Frog", "def"], "D.D. Warrior Lady"], szone: [["Swords of Revealing Light", "up"]], deck: Array(20).fill("Reckless Greed") },
+      player: { lp: 4300, mzone: [["Petit Moth", "set"], "Blue Thunder T-45", "Gemini Elf"], szone: ["Mirror Force"] },
+    });
+    expect(msgs(p, "FLIPSUMMONING", "Marshmallon")).toHaveLength(0);
+  });
+
+  it("summons Spirit Reaper face-up to attack an empty field (control)", () => {
+    const p = play(dc, {
+      npcId: 44, first: "player", turns: 2,
+      npc: { hand: ["Spirit Reaper", "Exodia the Forbidden One"], deck: Array(20).fill("Reckless Greed") },
+      player: { hand: ["Petit Moth", "Petit Moth"] },
+    });
+    expect(msgs(p, "SUMMONING", "Spirit Reaper")).toHaveLength(1);
+  });
 });

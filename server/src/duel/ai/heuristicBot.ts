@@ -93,9 +93,10 @@ const NO_TRIBUTE_STATS: Record<string, { atk: number; def: number }> = {
   "fusilier dragon, the dual-mode beast": { atk: 1400, def: 1000 },
   "beast king barbaros": { atk: 1900, def: 1200 },
 };
-/** Monsters whose effect works only face-down (Blast Sphere: attacked while set, it takes the attacker): always set, never
- *  flipped (production Normal Summoned two face-up). */
-const STAYS_SET = /^(blast sphere)$/;
+/** Monsters whose effect works only face-down (Blast Sphere: attacked while set, it takes the attacker; Marshmallon:
+ *  flipped by an attack, it burns the attacker's owner 1000): always set, never flipped (production Normal Summoned two
+ *  Blast Spheres face-up, and Flip Summoned a Marshmallon in Main Phase 2: duel 2447). */
+const STAYS_SET = /^(blast sphere|marshmallon)$/;
 /** Monsters whose battles hurt only the opponent (Amazoness Swords Woman): in attack position they cost me nothing. */
 const REFLECTS_DAMAGE = /^(amazoness swords woman)$/;
 /** A card rule's summon score at least this is the turn's plan (made first). */
@@ -2698,6 +2699,9 @@ export class HeuristicBot {
     // damage goes through (production: Spirit Reaper face-up at 200 LP, its card rule's summon score read as "face-up";
     // and face-up at 100 LP onto an empty field, where its direct attack fed a Dark World discard)
     if (BATTLE_PROOF.has(code) && (atk < T || (atk < 1000 && lp <= 1000))) return "set";
+    // nor, a small one, with nothing to attack this turn: a lock of mine that holds the attackers back now can go
+    // before they come (production summoned Spirit Reaper under its own Swords of Revealing Light: duel 2443)
+    if (BATTLE_PROOF.has(code) && atk < 1000 && !(this.#battleAhead() && this.#oppMonsters().length === 0)) return "set";
     // a card rule that wants it on the field for its effect (a Monarch), or an effect that only a Normal Summon
     // triggers (Manju of the Ten Thousand Hands: set, it never searches): Master Duel's per-card effect-use table
     // (a rule's negative score says its summon effect does harm now: Dark Jeroid alone shrinks itself)
