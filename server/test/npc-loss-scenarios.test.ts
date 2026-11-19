@@ -517,4 +517,16 @@ describe.skipIf(!haveData)("NPC scenarios: production losses (real engine)", () 
     expect(leftField(p, "Petit Moth")).toBe(true);
     expect(leftField(p, "Mystic Tomato")).toBe(true);
   });
+
+  // ---- deck lab findings (orig2 REPORT.md)
+  it("returns two cards to the Deck when Sillva asks for two (npc34-g3: one was an illegal answer)", () => {
+    const p = play(dc, {
+      npcId: 34, first: "player", turns: 2,
+      npc: { hand: ["Giant Germ", "Petit Moth", "Ryu Kokki"], mzone: ["Spirit Reaper"], deck: Array(20).fill("Reckless Greed") },
+      player: { hand: ["Sillva, Warlord of Dark World"] },
+    });
+    const asks = p.npc.filter((d) => d.sel.type === "SELECT_CARD" && Number(d.sel.min) >= 2);
+    expect(asks.length).toBeGreaterThanOrEqual(1);
+    for (const d of asks) expect((d.resp?.indicies as number[]).length).toBeGreaterThanOrEqual(Number(d.sel.min));
+  });
 });

@@ -491,6 +491,9 @@ export class HeuristicBot {
         }
         else {
           this.#attackSeen = true;
+          // the attack is declared: a later card prompt is not its target pick (a direct attack never asks one, and
+          // Sillva's "return 2 cards" after Spirit Reaper's hit got one card: an illegal answer, deck lab NPC 34)
+          this.#pendingAttacker = null;
           if (a) { this.#attackedThisTurn.add(Number(a.sequence)); this.#myAttack = { sequence: Number(a.sequence), target: t ? Number(t.sequence) : null }; }
         }
         break;
@@ -3341,7 +3344,7 @@ export class HeuristicBot {
 
   #selectCard(ev: P<"selectCard">): Json {
     // The attack-target follow-up: the best monster this attacker can destroy.
-    if (this.#pendingAttacker !== null) {
+    if (this.#pendingAttacker !== null && ev.min <= 1 && ev.cards.every((c) => c.controller !== this.seat && (c.location & LOCATION.MZONE) !== 0)) {
       const atk = this.#pendingAttacker, planned = this.#plannedTarget;
       this.#pendingAttacker = null;
       this.#plannedTarget = undefined;
