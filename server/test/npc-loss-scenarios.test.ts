@@ -529,4 +529,15 @@ describe.skipIf(!haveData)("NPC scenarios: production losses (real engine)", () 
     expect(asks.length).toBeGreaterThanOrEqual(1);
     for (const d of asks) expect((d.resp?.indicies as number[]).length).toBeGreaterThanOrEqual(Number(d.sel.min));
   });
+
+  it("does not pay its last 1000 LP to Mausoleum of the Emperor (npc38-g38)", () => {
+    const p = play(dc, {
+      npcId: 38, first: "player", turns: 2,
+      npc: { lp: 1000, hand: ["Card Trooper", "Caius the Shadow Monarch", "Caius the Shadow Monarch"], mzone: ["Jinzo", "Zaborg the Thunder Monarch"],
+        szone: [null, null, null, null, null, ["Mausoleum of the Emperor", "up"]], deck: Array(20).fill("Reckless Greed") },
+      player: { lp: 6300, mzone: [["Ryko, Lightsworn Hunter", "def"], ["Petit Moth", "set"]] },
+    });
+    expect(msgs(p, "PAY_LPCOST").filter((m) => Number(m.player) === 1)).toHaveLength(0);
+    expect(p.end?.winner).not.toBe(0);
+  });
 });
