@@ -133,7 +133,7 @@ function resolve(s: State, a: PlanAttacker, t: PlanMon | null, bit: number): Sta
   // afterlife never comes (production sent D.D. Warrior at a 400 ATK monster beside a Jinzo, and Gil Garth, a lone
   // blocker, into D.D. Warrior Lady)
   const aGone = !my.some((m) => m.seq === a.seq), tGone = !opp.some((m) => m.seq === t.seq);
-  if (banishesAfter(me, aGone, tGone) || (!t.faceDown || t.known) && banishesAfter(t, tGone, aGone)) {
+  if (banishesAfter(me, aGone, tGone) || ((!t.faceDown || t.known) && banishesAfter(t, tGone, aGone))) {
     return { myLp, oppLp, my: my.filter((m) => m.seq !== a.seq), opp: opp.filter((m) => m.seq !== t.seq), used, flipCost: flipBefore, banished: true };
   }
   // a Gladiator Beast that battled and is still there tags out into two more at the end of the Battle Phase

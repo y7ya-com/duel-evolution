@@ -3421,8 +3421,9 @@ export class HeuristicBot {
    *  Chaos Command Magician's 2400 came through: duel 2237). */
   #answersAttack(c: CardRef): boolean {
     if (!this.#isAttacker(c)) return false;
-    const atk = this.#liveAtk(c) ?? 0;
-    if (this.#attack!.direct && atk >= (this.#me()?.lp ?? 8000)) return true;
+    const atk = this.#liveAtk(c) ?? 0, target = this.#attack!.target === null ? null : this.#me()?.mzone[this.#attack!.target];
+    const damage = !target ? atk : !isFaceDown(target.position) && (target.position & POS.ATTACK) !== 0 ? atk - (target.attack ?? 0) : 0;
+    if (damage >= (this.#me()?.lp ?? 8000)) return true;
     return !this.#oppMonsters().some((m) => m.seq !== c.sequence && !m.faceDown && m.attackPos && !m.noAttack
       && !this.#oppAttackedThisTurn.has(m.seq) && m.atk > atk);
   }
