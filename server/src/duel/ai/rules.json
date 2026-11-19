@@ -260,7 +260,7 @@
     "golem sentry": {"idleActivate": {"any": [{">=": [{"count": "oppMon"}, 1]}, {">": ["oppMaxAtk", "selfAtk"]}]}},
     "level modulation": {"idleActivate": {">": ["effectSummonGain", 0]}, "idlePriority": 90},
     "hero signal": {"idleActivate": false, "chainReact": true, "ownTurn": true},
-    "crystal abundance": {"idleActivate": {"all": [{">=": [{"+": [{"count": "myMon"}, "myBackrow"]}, 4]}, "outgunned"]}},
+    "crystal abundance": {"idleActivate": {"all": [{">=": [{"+": [{"count": "oppMon"}, "oppBackrow"]}, 2]}, {">=": [{"+": [{"count": "oppMon"}, "oppBackrow"]}, {"-": [{"+": [{"count": "myMon"}, "myBackrow"]}, 4]}]}]}, "idlePriority": 110},
     "mystic box": {"idleActivate": {"all": [{">=": [{"count": "oppMon"}, 1]}, {"<=": ["myMaxAtk", "oppMaxAtk"]}, {"any": [{">=": [{"count": "myMon"}, 2]}, {">=": [{"count": "myMon", "where": {"<": ["atk", {"min": ["myLp", 1200]}]}}, 1]}]}]}, "pick": {"score": {"if": ["mine", {"+": [{"-": [0, "atk"]}, {"if": ["faceDown", 500, 0]}]}, "atk"]}}},
     "widespread ruin": {"chainReact": {"all": [{">": ["attackAtk", 0]}, {">=": ["attackAtk", "oppMaxAtk"]}, {"any": ["attackLethal", {"all": [{"not": "attackOnDefense"}, {">=": ["attackAtk", 1500]}]}]}]}},
     "d.d. crow": {"chainReact": {"all": ["oppChained", "oppChainUsesGrave"]}},

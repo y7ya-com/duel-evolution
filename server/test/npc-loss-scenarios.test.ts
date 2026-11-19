@@ -578,4 +578,26 @@ describe.skipIf(!haveData)("NPC scenarios: production losses (real engine)", () 
     });
     expect(npcActivated(p, "Heavy Storm")).toBe(false);
   });
+
+  it("casts a live Crystal Abundance when the wipe takes more of the opponent's cards than of its own (gx2, NPC 74)", () => {
+    const p = play(dc, {
+      npcId: 74, first: "player", turns: 2,
+      npc: { hand: ["Crystal Abundance"], mzone: ["Crystal Beast Sapphire Pegasus"],
+        szone: [["Crystal Beast Amber Mammoth", "up"], ["Crystal Beast Topaz Tiger", "up"], ["Crystal Beast Ruby Carbuncle", "up"], ["Crystal Beast Emerald Tortoise", "up"]],
+        deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: ["Lyla, Lightsworn Sorceress", "Ehren, Lightsworn Monk", ["Petit Moth", "set"]], szone: ["Mirror Force", "Magic Cylinder"] },
+    });
+    expect(npcActivated(p, "Crystal Abundance")).toBe(true);
+  });
+
+  it("holds Crystal Abundance when the wipe would take one card of the opponent's (control)", () => {
+    const p = play(dc, {
+      npcId: 74, first: "player", turns: 2,
+      npc: { hand: ["Crystal Abundance"], mzone: ["Crystal Beast Sapphire Pegasus"],
+        szone: [["Crystal Beast Amber Mammoth", "up"], ["Crystal Beast Topaz Tiger", "up"], ["Crystal Beast Ruby Carbuncle", "up"], ["Crystal Beast Emerald Tortoise", "up"]],
+        deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: [["Petit Moth", "def"]] },
+    });
+    expect(npcActivated(p, "Crystal Abundance")).toBe(false);
+  });
 });
