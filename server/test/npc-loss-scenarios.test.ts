@@ -353,4 +353,23 @@ describe.skipIf(!haveData)("NPC scenarios: production losses (real engine)", () 
     });
     expect(msgs(p, "SUMMONING", "Spirit Reaper")).toHaveLength(1);
   });
+
+  it("does not cast Soul Exchange beside a set Brain Control that makes the same tribute (2427)", () => {
+    const p = play(dc, {
+      npcId: 14, first: "player", turns: 2,
+      npc: { hand: ["Soul Exchange", "Great Maju Garzett", "Giant Orc"], mzone: ["Giant Orc"], szone: ["Brain Control"], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: [["Lyla, Lightsworn Sorceress", "def"]] },
+    });
+    expect(npcActivated(p, "Soul Exchange") && npcActivated(p, "Brain Control")).toBe(false);
+  });
+
+  it("Mobius destroys both of the opponent's set cards (2362)", () => {
+    const p = play(dc, {
+      npcId: 7, first: "player", turns: 2,
+      npc: { hand: ["Mobius the Frost Monarch"], mzone: ["D.D. Survivor"], szone: [["Macro Cosmos", "up"], "Forced Back"], deck: Array(20).fill("Reckless Greed") },
+      player: { lp: 2000, mzone: [["Elemental HERO Woodsman", "def"]], szone: ["Magic Cylinder", "Mirror Force"] },
+    });
+    expect(npcActivated(p, "Mobius the Frost Monarch")).toBe(true);
+    expect(leftField(p, "Magic Cylinder") && leftField(p, "Mirror Force")).toBe(true);
+  });
 });
