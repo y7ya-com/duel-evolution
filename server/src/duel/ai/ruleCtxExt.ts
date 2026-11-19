@@ -35,6 +35,9 @@ export const EXT_NUM = [
    *  graveyard (they gain from being discarded: Sangan-like, Dark World); Counter Traps (hand or set); cards that
    *  revive a monster (hand or set). */
   "myHandDead", "myHandDiscardPayoff", "myCounterTraps", "myReviveCards",
+  /** Hand monsters needing tributes that one monster more on my field lets me Tribute Summon (a borrowed one: Soul
+   *  Exchange, Brain Control; an Egyptian God takes three). */
+  "myHandTributesPlusOne",
   /** How many of my Standby Phases the card the rule is about has spent face-up on my field (Wave-Motion Cannon's
    *  counters: 1000 damage each). */
   "selfStandbys",

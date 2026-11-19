@@ -194,4 +194,35 @@ describe.skipIf(!haveData)("NPC scenarios: production losses (real engine)", () 
     });
     expect(npcActivated(p, "Messenger of Peace")).toBe(true);
   });
+
+  // ---- a borrowed monster as the tribute (Soul Exchange, Brain Control)
+  it("Tribute Summons Vampire Lord with the monster Soul Exchange marked, not a second steal of it (2540)", () => {
+    const p = play(dc, {
+      npcId: 56, first: "player", turns: 2,
+      npc: { lp: 6900, hand: ["Peten the Dark Clown", "Vampire Lord", "Spirit Reaper", "Snatch Steal", "Card Destruction", "Soul Exchange"], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: ["Wulf, Lightsworn Beast", "Jain, Lightsworn Paladin"], szone: ["Solemn Judgment"] },
+    });
+    expect(npcActivated(p, "Soul Exchange")).toBe(true);
+    expect(msgs(p, "SUMMONING", "Vampire Lord")).toHaveLength(1);
+  });
+
+  it("does not cast Soul Exchange for a God it cannot tribute for (2543)", () => {
+    const p = play(dc, {
+      npcId: 56, first: "player", turns: 2,
+      npc: { lp: 750, hand: ["Soul Exchange", "Obelisk the Tormentor", "Card Destruction"], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: ["Wulf, Lightsworn Beast", "Garoth, Lightsworn Warrior"] },
+    });
+    expect(npcActivated(p, "Soul Exchange")).toBe(false);
+  });
+
+  it("keeps its Normal Summon for Raiza, tributing the Brain Controlled monster after its attack (2431)", () => {
+    const p = play(dc, {
+      npcId: 3, first: "player", turns: 2,
+      npc: { lp: 5350, hand: ["Swords of Revealing Light", "D.D. Warrior Lady", "Premature Burial", "Raiza the Storm Monarch", "Brain Control"], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: ["Mechanicalchaser"], szone: ["Call of the Haunted"] },
+    });
+    expect(npcActivated(p, "Brain Control")).toBe(true);
+    expect(msgs(p, "SUMMONING", "Raiza the Storm Monarch")).toHaveLength(1);
+    expect(msgs(p, "SUMMONING", "D.D. Warrior Lady")).toHaveLength(0);
+  });
 });
