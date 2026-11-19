@@ -298,6 +298,8 @@ export class HeuristicBot {
   #lentTurn = -1;
   /** The opponent's monster my Soul Exchange marked (its zone), and the turn and chain link it is for. */
   #soulMark: { turn: number; seq: number; link: number } | null = null;
+  /** The opponent's monster an Honest of theirs raised in my battle: its zone and ATK before, for the turn it lasts. */
+  #honestBoost: { turn: number; seq: number; atk: number } | null = null;
   /** Lethal was counted this turn: turn every body up, summon the strongest, attack. */
   #allIn = false;
   #rules: Record<string, CardRule>;
@@ -426,6 +428,12 @@ export class HeuristicBot {
         // a forced trigger of mine asks no question before it targets: what its pick belongs to (Raiza's return took the
         // pick rule of the Brain Control before it and sent Raiza back to the Deck, production duels 2431 and 2506)
         if (Number(ev.controller) === this.seat && code) this.#lastActivated = code;
+        // Honest in my battle: the monster I attacked keeps that ATK only until the End Phase
+        const target = this.#myAttack?.target;
+        if (Number(ev.controller) !== this.seat && this.#nameOf(code) === "honest" && target !== null && target !== undefined) {
+          const at = this.#opp()?.mzone[target];
+          if (at && at.attack !== undefined) this.#honestBoost = { turn: this.#turn, seq: target, atk: at.attack };
+        }
         if (this.#heartSkill && Number(ev.controller) === this.seat && this.#isDrawCard(code) && (Number(ev.location) & (LOCATION.HAND | LOCATION.SZONE)) !== 0) this.#drawSpent = true;
         const k = this.#cards.brain.get(code);
         const clears = CLEARS_BACKROW.test(this.#nameOf(code)) || !!k?.has("storm_all") || (!!k?.has("storm_opp") && Number(ev.controller) !== this.seat);
@@ -541,6 +549,7 @@ export class HeuristicBot {
     this.#allIn = from.#allIn;
     this.#lentTurn = from.#lentTurn;
     this.#soulMark = from.#soulMark;
+    this.#honestBoost = from.#honestBoost;
     this.#attackSeen = from.#attackSeen;
     this.#deadAttackers = new Set(from.#deadAttackers);
     this.#attackedThisTurn = new Set(from.#attackedThisTurn);
@@ -914,11 +923,15 @@ export class HeuristicBot {
     if (!p) return [];
     const out: OppMon[] = [];
     const who = p === this.#me() ? this.seat : 1 - this.seat;
+    // after my Battle Phase, a monster an Honest raised for this turn is read at the ATK it attacks with next turn
+    // (production put Vampire Lord in defence against a Garoth at 3950 that was 1850 again on its turn: duel 2593)
+    const boost = who !== this.seat && this.#honestBoost?.turn === this.#turn && (this.#board?.phase ?? 0) >= PHASE.MAIN2 ? this.#honestBoost : null;
     p.mzone.forEach((c, seq) => {
       if (!c) return;
       const faceDown = isFaceDown(c.position);
+      const atk = boost?.seq === seq && !faceDown ? Math.min(c.attack ?? 0, boost.atk) : c.attack ?? 0;
       out.push({
-        seq, code: c.code, level: c.level ?? (c.code ? this.#stat(c.code).level : 0), atk: c.attack ?? 0, def: c.defense ?? 0, faceDown,
+        seq, code: c.code, level: c.level ?? (c.code ? this.#stat(c.code).level : 0), atk, def: c.defense ?? 0, faceDown,
         battleProof: this.#battleProofAt(who, seq, c.code), afterlife: c.code ? afterlife(c.code) : 0,
         attackPos: (c.position & POS.ATTACK) !== 0 && !faceDown,
         known: !faceDown || c.code !== 0,

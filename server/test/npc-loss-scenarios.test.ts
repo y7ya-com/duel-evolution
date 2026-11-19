@@ -236,4 +236,16 @@ describe.skipIf(!haveData)("NPC scenarios: production losses (real engine)", () 
     expect(npcActivated(p, "Limiter Removal")).toBe(false);
     expect(leftField(p, "V-Tiger Jet")).toBe(false);
   });
+
+  // ---- Main Phase 2 positions after the opponent's Honest
+  it("keeps Vampire Lord in attack after Honest raised Garoth only until the End Phase (2593)", () => {
+    const p = play(dc, {
+      npcId: 56, first: "player", turns: 2,
+      npc: { lp: 5300, mzone: ["Giant Germ", "Vampire Lord", "Wulf, Lightsworn Beast", "Giant Germ"], deck: Array(20).fill("Reckless Greed") },
+      player: { lp: 5000, hand: ["Honest"], mzone: ["Garoth, Lightsworn Warrior"] }, player_policy: activating("Honest"),
+    });
+    expect(npcActivated(p, "Honest")).toBe(false);
+    expect(msgs(p, "CHAINING", "Honest")).toHaveLength(1);
+    expect(msgs(p, "POS_CHANGE", "Vampire Lord")).toHaveLength(0);
+  });
 });
