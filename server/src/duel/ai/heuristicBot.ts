@@ -2700,7 +2700,8 @@ export class HeuristicBot {
     if (BATTLE_PROOF.has(code) && (atk < T || (atk < 1000 && lp <= 1000))) return "set";
     // a card rule that wants it on the field for its effect (a Monarch), or an effect that only a Normal Summon
     // triggers (Manju of the Ten Thousand Hands: set, it never searches): Master Duel's per-card effect-use table
-    if (bonus > 0 || ON_SUMMON.has(code)) return "up";
+    // (a rule's negative score says its summon effect does harm now: Dark Jeroid alone shrinks itself)
+    if (bonus > 0 || (ON_SUMMON.has(code) && bonus >= 0)) return "up";
     if (atk === 0) return "set";
     // an empty opposing field with my Battle Phase ahead: a real attacker goes up and hits (production set Gamma and
     // Mystical Elf there: their DEF read as a wall against nothing); a token-sized body is set, not shown for 100
@@ -2800,7 +2801,9 @@ export class HeuristicBot {
       let st = this.#normalSummonStats(c.code);
       const summonAtkBonus = st.atk - this.#stat(c.code).atk;
       // Summon setup must not count the monster itself as its future discard.
-      const bonus = Math.max(this.#heartEffectBody(c.code), this.#ruleFor(c.code)?.summonScore?.(this.#withSelf(ctx, c.code, c)) ?? 0);
+      // (a rule's negative score stays negative: the summon effect does harm now)
+      const heart = this.#heartEffectBody(c.code), ruled = this.#ruleFor(c.code)?.summonScore?.(this.#withSelf(ctx, c.code, c)) ?? 0;
+      const bonus = heart > 0 ? Math.max(heart, ruled) : ruled;
       const setIndex = ev.monsterSet.findIndex((x) => x.code === c.code);
       let n = /^(slifer the sky dragon|obelisk the tormentor|the winged dragon of ra)$/.test(this.#nameOf(c.code)) ? 3 : st.level > 6 ? 2 : st.level > 4 ? 1 : 0;
       // offered with fewer monsters than its tributes: its own summon without tributes (Fusilier Dragon at half its

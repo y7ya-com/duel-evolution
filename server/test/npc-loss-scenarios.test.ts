@@ -287,4 +287,32 @@ describe.skipIf(!haveData)("NPC scenarios: production losses (real engine)", () 
     });
     expect(npcActivated(p, "Card Destruction")).toBe(false);
   });
+
+  // ---- the opening of duel 2419
+  it("does not open with Cold Wave while its own Spells and Traps wait to be set (2419)", () => {
+    const p = play(dc, {
+      npcId: 75, first: "npc", turns: 1,
+      npc: { hand: ["Bark of Dark Ruler", "Spirit Reaper", "Premature Burial", "Metal Reflect Slime", "Dark Jeroid", "Cold Wave"], deck: Array(20).fill("Reckless Greed") },
+      player: { hand: ["Petit Moth", "Petit Moth", "Petit Moth", "Petit Moth", "Petit Moth"] },
+    });
+    expect(npcActivated(p, "Cold Wave")).toBe(false);
+  });
+
+  it("does not summon Dark Jeroid face-up with no opposing monster to shrink (2419)", () => {
+    const p = play(dc, {
+      npcId: 75, first: "npc", turns: 1,
+      npc: { hand: ["Dark Jeroid", "Bark of Dark Ruler"], deck: Array(20).fill("Reckless Greed") },
+      player: {},
+    });
+    expect(msgs(p, "SUMMONING", "Dark Jeroid")).toHaveLength(0);
+  });
+
+  it("summons Dark Jeroid against a face-up monster (control)", () => {
+    const p = play(dc, {
+      npcId: 75, first: "player", turns: 2,
+      npc: { hand: ["Dark Jeroid"], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: ["Vorse Raider"] },
+    });
+    expect(msgs(p, "SUMMONING", "Dark Jeroid")).toHaveLength(1);
+  });
 });
