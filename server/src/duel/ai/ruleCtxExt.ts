@@ -56,6 +56,9 @@ export const EXT_NUM = [
   "myLinkedCards",
   /** Active permanent steal equips; a face-down Snatch Steal is not holding a monster. */
   "myStealEquips",
+  /** The most destroying one of the opponent's face-up battle locks (Messenger of Peace...) frees of my attack: the ATK
+   *  of my monsters it stops, and of the best one in my hand while my Normal Summon is left. */
+  "oppLockUnlocks",
 ] as const;
 export const EXT_BOOL = [
   /** My turn, before my Battle Phase is over (Main Phase 1 or the Battle Phase); my Main Phase 2; a battle under way. */

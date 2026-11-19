@@ -44,6 +44,8 @@ export interface RuleCard extends RuleMon {
   worth: number;
   /** A monster whose destruction destroys a monster (Newdoria): destroying it costs one of mine. */
   revenge: boolean;
+  /** The opponent's face-up battle lock (Messenger of Peace): the ATK of my attack destroying it frees, else 0. */
+  unlocks?: number;
 }
 
 /** My cards by zone, as lowercase names (the named-card operators: inMyHand, inMyDeck, onMyField, inMyGrave). */

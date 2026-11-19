@@ -36,7 +36,7 @@
 //     name starting with this (the deck: my deck list less every copy seen); {"fieldSpellIs": name} a face-up Field
 //     Spell (either side) is it
 //   inside pick.score also: canAttack, alreadyHave, copyOnField, revenge (destroyed, it destroys a monster: Newdoria)
-//     (true / false), worth (a number)
+//     (true / false), worth, unlocks (the opponent's face-up battle lock: the ATK of mine it stops) (numbers)
 //   ownTurn: true   the card's chainReact is asked on my own turn too (not only as a negation)
 //
 // Example: { "premature burial": { "idleActivate": { "all": [{ ">=": ["myGraveMaxAtk", 1700] },
@@ -59,7 +59,7 @@ const BOOL_FIELDS = ["myTurn", "oppEndPhase", "attackLethal", "attackOnDefense",
 const MON_NUM = ["atk", "def", "level"] as const, MON_BOOL = ["faceDown", "attackPos", "fusion", "chainHit", "blocksLethal"] as const;
 const CARD_BOOL = ["mine", "onField", "inHand", "inGrave", "inDeck", "inExtra", "banished", "isMonster", "isSpell", "isTrap", "copyInHand",
   "canAttack", "alreadyHave", "copyOnField", "revenge"] as const;
-const CARD_NUM = ["worth"] as const;
+const CARD_NUM = ["worth", "unlocks"] as const;
 
 // the helpers of cardRules.ts, as names
 const attackers = (m: RuleMon[]): number => m.filter((x) => x.attackPos).length;

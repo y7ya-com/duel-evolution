@@ -1022,6 +1022,33 @@ export class HeuristicBot {
     return (locks.has("gravity bind") || locks.has("level limit - area b")) && m.level >= 4;
   }
 
+  /** What destroying this face-up battle lock of the opponent's frees of my attack (owner: NPCs confused by Messenger
+   *  of Peace): the ATK of my face-up monsters it stops, and of the best monster in my hand it would stop, while the
+   *  Normal Summon is still mine; 0 for any other card. */
+  #lockUnlocks(c: BoardCard | null | undefined, who: number): number {
+    if (!c || !c.code || who === this.seat || isFaceDown(c.position)) return 0;
+    const name = this.#nameOf(c.code);
+    if (!ATTACK_LOCKS.test(name)) return 0;
+    const locks = this.#faceUpLocks(), without = new Map(locks);
+    const copies = this.#opp()?.szone.filter((x) => x && x.code && !isFaceDown(x.position) && this.#nameOf(x.code) === name).length ?? 0;
+    if (copies <= 1) { const owners = new Set(locks.get(name) ?? []); owners.delete(who); if (owners.size) without.set(name, owners); else without.delete(name); }
+    const frees = (m: { atk: number; level: number; faceDown: boolean }) => this.#attackLocked(m, this.seat, locks) && !this.#attackLocked(m, this.seat, without);
+    let n = this.#monstersOf(this.#me()).filter((m) => !m.faceDown && m.atk > 0 && frees(m)).reduce((t, m) => t + m.atk, 0);
+    if (this.#turnPlayer === this.seat && !this.#normalSummoned) {
+      const field = this.#monstersOf(this.#me()).length;
+      n += Math.max(0, ...(this.#me()?.hand ?? []).map((h) => {
+        const k = this.#cards.brain.get(h), st = this.#normalSummonStats(h);
+        return k && (k.type & TYPE_MONSTER) !== 0 && this.#tributeCount(h) <= field && frees({ ...st, faceDown: false }) ? st.atk : 0;
+      }));
+    }
+    return n;
+  }
+
+  /** The most destroying one of the opponent's face-up battle locks frees of my attack (#lockUnlocks). */
+  #oppLockUnlocks(): number {
+    return Math.max(0, ...(this.#opp()?.szone ?? []).map((c) => this.#lockUnlocks(c, 1 - this.seat)));
+  }
+
   /** The ATK of the opponent's attacks next turn that the battle lock `name` of mine would stop: its face-up attackers
    *  no lock stops yet (and its set monsters, flipped up by Swords of Revealing Light, at the unknown-wall estimate). */
   #lockStops(name: string): number {
@@ -1271,7 +1298,8 @@ export class HeuristicBot {
   #freeDamageSummon(ev: P<"selectIdleCmd">): Json | null {
     if (!ev.canBattlePhase || !this.#battleAhead() || this.#normalSummoned || this.#oppMonsters().length > 0) return null;
     const play = this.#summonPlays(ev, this.#ctx())[0];
-    if (play && play.cmd === "SELECT_SUMMON" && play.stat >= 1000) return respIdle(play.cmd, play.index);
+    const canHit = (code: number) => !this.#attackLocked({ ...this.#normalSummonStats(code), faceDown: false }, this.seat);
+    if (play && play.cmd === "SELECT_SUMMON" && play.stat >= 1000 && canHit(ev.summonable[play.index]!.code)) return respIdle(play.cmd, play.index);
     // nothing of theirs on the field at all: a body that hits is summoned even where the ranking would set it
     // (production set Warrior Lady of the Wasteland facing an empty field and backrow)
     if (this.#opp()?.szone.some((c) => c) ?? true) return null;
@@ -1283,7 +1311,7 @@ export class HeuristicBot {
       const k = this.#cards.brain.get(c.code);
       if (!k || (c.location & LOCATION.HAND) === 0 || k.tributes() > 0 || this.#isFlip(c.code) || this.#ruleFor(c.code)?.keepInHand || this.#locked(c.code)) return;
       const a = this.#normalSummonStats(c.code).atk;
-      if (a > atk && a >= waitFor) { atk = a; best = i; }
+      if (a > atk && a >= waitFor && canHit(c.code)) { atk = a; best = i; }
     });
     return best >= 0 ? respIdle("SELECT_SUMMON", best) : null;
   }
@@ -1560,6 +1588,7 @@ export class HeuristicBot {
         .flatMap(([zone, location]) => zone.flatMap((c, i): CardRef[] => (c ? [{ controller: 1 - this.seat, location, sequence: i, code: c.code, position: c.position }] : [])))
         .map((c) => this.#removalValue(c))),
       myHandDead: me.hand.filter((c) => c && (discardBenefit(c, costs) === 1 || (isMon(c) && (this.#cards.brain.get(c)?.tributes() ?? 0) > myMon.length))).length,
+      oppLockUnlocks: this.#oppLockUnlocks(),
       myHandTributesPlusOne: me.hand.filter((c) => { const n = c && isMon(c) ? this.#tributeCount(c) : 0; return n > 0 && n <= myMon.length + 1; }).length,
       myHandDiscardPayoff: me.hand.filter((c) => c && (discardBenefit(c) === 2 || / of dark world$|^dark world /.test(this.#nameOf(c)))).length,
       myCounterTraps: [...me.hand, ...me.szone.filter((c): c is BoardCard => !!c).map((c) => c.code)].filter((c) => c && (type(c) & TYPE_COUNTER) !== 0).length,
@@ -2802,10 +2831,12 @@ export class HeuristicBot {
     const planned = this.#planInput();
     const input = oppTribute < 0 ? planned : { ...planned, opp: planned.opp.filter((m) => m.seq !== oppTribute) };
     const free = [0, 1, 2, 3, 4].find((z) => !input.my.some((m) => m.seq === z && !tributes.includes(m.seq))) ?? 9;
+    // (one a face-up lock stops attacking, the opponent's Messenger of Peace at 1500 ATK, is a body, not an attacker)
+    const locked = !set && this.#attackLocked({ atk: st.atk, level: st.level, faceDown: false }, this.seat);
     const mon: PlanMon = { atk: st.atk, def: st.def, faceDown: set, attackPos: !set, known: true, flipRisk: 0, seq: free,
-      battleProof: BATTLE_PROOF.has(code), afterlife: afterlife(code) };
+      battleProof: BATTLE_PROOF.has(code), afterlife: afterlife(code), noAttack: locked };
     const my = [...input.my.filter((m) => !tributes.includes(m.seq)), mon];
-    const attackers = [...input.attackers.filter((a) => !tributes.includes(a.seq)), ...(set ? [] : [{ index: free, seq: free, atk: st.atk, canDirect: DIRECT.has(code), directScale: directAttackScale(code), bounces: this.#bounces(code), pierce: PIERCE.has(code) }])];
+    const attackers = [...input.attackers.filter((a) => !tributes.includes(a.seq)), ...(set || locked ? [] : [{ index: free, seq: free, atk: st.atk, canDirect: DIRECT.has(code), directScale: directAttackScale(code), bounces: this.#bounces(code), pierce: PIERCE.has(code) }])];
     const { end } = planEnd({ ...input, my, attackers });
     // the same summon judged with my other monsters in their real positions, against the reply (#tradeWith)
     const real = new Map(this.#monstersOf(this.#me()).map((m) => [m.seq, m]));
@@ -2914,7 +2945,10 @@ export class HeuristicBot {
         if (tributes.length < n) return;
         const given = tributes.reduce((m, t) => Math.max(m, t.stolen ? 0 : holdOf(t)), 0);
         // (tributing the monster Soul Exchange marked removes theirs too: no bar to reach)
-        const pays = stat > given && (stat >= bar || (!!markedFodder && tributes.includes(markedFodder)));
+        // (nor a working attacker for a monster a face-up lock stops attacking: the opponent's Messenger of Peace)
+        const stopped = !set && this.#attackLocked({ atk: st.atk, level: st.level, faceDown: false }, this.seat)
+          && tributes.some((t) => t !== markedFodder && !t.stolen && !t.faceDown && t.attackPos && !t.noAttack && t.atk > 0);
+        const pays = !stopped && stat > given && (stat >= bar || (!!markedFodder && tributes.includes(markedFodder)));
         const walls = set && lethalOnMe && stops(st.def) > Math.max(0, ...tributes.map((t) => stops(t.def)));
         if (!pays && !walls) return;
       }
@@ -2922,7 +2956,9 @@ export class HeuristicBot {
       // after the summon, its tributes gone, and the planned attacks); otherwise by the body
       const after = battleAhead ? this.#afterSummon(c.code, set, mySeqs(n), st, oppSeq(n)) : null;
       // set into a monster that burns for what it destroys (Shining Flare Wingman): the smallest ATK goes there
-      const score = (after ? after.value + bonus : (set ? st.def * 0.5 : st.atk) + bonus) - (set && burnOnKill ? st.atk : 0);
+      // (with no battle to judge by, a monster a face-up lock stops attacking is worth its wall)
+      const walls = !set && this.#attackLocked({ atk: st.atk, level: st.level, faceDown: false }, this.seat);
+      const score = (after ? after.value + bonus : (set || walls ? st.def * 0.5 : st.atk) + bonus) - (set && burnOnKill ? st.atk : 0);
       // a set flip monster, or a monster whose summon triggers its effect, is played for the effect, not the body
       const hold = (set && this.#isFlip(c.code)) || (!set && ON_SUMMON.has(c.code));
       out.push({ cmd: set ? "SELECT_MONSTER_SET" : "SELECT_SUMMON", index: set ? setIndex : i, score, stat, verdict: after?.verdict ?? 0, planned: bonus >= PLANNED_SUMMON, hold, trade: after?.trade });
@@ -3524,6 +3560,7 @@ export class HeuristicBot {
       })(),
       worth: code ? this.#worth(code, (L & LOCATION.HAND) !== 0) : 0,
       revenge: !!code && REVENGE.has(code),
+      unlocks: (L & LOCATION.SZONE) !== 0 && c.controller !== this.seat ? this.#lockUnlocks(snap, c.controller) : 0,
     } as RuleCard;
   }
 
@@ -3705,6 +3742,16 @@ export class HeuristicBot {
     // the monster attacking me right now: removing it stops the damage (production's Compulsory Evacuation Device and
     // Raigeki Break took another monster and the 1400 still came through)
     if (this.#answersAttack(c)) return 1e5;
+    // the opponent's face-up battle lock that stops my attackers: what it frees, and lethal when that opens it (owner:
+    // MST hit a set card before the Messenger of Peace that held the NPC's whole offence)
+    if ((c.location & LOCATION.SZONE) !== 0 && c.controller !== this.seat) {
+      const frees = this.#lockUnlocks(this.#snap(c), c.controller);
+      if (frees > 0) {
+        const opp = this.#opp(), open = !opp?.mzone.some(Boolean);
+        const standing = this.#monstersOf(this.#me()).filter((m) => !m.faceDown && !m.noAttack).reduce((t, m) => t + m.atk, 0);
+        return frees + (open && standing + frees >= (opp?.lp ?? 8000) ? 1e4 : 0);
+      }
+    }
     const live = this.#liveAtk(c);
     if (live !== undefined) {
       // Master Duel spends removal on the monsters its battle cannot handle: one our attackers already beat is worth half
