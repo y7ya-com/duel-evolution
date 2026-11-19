@@ -367,7 +367,8 @@ describe("NPC decisions from the first day of production duels", () => {
   });
 
   it("does not activate a Field Spell over its own face-up copy", () => {
-    const sel = select("SELECT_IDLECMD", [mon(1900)], [], { to_bp: true, to_ep: true, phase: 4,
+    // (a LIGHT monster of mine, V-Tiger Jet: Luminous Spark raises only LIGHT monsters)
+    const sel = select("SELECT_IDLECMD", [{ ...mon(1900), code: 51638941 }], [], { to_bp: true, to_ep: true, phase: 4,
       activates: [{ code: C.spark, controller: 0, location: 2, sequence: 0, description: 0 }] });
     expect(new HeuristicBot(0, named).choose(sel)?.action).toBe("SELECT_ACTIVATE");
     (sel.view.players[0] as { szone: unknown[] }).szone = [null, null, null, null, null, { code: C.spark, position: 5, sequence: 5 }];

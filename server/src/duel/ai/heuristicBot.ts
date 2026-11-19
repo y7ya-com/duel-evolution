@@ -168,6 +168,9 @@ const DESTROYS_MONSTERS = tagMask("destroy_monster", "nuke_opp", "nuke_all", "de
 const DESTROYS_LATER = tagMask("revive", "boost", "control");
 /** Attack answers that destroy the attackers (their card tags do not say so). */
 const DESTROYS_ATTACKERS = /^(mirror force|justi-break)$/;
+/** Field Spells that raise the monsters of one Attribute on both sides (its bit). */
+const ATTRIBUTE_FIELD: Record<string, number> = { "gaia power": 0x01, "umiiruka": 0x02, "molten destruction": 0x04, "rising air current": 0x08,
+  "luminous spark": 0x10, "mystic plasma zone": 0x20 };
 /** Monsters that burn their own controller every turn (Lava Golem): never revived onto my field. */
 const SELF_BURN = /^(lava golem)$/;
 /** Set cards whose cost is a discard: the last card in hand is kept for them. */
@@ -1367,6 +1370,15 @@ export class HeuristicBot {
     if (name === "giant trunade" && ctx.ext?.lethalThrough && action && this.#whatIf(action).lethal === false) return -Infinity;
     const rule = this.#ruleFor(code);
     if (rule?.idleActivate && !rule.idleActivate(this.#withSelf(ctx, code, ref, action))) return -Infinity;
+    // a Field Spell that raises one Attribute on both sides: not while it raises more of the opponent's monsters than of
+    // mine (production cast Luminous Spark for one V-Tiger Jet against a Wulf and an Ehren: deck lab, NPC 63)
+    const attribute = ATTRIBUTE_FIELD[name];
+    if (attribute) {
+      const of = (p: PlayerBoard | null) => this.#monstersOf(p).filter((m) => !m.faceDown && ((this.#cards.brain.get(m.code)?.attribute ?? 0) & attribute) !== 0).length;
+      const coming = this.#turnPlayer === this.seat && !this.#normalSummoned
+        && !!this.#me()?.hand.some((c) => ((this.#cards.brain.get(c)?.attribute ?? 0) & attribute) !== 0 && (this.#cards.brain.get(c)?.tributes() ?? 1) <= this.#monstersOf(this.#me()).length);
+      if (of(this.#me()) + (coming ? 1 : 0) <= of(this.#opp())) return -Infinity;
+    }
     // a card that stays on the field takes the zone Destiny Board's next letter needs
     if (ref && (ref.location & LOCATION.HAND) !== 0 && ((this.#cards.brain.get(code)?.type ?? 0) & (TYPE_CONTINUOUS | TYPE_EQUIP)) !== 0
       && this.#destinyBoardUp() && (this.#me()?.szone.slice(0, 5).filter((c) => !c).length ?? 5) <= 1) return -Infinity;

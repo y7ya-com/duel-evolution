@@ -477,4 +477,24 @@ describe.skipIf(!haveData)("NPC scenarios: production losses (real engine)", () 
     });
     expect(npcActivated(p, "Card of Sanctity")).toBe(true);
   });
+
+  // ---- deck lab findings (gx1 REPORT.md)
+  it("Normal Summons a new monster, not a Gemini re-summon of the Neos Alius already out (npc62-g1)", () => {
+    const p = play(dc, {
+      npcId: 62, first: "player", turns: 2,
+      npc: { lp: 8000, hand: ["D.D. Warrior Lady", "Premature Burial", "Neo-Spacian Aqua Dolphin", "Torrential Tribute"],
+        mzone: ["Elemental HERO Neos Alius", "Elemental HERO Neos Alius"], szone: ["Sakuretsu Armor", "Bottomless Trap Hole"], deck: Array(20).fill("Reckless Greed") },
+      player: { lp: 6100, mzone: [["Petit Moth", "set"]], szone: ["Mirror Force", "Magic Cylinder", "Dust Tornado"] },
+    });
+    expect(msgs(p, "SUMMONING", "Elemental HERO Neos Alius")).toHaveLength(0);
+  });
+
+  it("does not activate Luminous Spark when it raises the opponent's LIGHT monsters more than its own (npc63-g27)", () => {
+    const p = play(dc, {
+      npcId: 63, first: "player", turns: 2,
+      npc: { hand: ["Luminous Spark"], mzone: ["V-Tiger Jet"], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: ["Wulf, Lightsworn Beast", "Ehren, Lightsworn Monk"] },
+    });
+    expect(npcActivated(p, "Luminous Spark")).toBe(false);
+  });
 });
