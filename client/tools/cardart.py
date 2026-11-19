@@ -280,24 +280,33 @@ def jpeg(im, size):
     return b.getvalue()
 
 
-def pack(a):
-    m = Merge(a.merge)
-    cards = json.load(open(os.path.join(a.gamedata, "cards.json")))
+def card_names(m, cards):
+    """card.dat's and mini.dat's list_card.txt lines (every card index's file name; pack writes them). Each name is
+    one of the archive's: <passcode>.jpg (the HQ art), <passcode>.png (a 2008 face kept), or merge.dat's own line."""
     by = {c["i"]: c for c in cards}
     n = max(by) + 2   # every index, plus the list's last (empty) line
     names = {d: (m.read(f"data/{d}/list_card.txt").decode("ascii").split("\r\n") + [""] * n)[:n] for d in ("card", "mini")}
     names["card"][-1] = names["mini"][-1] = ""
+    for i, c in by.items():
+        if c["art"] == "orig" and c["noart"]: continue   # no art anywhere: as before
+        names["card"][i] = names["mini"][i] = f"{c['pc']}.{'png' if c['art'] == 'orig' else 'jpg'}"
+    return names
+
+
+def pack(a):
+    m = Merge(a.merge)
+    cards = json.load(open(os.path.join(a.gamedata, "cards.json")))
+    by = {c["i"]: c for c in cards}
+    names = card_names(m, cards)
     big, mini = [], []
-    for i in range(n):   # data in card-index order: a browse reads neighbouring chunks
+    for i in range(len(names["card"])):   # data in card-index order: a browse reads neighbouring chunks
         c = by.get(i)
         if not c or (c["art"] == "orig" and c["noart"]): continue   # no art anywhere: as before
         if c["art"] == "orig":   # the 2008 face, renamed by passcode
-            names["card"][i], names["mini"][i] = f"{c['pc']}.png", f"{c['pc']}.png"
             big.append((names["card"][i], m.read(f"data/card/{c['big']}")))
             mini.append((names["mini"][i], m.read(f"data/mini/{c['mini']}")))
             continue
         im = Image.open(cached(a, c["art"])).convert("RGB")
-        names["card"][i] = names["mini"][i] = f"{c['pc']}.jpg"
         big.append((names["card"][i], jpeg(im, (BIG[0] * HQ, BIG[1] * HQ))))
         mini.append((names["mini"][i], jpeg(im, (MINI[0] * HQ, MINI[1] * HQ))))
     out = os.path.join(a.out, "merge", "data")

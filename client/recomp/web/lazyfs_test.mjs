@@ -529,8 +529,50 @@ console.log("prefetch=0: ok");
         r3.read("/game/merge/data/mini.dat", 12 + 2 * 268 + list.length, 4096);
         assert.equal(syncXhr, 0, "phone: the thumbnail is in memory");
         console.log("2x card art, phone thumbnails: ok");
+        // the Settings page's 2008 pictures (localStorage yo2-card-pictures): the loose list_card.txt from the ship's
+        // 2008 assets (<era base>orig/) names merge.dat's faces, and card.dat's for a card the 2008 client never had
+        const orig = Buffer.from("0000.png\r\n0001.png\r\n67105242.jpg\r\n4336.png\r\n", "latin1");
+        files["c-orig/orig/merge/data/card/list_card.txt"] = orig;
+        const era = { base: "c-orig/", cards: {} };
+        const hd = makeEnv(new Map(), new Map(), { era, search: "?prefetch=0" });
+        await hd.ready();
+        assert.equal(hd.Module.yo2Lazy.cardPictures, "hd", "HD unless the player chose otherwise");
+        assert.equal(hd.Module.yo2Lazy.cardPicturesSwitch, true, "the choice is there with card.dat and the 2008 assets");
+        assert.throws(() => hd.read("/game/merge/data/card/list_card.txt", 0, 4), undefined, "HD: no loose list");
+        const ls4 = new Map([["yo2-card-pictures", "original"]]);
+        const r4 = makeEnv(new Map(), ls4, { era, duel: { npc: 35, cards: [89631139], fields: [], ids: "passcode" } });
+        await r4.ready();
+        const L4 = r4.Module.yo2Lazy;
+        assert.equal(L4.cardPictures, "original");
+        assert.deepEqual(Buffer.from(r4.read("/game/merge/data/card/list_card.txt", 0, orig.length)), orig, "the loose list is the game's");
+        r4.read("/game/merge.dat", 0, toc);
+        await settle(L4);
+        const hot4 = [...L4.pinned.entries()].filter(([, p]) => p.tag === "hot").map(([k]) => k);
+        assert.ok(!hot4.some((k) => k.includes("mini.dat")), "2008: mini.dat not preloaded");
+        const mini4 = ent("data/mini");
+        assert.ok(hot4.some((k) => k.endsWith("merge.dat#" + Math.floor((mini4.off + MB) / MB))), "2008: merge.dat's data/mini is hot");
+        // a 2008 face not in memory: a placeholder at once, tagged as merge.dat's, its real bytes behind it
+        const face4 = ent("data/card/0001.png");
+        syncXhr = 0;
+        const ph4 = Buffer.from(r4.read("/game/merge.dat", face4.off, 8192));
+        assert.equal(syncXhr, 0, "2008: no synchronous read for a face");
+        assert.ok(ph4.includes("yo2-placeholder:" + String(face4.off + 2 ** 30).padStart(10, "0")), "its merge.dat offset, tagged");
+        await settle(L4);
+        assert.deepEqual(Buffer.from(L4.artBytes(face4.off + 2 ** 30)), file.subarray(face4.off, face4.off + face4.len), "then the face's bytes");
+        assert.deepEqual(Buffer.from(await L4.cardArt(1)), file.subarray(face4.off, face4.off + face4.len), "the page's art: the 2008 face");
+        r4.Module.onYo2Scene("begin", 12, 0x1e);   // an NPC named by passcode: its line in the loose list
+        await settle(L4);
+        const npc4 = [...L4.pinned.entries()].filter(([, p]) => p.tag === "npc").map(([k]) => k);
+        assert.ok(npc4.length && npc4.every((k) => k.includes("merge.dat")), "2008: the NPC's 89631139 by index 1, merge.dat's 0001.png: " + npc4);
+        r4.Module.onYo2Scene("end", 0x1e, 10);   // back in My Room: the duel's pins go
+        await L4.prefetchCards([1, 2]);
+        await settle(L4);
+        const deck4 = [...L4.pinned.entries()].filter(([, p]) => p.tag === "deck").map(([k]) => k);
+        assert.ok(deck4.some((k) => k.includes("merge.dat")) && deck4.some((k) => k.includes("card.dat")), "2008: merge.dat's face, card.dat's new card: " + deck4);
+        console.log("2008 card pictures: ok");
     } finally {
         delete files["cards/merge/data/card.dat"], delete files["cards/merge/data/mini.dat"], delete files["cards/merge/data/card_passcode.bin"];
+        delete files["c-orig/orig/merge/data/card/list_card.txt"];
     }
 }
 // ---- Sound.dat (ovr/sedefer.c): its directory comes with the boot preload; sounds() fetches /SE/ and says 1 once it

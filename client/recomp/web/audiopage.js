@@ -183,6 +183,7 @@ if (typeof document !== "undefined") (() => {
     const BEVEL = `inset 3px 0 0 #76ffff, inset 0 3px 0 #a7ffff, inset -3px 0 0 #41abef, inset 0 -3px 0 #329be5,
         inset 4px 0 0 #68e8ff, inset 0 4px 0 #79ffff, inset -4px 0 0 #4db9f7, inset 0 -4px 0 #46b1f2,
         inset 7px 0 0 #59c6ff, inset 0 7px 0 #59c6ff, inset -7px 0 0 #59c6ff, inset 0 -7px 0 #59c6ff`;
+    Module.rcLobbySkin = { FONT, PLATE, plate, MBTN, mbtn, OUTLINE, TITLE, BEVEL };   // web/settingspage.js draws with them too
     const css = `
     #rc-audio, #rc-audio-drop { position: fixed; z-index: 10; display: flex; align-items: center; justify-content: center; overflow: hidden;
       font: 14.32px/16px ${FONT}; letter-spacing: 1px; color: #000; -webkit-user-select: none; user-select: none; }

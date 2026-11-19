@@ -302,6 +302,12 @@ Module.preRun.push(() => {
     // merge.dat (entries named by passcode, list_card.txt inside). With them, merge.dat's data/card and data/mini are
     // never read: mini.dat (~22 MB) is the hot thumbnails, card.dat (~210 MB) the deck/NPC art and the trickle.
     let cardArc = null, miniArc = null, mergeLog = null, pcArc = null;
+    // The Settings page's "Original (2008)" card pictures (web/settingspage.js: localStorage yo2-card-pictures =
+    // "original"). card.dat and mini.dat stay mounted (the cards the 2008 client never had are only there); a loose
+    // list_card.txt pair from the ship's 2008 assets (Module.yo2EraCards.base + "orig/", tools/era2008_assets.py) names
+    // merge.dat's own face for every other card, and loose files win over the archives. Chosen at boot only: the exe
+    // reads the lists from then on.
+    let origList = null;   // that loose data/card/list_card.txt, when it is mounted
     const cardFiles = new Map();   // card.dat entry name -> [from, to)
     function* tocEntries(toc, end) {   // [name (lower case, '/'), offset, stored size, size] per directory entry
         for (let e = 12; e < end; e += 268) {
@@ -350,13 +356,23 @@ Module.preRun.push(() => {
     const PH_DIGITS = PLACEHOLDER.indexOf(58) + 1;   // after "yo2-placeholder:" (its first ':')
     // mini.dat's thumbnails the same way (stalls 3bc028a3/fe594f03: ~0.4 s per thumbnail on a phone off Wi-Fi, where mini.dat
     // isn't preloaded): the 100x144 placeholder (MINI_PH, the same layout to its ':'), its offset tagged with MINI_TAG.
-    // ponytail: decode.c keeps one u32 offset per pending texture and passes it to artBytes signed; card.dat stays below 2 GB
+    // merge.dat's 2008 faces too, with the 2008 pictures on (the 400x580 placeholder: decode.c fills a 200x290 PNG at 1x),
+    // tagged with MERGE_TAG. Only those stored whole: a packed entry's bytes are not the picture's.
+    // ponytail: decode.c keeps one u32 offset per pending texture and passes it to artBytes signed; card.dat and merge.dat
+    // stay below 1 GB
     const MINI_PH = Uint8Array.from(atob("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"), (c) => c.charCodeAt(0));
-    const MINI_TAG = 2 ** 31;
-    const arts = new Map();   // card.dat / mini.dat -> { sorted: its .jpg/.png entries as sorted [from, to), ph, tag }
+    const MINI_TAG = 2 ** 31, MERGE_TAG = 2 ** 30;
+    const arts = new Map();   // card.dat / mini.dat / merge.dat -> { sorted: its .jpg/.png entries as sorted [from, to), ph, tag }
     function artOf(url) {
         let a = arts.get(url);
         if (a) return a;
+        if (url === archive) {
+            if (!spans) return null;   // its directory isn't parsed yet: read as usual
+            a = { sorted: [...files2].filter(([n, e]) => /^data\/card\/.*\.(jpg|png)$/.test(n) && e[1] - e[0] === e[2] && e[2] >= PLACEHOLDER.length)
+                .map(([, e]) => e).sort((x, y) => x[0] - y[0]), ph: PLACEHOLDER, tag: MERGE_TAG };
+            arts.set(url, a);
+            return a;
+        }
         const card = url === cardArc, m = card ? cardFiles : miniFiles;
         if (!m.size) return (card ? cardToc : miniToc)().catch(() => {}), null;   // not here yet (or its load failed): again
         a = { sorted: [...m].filter(([n]) => /\.(jpg|png)$/.test(n)).map(([, e]) => e).sort((x, y) => x[0] - y[0]),   // png: the 2008 faces
@@ -392,7 +408,7 @@ Module.preRun.push(() => {
     }
     L.artBytes = (off) => {   // ovr/decode.c: the entry at `off`, once all its chunks are in memory (else asked for again)
         off >>>= 0;
-        const url = off >= MINI_TAG ? miniArc : cardArc, art = arts.get(url), sorted = art ? art.sorted : [];
+        const url = off >= MINI_TAG ? miniArc : off >= MERGE_TAG ? archive : cardArc, art = arts.get(url), sorted = art ? art.sorted : [];
         if (art) off -= art.tag;
         let lo = 0, hi = sorted.length - 1;
         while (lo < hi) { const m = (lo + hi + 1) >> 1; if (sorted[m][0] <= off) lo = m; else hi = m - 1; }
@@ -444,8 +460,9 @@ Module.preRun.push(() => {
         L.spans = spans;
         if (pendingDeck) prefetchCards(pendingDeck);
         for (let i = 0; i < need; i++) { const c = memChunk(archive, i); if (c) remember(archive, i, c, "toc"); }   // read at every start: kept
-        for (const d of HOT) if (!(miniArc && d === "data/mini")) wantSpan(d, 2, "hot");
-        if (miniArc && thumbsOk()) wantFile(miniArc, 2, "hot");
+        const thumbs = miniArc && !origList;   // mini.dat holds the thumbnails (not with the 2008 pictures: data/mini does)
+        for (const d of HOT) if (!(thumbs && d === "data/mini")) wantSpan(d, 2, "hot");
+        if (thumbs && thumbsOk()) wantFile(miniArc, 2, "hot");
         // ponytail: opt-in, never on phones and tablets (data/card is 336 MB of their data plan); per-player origin cost
         // has to be measured (and capped) before it is on by default
         onIdle(() => {
@@ -489,8 +506,8 @@ Module.preRun.push(() => {
         const e = files2.get(name);
         return e ? entryBytes(archive, e) : null;
     }
-    // A card's art: merge.dat's data/card/<name>, or with card.dat its <passcode>.jpg there
-    const artEntry = (name) => (cardArc ? [cardArc, cardFiles.get(name)] : [archive, files2.get("data/card/" + name)]);
+    // A card's art: card.dat's <passcode>.jpg, else merge.dat's data/card/<name> (no card.dat, or the 2008 pictures)
+    const artEntry = (name) => (cardFiles.has(name) ? [cardArc, cardFiles.get(name)] : [archive, files2.get("data/card/" + name)]);
     // The duel's cards' art, and their thumbnails when mini.dat is not preloaded whole (thumbsOk): a thumbnail is read
     // synchronously, no placeholder (stalls 3bc028a3/fe594f03: a phone off Wi-Fi, 9 mini.dat misses of ~0.4 s in one NPC
     // duel, each a card shown for the first time)
@@ -498,7 +515,7 @@ Module.preRun.push(() => {
         const e = names.map(artEntry);
         if (miniArc && !thumbsOk()) {
             await miniToc().catch(() => {});
-            for (const n of names) e.push([miniArc, miniFiles.get(n)]);
+            for (const n of names) if (miniFiles.has(n)) e.push([miniArc, miniFiles.get(n)]);   // the 2008 pictures': data/mini, hot
         }
         return e;
     }
@@ -511,7 +528,7 @@ Module.preRun.push(() => {
         cardNumbers = lines(orig);
         if (!cardArc) return void (cardNames = cardNumbers);
         await cardToc();
-        const e = cardFiles.get("list_card.txt"), b = e && (await entryBytes(cardArc, e));
+        const e = origList ? [0, files.get(origList).size] : cardFiles.get("list_card.txt"), b = e && (await entryBytes(origList || cardArc, e));
         if (!b) throw new Error("card.dat list_card.txt not read");
         cardNames = lines(b);
     })().catch(() => { cardNamesLoad = null; }));   // a dropped connection: no names this time, the next call asks again
@@ -673,18 +690,26 @@ Module.preRun.push(() => {
     }
     // The card wire's table (merge/data/card_passcode.bin, cards/: tools/cardart.py `table`): passcode -> internal id,
     // for a server that names cards by passcode (its prefetch reply says ids: "passcode")
-    let pcTableLoad = null, pcInternal = null;
+    let pcTableLoad = null, pcInternal = null, pcIndex = null;   // passcode -> internal id, -> card index
     const loadPcTable = () => (pcTableLoad = pcTableLoad || (async () => {
         const b = pcArc && (await entryBytes(pcArc, [0, files.get(pcArc).size]));
         if (!b || b.length < 24) throw new Error("card_passcode.bin not read");
         const dv = new DataView(b.buffer, b.byteOffset, b.byteLength), n = dv.getUint32(8, true);
-        pcInternal = new Map();
-        for (let i = 0; i < n && 24 + 6 * i + 6 <= b.length; i++) pcInternal.set(dv.getUint32(24 + 6 * i, true), dv.getUint16(28 + 6 * i, true));
+        pcInternal = new Map(), pcIndex = new Map();
+        for (let i = 0; i < n && 24 + 6 * i + 6 <= b.length; i++) {
+            const pc = dv.getUint32(24 + 6 * i, true);
+            pcInternal.set(pc, dv.getUint16(28 + 6 * i, true));
+            if (!pcIndex.has(pc)) pcIndex.set(pc, i);
+        }
     })().catch(() => { pcTableLoad = null; }));
     async function prefetchPasscodes(pcs, fields, tag) {   // card.dat names every card's art by its passcode
         if (!prefetchOn || !cardArc) return;
         await cardToc();
-        const names = [...new Set(pcs)].map((pc) => (cardFiles.has(pc + ".jpg") ? pc + ".jpg" : pc + ".png"));
+        let names = [...new Set(pcs)].map((pc) => (cardFiles.has(pc + ".jpg") ? pc + ".jpg" : pc + ".png"));
+        if (origList) {   // the 2008 pictures: each card's line in the loose list, by its index
+            await Promise.all([loadPcTable(), loadCardNames()]);
+            names = [...new Set(pcs.map((pc) => pcIndex && (cardNames || [])[pcIndex.get(pc)]).filter(Boolean))];
+        }
         stats[tag + "Cards"] = pcs.length, stats[tag + "Chunks"] = pinFiles(await duelEntries(names), tag, 2);
         await loadPcTable();
         // after the scene's own fieldBackgrounds([]) (it awaits the card names first): the later pin of the "field" tag
@@ -808,13 +833,15 @@ Module.preRun.push(() => {
             if (/(^|\/)merge\/data\/card\.dat$/i.test(rel)) cardArc = url;
             if (/(^|\/)merge\/data\/mini\.dat$/i.test(rel)) miniArc = url;
             if (/(^|\/)merge\/data\/card_passcode\.bin$/i.test(rel)) pcArc = url;
+            if (/^merge\/data\/card\/list_card\.txt$/i.test(rel)) origList = url;   // only the 2008 pictures' manifest has it
             if (/(^|\/)sound\.dat$/i.test(rel)) sound = url;
             const node = FS.createFile(parent, PATH.basename(path), {}, true, false);
             Object.defineProperty(node, "usedBytes", { get: () => size });
             node.stream_ops = Object.assign({}, node.stream_ops, {
                 read(stream, buffer, offset, length, pos) {
                     const end = Math.min(pos + length, size);
-                    if (!((url === cardArc || url === miniArc) && artAsync && artRead(url, buffer, offset, pos, end))) readReal(url, buffer, offset, pos, end);
+                    const art = url === cardArc || url === miniArc || (url === archive && origList);
+                    if (!(art && artAsync && artRead(url, buffer, offset, pos, end))) readReal(url, buffer, offset, pos, end);
                     if (prefetchOn) onRead(url, pos);
                     return Math.max(0, end - pos);
                 },
@@ -938,6 +965,13 @@ Module.preRun.push(() => {
     try { mount("/game", q.get("cards") || "cards/"); } catch (e) { console.log("yo2rc: no 2x card art:", e.message); }
     // Loose original card faces win over modern card.dat art.
     if (Module.yo2EraCards) mount("/game", Module.yo2EraCards.base);
+    let pictures = "hd";
+    try { pictures = localStorage.getItem("yo2-card-pictures") || "hd"; } catch {}
+    if (pictures === "original" && cardArc && Module.yo2EraCards)
+        try { mount("/game", Module.yo2EraCards.base + "orig/"); } catch (e) { console.log("yo2rc: no 2008 card pictures:", e.message); }
+    // what this load shows, and whether the Settings page's choice can change it (the 2008 lists ship with the page)
+    L.cardPictures = cardArc && !origList ? "hd" : "original";
+    L.cardPicturesSwitch = !!(cardArc && Module.yo2EraCards);
     if (q.get("fonts")) mount("/fonts", q.get("fonts"));
     if (prefetchOn) {
         addRunDependency("lazy");
