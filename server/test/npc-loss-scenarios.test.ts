@@ -497,4 +497,24 @@ describe.skipIf(!haveData)("NPC scenarios: production losses (real engine)", () 
     });
     expect(npcActivated(p, "Luminous Spark")).toBe(false);
   });
+
+  // ---- deck lab findings (dm1 REPORT.md)
+  it("tributes for Panther Warrior's attack when that attack wins the duel (npc71-g26)", () => {
+    const p = play(dc, {
+      npcId: 71, first: "player", turns: 2,
+      npc: { mzone: ["Panther Warrior", "Rocket Warrior"], deck: Array(20).fill("Reckless Greed") },
+      player: { lp: 2500, hand: ["Petit Moth", "Petit Moth"] },
+    });
+    expect(p.end?.winner).toBe(1);
+  });
+
+  it("pays Panther Warrior's Tribute with a defending monster that cannot attack (control)", () => {
+    const p = play(dc, {
+      npcId: 71, first: "player", turns: 2,
+      npc: { mzone: ["Panther Warrior", ["Petit Moth", "def"]], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: [["Mystic Tomato", "def"]] },
+    });
+    expect(leftField(p, "Petit Moth")).toBe(true);
+    expect(leftField(p, "Mystic Tomato")).toBe(true);
+  });
 });

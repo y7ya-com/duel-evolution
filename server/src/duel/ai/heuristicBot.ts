@@ -314,6 +314,9 @@ export class HeuristicBot {
   #honestBoost: { turn: number; seq: number; atk: number } | null = null;
   /** The LP my Wall of Revealing Light was paid with: the opponent's monsters up to that ATK cannot attack. */
   #wallPaid = 0;
+  /** An attacker whose attack cost (Panther Warrior's Tribute) waits for another monster to attack first: its zone, the
+   *  turn, and how many of my monsters had attacked when it was put off. */
+  #deferredAttacker: { seq: number; turn: number; attacks: number; force?: boolean } | null = null;
   /** Lethal was counted this turn: turn every body up, summon the strongest, attack. */
   #allIn = false;
   #rules: Record<string, CardRule>;
@@ -565,6 +568,7 @@ export class HeuristicBot {
     this.#soulMark = from.#soulMark;
     this.#honestBoost = from.#honestBoost;
     this.#wallPaid = from.#wallPaid;
+    this.#deferredAttacker = from.#deferredAttacker;
     this.#attackSeen = from.#attackSeen;
     this.#deadAttackers = new Set(from.#deadAttackers);
     this.#attackedThisTurn = new Set(from.#attackedThisTurn);
@@ -3018,8 +3022,15 @@ export class HeuristicBot {
     } else {
       // Lethal this Battle Phase (the whole phase planned, battlePlan.ts): its first attack. Otherwise Master Duel's
       // decision: the one attack that gains the most, or none (nextAttack); decided again after it resolves.
-      const { input, plan } = this.#planBattle(ev);
-      const first = plan.outcome.lethal || input.oppAttackNegates > 0 ? plan.attacks[0] : nextAttack(input);
+      let { input, plan } = this.#planBattle(ev);
+      let first = plan.outcome.lethal || input.oppAttackNegates > 0 ? plan.attacks[0] : nextAttack(input);
+      // an attacker put off by its attack cost while nothing else attacks: it attacks now, if a small body pays
+      const d = this.#deferredAttacker;
+      if (!first && d && !d.force && this.#deferred(d.seq)) {
+        this.#deferredAttacker = { ...d, force: true };
+        ({ input, plan } = this.#planBattle(ev));
+        first = plan.outcome.lethal || input.oppAttackNegates > 0 ? plan.attacks[0] : nextAttack(input);
+      }
       if (first) { bestIdx = first.index; bestAtk = first.atk; this.#plannedTarget = first.target; }
     }
     // no way out of the battle (the opponent's card makes every monster attack): the least bad attack, not a refused End
@@ -3040,7 +3051,7 @@ export class HeuristicBot {
 
   /** Back at the battle command with the last declared attack never declared by the engine: that monster is out. */
   #noteDeadAttacker(): void {
-    if (this.#declaredAttacker && !this.#attackSeen) this.#deadAttackers.add(this.#declaredAttacker.sequence);
+    if (this.#declaredAttacker && !this.#attackSeen && !this.#deferred(this.#declaredAttacker.sequence)) this.#deadAttackers.add(this.#declaredAttacker.sequence);
     this.#attackSeen = true;
   }
 
@@ -3053,7 +3064,7 @@ export class HeuristicBot {
     const attackers: PlanAttacker[] = [];
     const lent = new Set(this.#monstersOf(me).filter((m) => m.stolen).map((m) => m.seq));
     ev.attackable.forEach((a, index) => {
-      if (this.#deadAttackers.has(a.sequence) || this.#ruleNoAttack(a.sequence)) return;
+      if (this.#deadAttackers.has(a.sequence) || this.#deferred(a.sequence) || this.#ruleNoAttack(a.sequence)) return;
       attackers.push({ index, seq: a.sequence, atk: me?.mzone[a.sequence]?.attack ?? this.#stat(a.code).atk, canDirect: a.directAttackable, directScale: directAttackScale(a.code), bounces: this.#bounces(a.code), lent: lent.has(a.sequence), pierce: PIERCE.has(a.code) });
     });
     const input = { base, my: withSeq(me, base.myMon), opp: withSeq(opp, base.oppMon), attackers, oppAttackNegates: this.#publicAttackNegates(), oppHonest: this.#publicHonest(), oppSetBackrow: this.#oppSetBackrow() };
@@ -3513,6 +3524,8 @@ export class HeuristicBot {
       return respUnselect(index);
     };
     if (ev.selectable.length === 0) return choose(null);
+    const cost = this.#attackCost(ev);
+    if (cost !== undefined) return choose(cost);
     if (this.#obeliskDiscard && ev.selectable.every(c => c.controller === this.seat && (c.location & LOCATION.HAND) !== 0)) {
       const i = ev.selectable.findIndex(c => this.#nameOf(c.code) === this.#obeliskDiscard);
       if (i >= 0) { this.#obeliskDiscard = undefined; return choose(i); }
@@ -3536,6 +3549,34 @@ export class HeuristicBot {
     }
     const pick = this.#pickTargets(ev.selectable, 1, 1)[0];
     return choose(pick ?? 0);
+  }
+
+  /** The Tribute for the attack I just declared (Panther Warrior), or undefined when this is no such prompt: a monster
+   *  that has attacked already or cannot attack, the weakest; any monster when this attack alone wins; else null, and
+   *  the attack waits until another monster has attacked (the generic pick cancelled it as an optional cost, and
+   *  production went to Main Phase 2 with Panther Warrior's lethal 2000 still on the field: deck lab, NPC 71). */
+  #attackCost(ev: P<"selectUnselectCard">): number | null | undefined {
+    const a = this.#declaredAttacker, phase = this.#board?.phase ?? 0;
+    if (!a || this.#attackSeen || this.#turnPlayer !== this.seat || phase <= PHASE.MAIN1 || phase >= PHASE.MAIN2 || ev.unselectable.length > 0
+      || !ev.selectable.every((c) => c.controller === this.seat && (c.location & LOCATION.MZONE) !== 0 && c.sequence !== a.sequence)) return undefined;
+    const atk = (c: CardRef) => this.#liveAtk(c) ?? 0;
+    const spent = (c: CardRef) => this.#attackedThisTurn.has(c.sequence) || isFaceDown(c.position ?? 0) || ((c.position ?? 0) & POS.ATTACK) === 0;
+    const pick = (ok: (c: CardRef) => boolean) => ev.selectable.map((c, i) => ({ c, i })).filter(({ c }) => ok(c)).sort((x, y) => atk(x.c) - atk(y.c))[0]?.i;
+    const free = pick(spent);
+    if (free !== undefined) return free;
+    const lethal = this.#oppMonsters().length === 0 && (this.#me()?.mzone[a.sequence]?.attack ?? 0) >= (this.#opp()?.lp ?? 8000);
+    if (lethal) return pick(() => true) ?? null;
+    // nothing else attacks this turn: a small body pays, a real one stays
+    const d = this.#deferredAttacker;
+    if (d?.force && d.seq === a.sequence && d.turn === this.#turn) return pick((c) => atk(c) <= 1000) ?? null;
+    this.#deferredAttacker = { seq: a.sequence, turn: this.#turn, attacks: this.#attackedThisTurn.size };
+    return null;
+  }
+
+  /** My attacker put off by its attack cost (#attackCost) while no other monster has attacked since. */
+  #deferred(seq: number): boolean {
+    const d = this.#deferredAttacker;
+    return !!d && !d.force && d.seq === seq && d.turn === this.#turn && d.attacks === this.#attackedThisTurn.size;
   }
 
   #selectTribute(ev: P<"selectTribute">): Json {
