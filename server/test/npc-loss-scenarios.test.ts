@@ -248,4 +248,15 @@ describe.skipIf(!haveData)("NPC scenarios: production losses (real engine)", () 
     expect(msgs(p, "CHAINING", "Honest")).toHaveLength(1);
     expect(msgs(p, "POS_CHANGE", "Vampire Lord")).toHaveLength(0);
   });
+
+  // ---- removal and revival picks
+  it("Raigeki Break on a 450 direct attack takes the 2400 still to attack (2237)", () => {
+    const p = play(dc, {
+      npcId: 7, first: "npc", turns: 2,
+      npc: { hand: ["Obelisk the Tormentor"], szone: ["Raigeki Break"], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: ["Old Vindictive Magician", "Chaos Command Magician"] }, player_policy: attacker,
+    });
+    expect(npcActivated(p, "Raigeki Break")).toBe(true);
+    expect(leftField(p, "Chaos Command Magician")).toBe(true);
+  });
 });

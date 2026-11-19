@@ -161,6 +161,8 @@ const LENDS = /^(brain control|mind control|enemy controller)$/;
 const LP_COST: Record<string, number> = { "brain control": 800, "premature burial": 800, "final countdown": 2000, "ultimate offering": 500, "skill drain": 1000 };
 /** Equips that hold a monster taken from the opponent: it goes back when they leave. */
 const STEALS = /^(snatch steal|mind control)$/;
+/** Monsters that burn their own controller every turn (Lava Golem): never revived onto my field. */
+const SELF_BURN = /^(lava golem)$/;
 /** Set cards whose cost is a discard: the last card in hand is kept for them. */
 const DISCARD_COST = /^(raigeki break|divine wrath|magic jammer|forced back|dark coffin|hallowed life barrier|spiritualism)$/;
 /** Cards that take a monster off the opponent's field. */
@@ -3348,11 +3350,13 @@ export class HeuristicBot {
     // a steal leaves the monster my Soul Exchange marked: my Tribute takes that one anyway (production stole the same
     // Wulf twice and summoned nothing: duel 2540)
     const marked = STEALS.test(this.#nameOf(this.#pickSubject())) || LENDS.test(this.#nameOf(this.#pickSubject())) ? this.#soulExchanged() : null;
+    const revival = !!this.#cards.brain.get(this.#pickSubject())?.has("revive");
     const ranked = cards.map((c, i) => {
       let s = clearsHeartCounter && (c.location & LOCATION.SZONE) !== 0 && !isFaceDown(c.position ?? 0) && this.#nameOf(c.code) === "convulsion of nature"
         ? 1e6 : pick.score(ctx, this.#ruleCard(c));
       if (marked && c.controller !== this.seat && (c.location & LOCATION.MZONE) !== 0 && c.sequence === marked.seq) s -= 1e4;
-      return { i, s: s >= 0 && this.#isAttacker(c) ? s + 1e5 : s };
+      if (revival && (c.location & LOCATION.GRAVE) !== 0 && c.code && SELF_BURN.test(this.#nameOf(c.code))) s -= 1e5;
+      return { i, s: s >= 0 && this.#answersAttack(c) ? s + 1e5 : s };
     }).sort((a, b) => b.s - a.s);
     const cap = Math.min(max > 0 ? max : cards.length, cards.length);
     const out: number[] = [];
@@ -3368,6 +3372,17 @@ export class HeuristicBot {
    *  production bounced a Dark Nephthys whose attack was over and Sillva's 2300 came through for the duel). */
   #isAttacker(c: CardRef): boolean {
     return !!this.#attack && !this.#attack.resolved && this.#turnPlayer !== this.seat && c.controller !== this.seat && (c.location & LOCATION.MZONE) !== 0 && c.sequence === this.#attack.sequence;
+  }
+
+  /** The monster attacking me now, and removing it stops the most this Battle Phase can still do to me: its attack is
+   *  lethal, or nothing of theirs still to attack hits harder (production's Raigeki Break took a 450 direct attacker and
+   *  Chaos Command Magician's 2400 came through: duel 2237). */
+  #answersAttack(c: CardRef): boolean {
+    if (!this.#isAttacker(c)) return false;
+    const atk = this.#liveAtk(c) ?? 0;
+    if (this.#attack!.direct && atk >= (this.#me()?.lp ?? 8000)) return true;
+    return !this.#oppMonsters().some((m) => m.seq !== c.sequence && !m.faceDown && m.attackPos && !m.noAttack
+      && !this.#oppAttackedThisTurn.has(m.seq) && m.atk > atk);
   }
 
   /** An offered card as a pick rule reads it. */
@@ -3479,13 +3494,17 @@ export class HeuristicBot {
   #pickTargets(cards: CardRef[], min: number, max: number, hint = 0): number[] {
     const acquisition = cards.length > 0 && cards.every((c) => c.controller === this.seat && (c.location & (LOCATION.DECK | LOCATION.EXTRA)) !== 0);
     const ctx = acquisition ? this.#ctx() : null;
+    // a revival onto my field never takes a monster that burns its controller (production's Call of the Haunted brought
+    // back Lava Golem and its 1000 a turn helped the opponent's last attack through: duel 2405)
+    const revival = !!this.#cards.brain.get(this.#pickSubject())?.has("revive");
     const valued = cards.map((c) => ({
       controller: c.controller,
       location: c.location,
       // A hand search can Normal Summon and trigger its equip later; a recruiter
       // Special Summon cannot. Price the public graveyard bonus only for hand searches.
       value: this.#removalValue(c) + (ctx && c.code && hint === H_ATOHAND
-        ? Math.max(0, this.#normalSummonStats(c.code).atk - this.#stat(c.code).atk) : 0) + (ctx && c.code ? (this.#ruleFor(c.code)?.summonScore?.(ctx) ?? 0) : 0),
+        ? Math.max(0, this.#normalSummonStats(c.code).atk - this.#stat(c.code).atk) : 0) + (ctx && c.code ? (this.#ruleFor(c.code)?.summonScore?.(ctx) ?? 0) : 0)
+        - (revival && (c.location & LOCATION.GRAVE) !== 0 && c.code && SELF_BURN.test(this.#nameOf(c.code)) ? 1e5 : 0),
     }));
     // the engine says the pick summons or adds the card (a Special Summon from the hand: Marauding Captain): our best,
     // not the cheapest as a cost would be
@@ -3549,7 +3568,7 @@ export class HeuristicBot {
     if ((c.location & LOCATION.SZONE) !== 0 && this.#spent(c.controller, c.sequence)) return -1;
     // the monster attacking me right now: removing it stops the damage (production's Compulsory Evacuation Device and
     // Raigeki Break took another monster and the 1400 still came through)
-    if (this.#isAttacker(c)) return 1e5;
+    if (this.#answersAttack(c)) return 1e5;
     const live = this.#liveAtk(c);
     if (live !== undefined) {
       // Master Duel spends removal on the monsters its battle cannot handle: one our attackers already beat is worth half
