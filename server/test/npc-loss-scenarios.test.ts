@@ -568,4 +568,14 @@ describe.skipIf(!haveData)("NPC scenarios: production losses (real engine)", () 
     });
     expect(msgs(p, "SUMMONING", "The Wicked Eraser")).toHaveLength(1);
   });
+
+  // ---- deck lab findings (gx2 REPORT.md)
+  it("does not Heavy Storm three of its own cards to take four of the opponent's (npc86-g48)", () => {
+    const p = play(dc, {
+      npcId: 86, first: "player", turns: 2,
+      npc: { hand: ["Heavy Storm"], mzone: [["Destiny HERO - Diamond Dude", "def"]], szone: ["D - Counter", "Book of Moon", ["Clock Tower Prison", "up"]], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: [["Petit Moth", "set"]], szone: ["Mirror Force", "Magic Cylinder", "Waboku", "Negate Attack"] },
+    });
+    expect(npcActivated(p, "Heavy Storm")).toBe(false);
+  });
 });
