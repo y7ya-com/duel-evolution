@@ -162,6 +162,12 @@ const LENDS = /^(brain control|mind control|enemy controller)$/;
 const LP_COST: Record<string, number> = { "brain control": 800, "premature burial": 800, "final countdown": 2000, "ultimate offering": 500, "skill drain": 1000 };
 /** Equips that hold a monster taken from the opponent: it goes back when they leave. */
 const STEALS = /^(snatch steal|mind control)$/;
+/** Face-up monsters that negate an activation that would destroy a monster (a card discarded): Prime Material Dragon. */
+const DESTROY_NEGATOR = /^prime material dragon$/;
+const DESTROYS_MONSTERS = tagMask("destroy_monster", "nuke_opp", "nuke_all", "destroy_any");
+const DESTROYS_LATER = tagMask("revive", "boost", "control");
+/** Attack answers that destroy the attackers (their card tags do not say so). */
+const DESTROYS_ATTACKERS = /^(mirror force|justi-break)$/;
 /** Monsters that burn their own controller every turn (Lava Golem): never revived onto my field. */
 const SELF_BURN = /^(lava golem)$/;
 /** Set cards whose cost is a discard: the last card in hand is kept for them. */
@@ -1622,9 +1628,22 @@ export class HeuristicBot {
       if ([...(me?.grave ?? []), ...(me?.removed ?? [])].some(c => this.#isDrawCard(c))) this.#drawSpent = true;
       if (this.#drawSpent || this.#nameOf(code) !== "pot of greed") return true;
     }
+    if ((type & (TYPE_TRAP | TYPE_SPELL)) !== 0 && this.#destroyNegated(code)) return true;
     if ((type & TYPE_TRAP) !== 0) return this.#trapLock();
     if ((type & TYPE_SPELL) !== 0) return b.players.some((p) => [...p.szone, ...p.mzone].some((c) => c && c.code && !isFaceDown(c.position) && SPELL_LOCK.test(this.#nameOf(c.code))));
     return false;
+  }
+
+  /** A card of mine that destroys monsters, against the opponent's face-up Prime Material Dragon and a card in their hand
+   *  to discard to it: its activation is negated and the card destroyed (production lost Sakuretsu Armor and Mirror Force
+   *  on one attack to it, then a Lightning Vortex: duels 2597 and 2516). */
+  #destroyNegated(code: number): boolean {
+    const opp = this.#opp();
+    const k = this.#cards.brain.get(code);
+    // (a revival, a boost, a steal or an equip destroys only as it leaves: Call of the Haunted, Limiter Removal)
+    const destroys = !!k && k.any(DESTROYS_MONSTERS) && !k.any(DESTROYS_LATER) && (k.type & TYPE_EQUIP) === 0;
+    if (!opp || opp.hand.length === 0 || !(destroys || DESTROYS_ATTACKERS.test(this.#nameOf(code)))) return false;
+    return opp.mzone.some((c) => c && c.code && !isFaceDown(c.position) && DESTROY_NEGATOR.test(this.#nameOf(c.code)));
   }
 
   /** My hand as Master Duel's cost picker reads it (costPick.ts). */

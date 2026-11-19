@@ -384,4 +384,25 @@ describe.skipIf(!haveData)("NPC scenarios: production losses (real engine)", () 
       && (d.sel.monster_sets as Json[])[Number(d.resp.index)]?.code === code("Legendary Fiend"));
     expect(set).toBe(false);
   });
+
+  it("does not throw Sakuretsu Armor and Mirror Force into a face-up Prime Material Dragon (2597)", () => {
+    const p = play(dc, {
+      npcId: 31, first: "npc", turns: 2,
+      npc: { hand: ["Pot of Avarice"], mzone: [["Mystical Elf", "set"]], szone: ["Mirror Force", "Sakuretsu Armor", "Torrential Tribute"], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: ["Prime Material Dragon"], hand: ["Macro Cosmos", "Heavy Storm", "Threatening Roar"] },
+      player_policy: activating("Prime Material Dragon", attacker),
+    });
+    expect(msgs(p, "ATTACK").length).toBeGreaterThanOrEqual(1);
+    expect(npcActivated(p, "Sakuretsu Armor") || npcActivated(p, "Mirror Force")).toBe(false);
+  });
+
+  it("answers Prime Material Dragon's attack when its owner has no card to discard (control)", () => {
+    const p = play(dc, {
+      npcId: 31, first: "npc", turns: 2,
+      npc: { mzone: [["Mystical Elf", "set"]], szone: ["Mirror Force", "Sakuretsu Armor"], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: ["Prime Material Dragon"], deck: Array(20).fill("Petit Moth") },
+      player_policy: (sel) => (sel.type === "SELECT_IDLECMD" && (sel.summons as unknown[] | undefined)?.length ? { type: "SELECT_IDLECMD", action: "SELECT_SUMMON", index: 0 } : attacker(sel)),
+    });
+    expect(npcActivated(p, "Sakuretsu Armor") || npcActivated(p, "Mirror Force")).toBe(true);
+  });
 });
