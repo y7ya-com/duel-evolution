@@ -372,4 +372,16 @@ describe.skipIf(!haveData)("NPC scenarios: production losses (real engine)", () 
     expect(npcActivated(p, "Mobius the Frost Monarch")).toBe(true);
     expect(leftField(p, "Magic Cylinder") && leftField(p, "Mirror Force")).toBe(true);
   });
+
+  it("Tribute Summons Legendary Fiend face-up, where it grows, not face-down (2416)", () => {
+    const p = play(dc, {
+      npcId: 75, first: "player", turns: 2,
+      npc: { lp: 6500, hand: ["Legendary Fiend"], mzone: [["Gil Garth", "set"], "Spirit Reaper"],
+        szone: [["Nightmare's Steelcage", "up"], "Metal Reflect Slime"], deck: Array(20).fill("Reckless Greed") },
+      player: { lp: 7000, mzone: ["Card Trooper", ["Marshmallon", "def"], ["Petit Moth", "set"]] },
+    });
+    const set = p.npc.some((d) => d.sel.type === "SELECT_IDLECMD" && d.resp?.action === "SELECT_MONSTER_SET"
+      && (d.sel.monster_sets as Json[])[Number(d.resp.index)]?.code === code("Legendary Fiend"));
+    expect(set).toBe(false);
+  });
 });
