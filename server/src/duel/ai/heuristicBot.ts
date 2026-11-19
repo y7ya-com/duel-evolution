@@ -1867,6 +1867,9 @@ export class HeuristicBot {
       case "selectEffectYN": {
         const key = this.#effKey(ev);
         if (this.#activatedThisTurn.has(key) || this.#lockedDraw(ev.card.code)) return null;
+        // a card rule that says yes is the answer, as an activation rule is (the rollout priced Marauding Captain's
+        // free Warrior, a card from the hand into three set cards, under keeping it: duel 2551)
+        if (this.#ruleFor(ev.card.code)?.yesNo?.(this.#withSelf(this.#ctx(), ev.card.code, ev.card))) return null;
         return [
           { resp: respEffectYN(true), commit: () => { this.#activatedThisTurn.add(key); } },
           { resp: respEffectYN(false) },

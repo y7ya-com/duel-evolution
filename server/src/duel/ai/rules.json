@@ -347,7 +347,7 @@
     "granmarg the rock monarch": {"summonScore": {"if": [{"any": [{">": [{"-": ["oppBackrow", "oppFaceUpBackrow"]}, 0]}, {">": [{"count": "oppMon", "where": "faceDown"}, 0]}]}, 800, -300]}, "pick": {"score": {"if": ["mine", -1000, {"if": ["isMonster", 600, 500]}]}, "min": 0}},
     "des frog": {"pick": {"score": {"if": [{"is": "t.a.d.p.o.l.e."}, 1000, {"-": [0, "atk"]}]}}},
     "magic drain": {"chainReact": {"all": ["oppChainedSpell", {"any": [{">=": ["oppChainHitsMine", 1]}, "oppChainedLingering", {"==": ["oppHand", 0]}]}]}, "chainPriority": 90},
-    "marauding captain": {"pick": {"score": {"+": ["atk", {"if": [{"is": "marauding captain"}, 1000, 0]}]}}},
+    "marauding captain": {"yesNo": {">=": ["myHandWarriors", 1]}, "pick": {"score": {"+": ["atk", {"if": [{"is": "marauding captain"}, 1000, 0]}]}}},
     "ekibyo drakmord": {"idleActivate": {"all": [{">=": ["oppMaxAtk", 1300]}, "outgunned"]}, "pick": {"score": {"if": ["mine", -1, {"if": ["attackPos", "atk", {"/": ["atk", 4]}]}]}, "min": 0}, "idlePriority": 90},
     "elemental hero bubbleman": {"summonScore": {"if": [{"all": [{"<=": ["myHand", 1]}, {"==": [{"count": "myMon"}, 0]}, {"==": ["myBackrow", 0]}]}, 2500, 0]}},
     "bark of dark ruler": {"number": {"cover": {"+": [{"-": ["oppBattlerValue", "myBattlerAtk"]}, 100]}, "keep": 500}, "pick": {"score": {"if": ["mine", -1, "atk"]}, "min": 0}, "chainReact": {"all": ["inBattle", {"not": "attackOnDefense"}, {">": ["myBattlerAtk", 0]}, {">=": ["oppBattlerValue", "myBattlerAtk"]}, {">": ["myLp", {"+": [{"-": ["oppBattlerValue", "myBattlerAtk"]}, 600]}]}]}, "ownTurn": true},
