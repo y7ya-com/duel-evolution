@@ -67,7 +67,8 @@ const boardValue = (mon: RuleMon[]): number => mon.reduce((sum, m) => sum + 1000
 export const HELPERS = {
   realThreat: (c: RuleCtx): boolean => c.oppMaxAtk >= 1700 || attackers(c.oppMon) >= 2,
   worthwhileWipe: (c: RuleCtx): boolean => c.oppMon.length > 0 && boardValue(c.oppMon) > boardValue(c.myMon),
-  worthwhileStorm: (c: RuleCtx): boolean => c.oppBackrow > c.myBackrow,
+  // (a face-up lock of mine is worth more than the cards it would take with it: a stall NPC wiped its own Gravity Bind)
+  worthwhileStorm: (c: RuleCtx): boolean => c.oppBackrow > c.myBackrow && !c.ext?.myLockActive,
   lastWindow: (c: RuleCtx): boolean => c.attackAtk > 0 || c.oppEndPhase,
   outgunned: (c: RuleCtx): boolean => c.oppMaxAtk > 0 && c.oppMaxAtk >= c.myMaxAtk,
   oppTopAtk: (c: RuleCtx): number => c.oppMon.reduce((m, x) => (x.faceDown ? m : Math.max(m, x.atk)), 0),

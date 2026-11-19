@@ -414,4 +414,24 @@ describe.skipIf(!haveData)("NPC scenarios: production losses (real engine)", () 
     });
     expect(npcActivated(p, "Wall of Revealing Light") && npcActivated(p, "Raigeki Break")).toBe(false);
   });
+
+  // ---- mass backrow removal and my own locks (deck lab trace npc57-g11)
+  it("does not Heavy Storm its own face-up Gravity Bind and Level Limit - Area B to hit the opponent's set cards", () => {
+    const p = play(dc, {
+      npcId: 57, first: "player", turns: 2,
+      npc: { hand: ["Heavy Storm", "Messenger of Peace", "Scapegoat"], mzone: [["Dancing Fairy", "def"], ["Guardian Angel Joan", "def"]],
+        szone: [["Gravity Bind", "up"], ["Level Limit - Area B", "up"], ["Card Trader", "up"]], deck: Array(20).fill("Reckless Greed") },
+      player: { lp: 1000, mzone: [["Skilled Dark Magician", "def"], ["Dark Magician", "def"]], szone: ["Waboku", "Negate Attack", "Mirror Force", "Magic Cylinder"] },
+    });
+    expect(npcActivated(p, "Heavy Storm")).toBe(false);
+  });
+
+  it("Heavy Storms the opponent's set cards with no lock of its own up (control)", () => {
+    const p = play(dc, {
+      npcId: 57, first: "player", turns: 2,
+      npc: { hand: ["Heavy Storm", "Scapegoat"], mzone: [["Dancing Fairy", "def"], ["Guardian Angel Joan", "def"]], szone: [["Card Trader", "up"]], deck: Array(20).fill("Reckless Greed") },
+      player: { lp: 1000, mzone: [["Skilled Dark Magician", "def"], ["Dark Magician", "def"]], szone: ["Waboku", "Negate Attack", "Mirror Force", "Magic Cylinder"] },
+    });
+    expect(npcActivated(p, "Heavy Storm")).toBe(true);
+  });
 });
