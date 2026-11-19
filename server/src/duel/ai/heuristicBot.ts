@@ -416,6 +416,9 @@ export class HeuristicBot {
         this.#oppSummonAtk = 0;
         this.#chainTop = Number(ev.controller);
         const code = Number(ev.code);
+        // a forced trigger of mine asks no question before it targets: what its pick belongs to (Raiza's return took the
+        // pick rule of the Brain Control before it and sent Raiza back to the Deck, production duels 2431 and 2506)
+        if (Number(ev.controller) === this.seat && code) this.#lastActivated = code;
         if (this.#heartSkill && Number(ev.controller) === this.seat && this.#isDrawCard(code) && (Number(ev.location) & (LOCATION.HAND | LOCATION.SZONE)) !== 0) this.#drawSpent = true;
         const k = this.#cards.brain.get(code);
         const clears = CLEARS_BACKROW.test(this.#nameOf(code)) || !!k?.has("storm_all") || (!!k?.has("storm_opp") && Number(ev.controller) !== this.seat);
@@ -472,7 +475,11 @@ export class HeuristicBot {
     if (sel.type === "SELECT_IDLECMD" && this.#turnPlayer === this.seat) this.#storedPlan();
     this.#sel = sel;
     this.#whatIfs.clear();
-    return this.decide(toPrompt(sel, this.seat, this.#vision), sel);
+    const r = this.decide(toPrompt(sel, this.seat, this.#vision), sel);
+    // a Normal Summon's tributes are no card's pick: the last activated card's rule must not choose them (Brain
+    // Control's rule tied a stolen Strike Ninja with my own Marshmallon, and the Marshmallon went: duel 2506)
+    if (sel.type === "SELECT_IDLECMD" && (r?.action === "SELECT_SUMMON" || r?.action === "SELECT_MONSTER_SET")) this.#lastActivated = 0;
+    return r;
   }
 
   /** Turn bookkeeping and the board for this select. */
@@ -682,6 +689,7 @@ export class HeuristicBot {
       }
     } else if (ev.kind === "selectIdleCmd") {
       if (r.action !== "TO_BP" && r.action !== "TO_EP") this.#idleActions++;
+      if (r.action === "SELECT_SUMMON" || r.action === "SELECT_MONSTER_SET") this.#lastActivated = 0;
       if (r.action === "SELECT_ACTIVATE") {
         const a = ev.activatable[index];
         if (a) { this.#activatedThisTurn.add(`${a.code}:${a.location}:${a.sequence}:${a.description}`); this.#activated(a.code); }
