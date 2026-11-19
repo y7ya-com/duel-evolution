@@ -71,7 +71,9 @@ export interface PlanOpts {
 }
 export const PLAN_DEFAULTS: PlanOpts = { reply: true, replyWeight: 1, maxNodes: 20000 };
 
-interface State { myLp: number; oppLp: number; my: PlanMon[]; opp: PlanMon[]; used: number; flipCost: number }
+interface State { myLp: number; oppLp: number; my: PlanMon[]; opp: PlanMon[]; used: number; flipCost: number;
+  /** The last battle ended with both monsters banished (D.D. Warrior): the target left without its afterlife. */
+  banished?: boolean }
 
 const EPS = 1;
 /** What an unknown face-down monster is taken to hold: a wall of at least this DEF (Master Duel's estimate for a set
@@ -86,6 +88,12 @@ const PROBE_COST = 500;
 function guardOf(t: EvalMon): number {
   if (t.faceDown) return t.known ? t.def : Math.max(t.def, UNKNOWN_WALL);
   return t.attackPos ? t.atk : t.def;
+}
+
+/** A battler with a banish effect (EvalMon.banish) takes both monsters out after damage calculation, given whether the
+ *  battle destroyed it and the other one. */
+function banishesAfter(x: EvalMon | undefined, gone: boolean, otherGone: boolean): boolean {
+  return x?.banish === "always" || (x?.banish === "survivor" && !otherGone) || (x?.banish === "dies" && gone);
 }
 
 /** The board after `a` attacks `t` (null = directly). Exact combat, as the engine resolves it. */
@@ -108,6 +116,7 @@ function resolve(s: State, a: PlanAttacker, t: PlanMon | null, bit: number): Sta
     flipCost += t.afterlife ?? 0;
     if (t.revenge) my = my.filter((m) => m.seq !== a.seq);
   };
+  const flipBefore = flipCost;
   if (t.attackPos) {
     if (atk > guard) { oppLp -= atk - guard; dropOpp(); kill(); }
     else if (atk === guard) { dropOpp(); dropMine(); kill(); }
@@ -117,6 +126,13 @@ function resolve(s: State, a: PlanAttacker, t: PlanMon | null, bit: number): Sta
     if (atk < guard) myLp -= guard - atk;
     // a face-down that survived is face-up now: its DEF is what it showed
     if (t.faceDown) opp = opp.map((m) => (m.seq === t.seq ? { ...m, faceDown: false, known: true, def: guard } : m));
+  }
+  // D.D. Warrior and its kind: both battlers banished after damage calculation, destroyed or not, so the target's
+  // afterlife never comes (production sent D.D. Warrior at a 400 ATK monster beside a Jinzo, and Gil Garth, a lone
+  // blocker, into D.D. Warrior Lady)
+  const aGone = !my.some((m) => m.seq === a.seq), tGone = !opp.some((m) => m.seq === t.seq);
+  if (banishesAfter(me, aGone, tGone) || (!t.faceDown || t.known) && banishesAfter(t, tGone, aGone)) {
+    return { myLp, oppLp, my: my.filter((m) => m.seq !== a.seq), opp: opp.filter((m) => m.seq !== t.seq), used, flipCost: flipBefore, banished: true };
   }
   // a Gladiator Beast that battled and is still there tags out into two more at the end of the Battle Phase
   if (t.battleTrigger && opp.some((m) => m.seq === t.seq)) flipCost += BATTLE_TRIGGER_COST;
@@ -329,6 +345,8 @@ function planWithNegation(input: PlanInput, opts: PlanOpts): BattlePlan & { end:
 export const ATTACK_CLASS = { NOTHING: 0, TRADE: 1, DAMAGE: 2, KILL: 3, LETHAL: 7 } as const;
 
 const bodyWorth = (m: EvalMon): number => 1000 + Math.max(m.atk, m.def) * 0.4 + (m.effectThreat ?? 0) - (m.afterlife ?? 0);
+/** What the opponent lost with `t` gone after the battle `r`: banished, it left without its afterlife. */
+const goneWorth = (t: EvalMon, r: State): number => bodyWorth(t) + (r.banished ? t.afterlife ?? 0 : 0);
 
 /** The class of one attack on this board (`t` null = direct). */
 export function attackClass(input: PlanInput, a: PlanAttacker, t: PlanMon | null): number {
@@ -344,7 +362,14 @@ export function attackClass(input: PlanInput, a: PlanAttacker, t: PlanMon | null
   if (kept && damage > 0) return ATTACK_CLASS.DAMAGE;
   if (!kept && killed) {
     const me = input.my.find((m) => m.seq === a.seq);
-    return a.lent || (me && bodyWorth(t!) > bodyWorth(me)) ? ATTACK_CLASS.TRADE : ATTACK_CLASS.NOTHING;
+    if (a.lent) return ATTACK_CLASS.TRADE;
+    if (!me) return ATTACK_CLASS.NOTHING;
+    // a trade that leaves my LP open to the opponent's reply is not made (Joey's last blocker into D.D. Warrior Lady)
+    const before = { ...input.base, myMon: input.my, oppMon: input.opp }, after = { ...before, myLp: r.myLp, oppLp: r.oppLp, myMon: r.my, oppMon: r.opp };
+    if (replyPosition(after).myLp <= 0 && replyPosition(before).myLp > 0) return ATTACK_CLASS.NOTHING;
+    // a banisher takes one of my monsters whichever fights it, its own attack included: an even trade with it is made
+    const theirs = goneWorth(t!, r), mine = bodyWorth(me);
+    return theirs > mine || (t!.banish && t!.banish !== "dies" && theirs === mine) ? ATTACK_CLASS.TRADE : ATTACK_CLASS.NOTHING;
   }
   // a borrowed monster goes back at the End Phase: probing an unknown set monster with it costs at most a little LP
   // (production held a stolen Mystic Tomato back from a lone set monster)
@@ -377,9 +402,13 @@ export function nextAttack(input: PlanInput): PlannedAttack | null {
       if (cls === ATTACK_CLASS.NOTHING) continue;
       // among equal classes Master Duel takes the bigger net gain (what the opponent loses: damage and the monster's
       // worth), then the earlier attacker, then the target worth the most (an attack-position monster first)
+      // (a trade costs my attacker: of two trades, the cheaper attacker's: production sent a Fusion into D.D. Warrior
+      // Lady beside a Sparkman)
       const r = resolve(s0, a, t, 1);
       const killed = t !== null && !r.opp.some((m) => m.seq === t.seq);
-      const gain = (s0.oppLp - r.oppLp) + (killed ? bodyWorth(t!) : 0) - (s0.myLp - r.myLp);
+      const me = input.my.find((m) => m.seq === a.seq);
+      const lost = !a.lent && me && !r.my.some((m) => m.seq === a.seq) ? bodyWorth(me) : 0;
+      const gain = (s0.oppLp - r.oppLp) + (killed ? goneWorth(t!, r) : 0) - (s0.myLp - r.myLp) - lost;
       const worth = t ? bodyWorth(t) + (t.attackPos ? 1 : 0) : -1;
       const better = !best || cls > best.cls || (cls === best.cls && (gain > best.gain + EPS
         || (Math.abs(gain - best.gain) <= EPS && (order < best.order || (order === best.order && worth > best.worth)))));

@@ -13,7 +13,10 @@
 //     EVENT_BATTLE_DESTROYED trigger: Newdoria): killing one in battle costs the attacker;
 //   - pierce: monsters that deal piercing damage (EFFECT_PIERCE on themselves, unconditionally: Gravekeeper's Spear
 //     Soldier);
-//   - direct: monsters that can attack directly (EFFECT_DIRECT_ATTACK on themselves, unconditionally: Spell Striker).
+//   - direct: monsters that can attack directly (EFFECT_DIRECT_ATTACK on themselves, unconditionally: Spell Striker);
+//   - banish, banishOpt, banishDies: monsters that banish the monster they battled and themselves after damage
+//     calculation (an EVENT_BATTLED trigger that removes the attacker and its target): always (D.D. Warrior), when their
+//     owner chooses (D.D. Warrior Lady), or only when the battle destroys them (D.D. Assailant).
 //
 //   node scripts/ai_battle_proof.mjs
 import { readFileSync, writeFileSync } from "node:fs";
@@ -75,8 +78,21 @@ const revenge = pool.filter((code) => {
     && effects(src).some((e) => /EVENT_(BATTLE_)?DESTROYED/.test(e) && /CATEGORY_DESTROY/.test(e));
 }).sort((a, b) => a - b);
 
+const battleBanish = (src) => effects(src).find((e) => /SetCode\(EVENT_BATTLED\)/.test(e) && /CATEGORY_REMOVE/.test(e))
+  && /Duel\.GetAttacker\(\)/.test(src) && /Duel\.GetAttackTarget\(\)/.test(src) && /Duel\.Remove\(/.test(src);
+const banishKind = (src) => {
+  const e = effects(src).find((x) => /SetCode\(EVENT_BATTLED\)/.test(x) && /CATEGORY_REMOVE/.test(x));
+  if (/STATUS_BATTLE_DESTROYED/.test(src)) return "dies";
+  return /EFFECT_TYPE_TRIGGER_O/.test(e) ? "opt" : /SetCondition\(/.test(e) ? null : "always";
+};
+const banishOf = (kind) => pool.filter((code) => {
+  const src = scriptOf(code);
+  return !!src && battleBanish(src) && banishKind(src) === kind;
+}).sort((a, b) => a - b);
+const banish = banishOf("always"), banishOpt = banishOf("opt"), banishDies = banishOf("dies");
+
 writeFileSync(join(root, "src/duel/ai/battleProof.json"), JSON.stringify({
-  note: "Monsters that cannot be destroyed by battle (unconditionally), the Equip Spells that make theirs so, the monsters whose surviving a battle triggers them, those whose destruction destroys a monster, and those that pierce, and those that attack directly: from the card scripts, scripts/ai_battle_proof.mjs",
-  codes, equips, battleTrigger, revenge, pierce, direct,
+  note: "Monsters that cannot be destroyed by battle (unconditionally), the Equip Spells that make theirs so, the monsters whose surviving a battle triggers them, those whose destruction destroys a monster, and those that pierce, and those that attack directly, and those that banish the monster they battled (always, by choice, when destroyed): from the card scripts, scripts/ai_battle_proof.mjs",
+  codes, equips, battleTrigger, revenge, pierce, direct, banish, banishOpt, banishDies,
 }) + "\n");
-console.log(`${codes.length} of ${pool.length} cards; ${equips.length} equips, ${battleTrigger.length} battle triggers, ${revenge.length} revenge, ${pierce.length} pierce, ${direct.length} direct`);
+console.log(`${codes.length} of ${pool.length} cards; ${equips.length} equips, ${battleTrigger.length} battle triggers, ${revenge.length} revenge, ${pierce.length} pierce, ${direct.length} direct, ${banish.length + banishOpt.length + banishDies.length} banish`);

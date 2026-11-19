@@ -114,6 +114,9 @@ const REVENGE = new Set<number>(BATTLE_PROOF_JSON.revenge);
 const PIERCE = new Set<number>(BATTLE_PROOF_JSON.pierce);
 /** Monsters that can attack directly with monsters across (Spell Striker). */
 const DIRECT = new Set<number>(BATTLE_PROOF_JSON.direct);
+/** Monsters that banish the monster they battled and themselves (EvalMon.banish). */
+const BANISH = new Map<number, NonNullable<EvalMon["banish"]>>([...BATTLE_PROOF_JSON.banish.map((c) => [c, "always"] as const),
+  ...BATTLE_PROOF_JSON.banishOpt.map((c) => [c, "survivor"] as const), ...BATTLE_PROOF_JSON.banishDies.map((c) => [c, "dies"] as const)]);
 /** Edge halves its ATK to bypass blockers; an open-field attack keeps full ATK. */
 const directAttackScale = (code: number): number => code === 77625948 ? 0.5 : 1;
 /** Monsters whose own effect a Normal Summon triggers (scripts/ai_on_summon.mjs): summoned face-up for it. */
@@ -230,7 +233,9 @@ interface OppMon { seq: number; code: number; level: number; atk: number; def: n
   /** A face-up lock stops it attacking (#attackLocked). */
   noAttack: boolean;
   /** A Gladiator Beast (a battle it survives triggers it); destroyed, it destroys a monster (Newdoria). */
-  battleTrigger: boolean; revenge: boolean }
+  battleTrigger: boolean; revenge: boolean;
+  /** It banishes the monster it battles (D.D. Warrior: EvalMon.banish). */
+  banish?: EvalMon["banish"] }
 /** Live combo-assembly state: how many pieces are in hand/field and whether the payoff can be made now. */
 interface ComboState { plan: ComboPlan; pieces: number; ready: boolean; haveEnabler: boolean }
 
@@ -914,6 +919,7 @@ export class HeuristicBot {
         noAttack: false,
         battleTrigger: !!c.code && BATTLE_TRIGGER.has(c.code),
         revenge: !!c.code && REVENGE.has(c.code),
+        banish: c.code ? BANISH.get(c.code) : undefined,
         effectThreat: this.#readyRemovalValue(c, who),
       });
     });
@@ -2344,7 +2350,7 @@ export class HeuristicBot {
     const base = this.#battlePosition();
     const toPlan = (o: OppMon): PlanMon => ({ light: !o.faceDown && ((this.#cards.brain.get(o.code)?.attribute ?? 0) & 16) !== 0, atk: o.atk, def: o.faceDown && !o.known ? Math.max(o.def, UNKNOWN_WALL) : o.def, faceDown: o.faceDown,
       attackPos: o.attackPos, known: o.known, flipRisk: o.flipRisk, battleProof: o.battleProof, afterlife: o.afterlife, seq: o.seq, noAttack: o.noAttack,
-      battleTrigger: o.battleTrigger, revenge: o.revenge, effectThreat: o.effectThreat });
+      battleTrigger: o.battleTrigger, revenge: o.revenge, banish: o.banish, effectThreat: o.effectThreat });
     const locks = this.#faceUpLocks();
     const my = this.#monstersOf(this.#me()).map((m) => {
       const up = !m.faceDown || raised.has(m.seq);
@@ -2779,7 +2785,7 @@ export class HeuristicBot {
     const toEval = (o: OppMon): EvalMon => ({
       atk: o.atk, def: o.faceDown && !o.known ? Math.max(o.def, UNKNOWN_WALL) : o.def,
       faceDown: o.faceDown, attackPos: o.attackPos, known: o.known, flipRisk: o.flipRisk, battleProof: o.battleProof,
-      afterlife: o.afterlife, noAttack: o.noAttack, battleTrigger: o.battleTrigger, revenge: o.revenge, effectThreat: o.effectThreat,
+      afterlife: o.afterlife, noAttack: o.noAttack, battleTrigger: o.battleTrigger, revenge: o.revenge, banish: o.banish, effectThreat: o.effectThreat,
     });
     return {
       myMon: this.#monstersOf(me).map(toEval), oppMon: this.#monstersOf(opp).map(toEval),

@@ -25,6 +25,10 @@ export interface EvalMon {
   battleTrigger?: boolean;
   /** Destroyed, it destroys a monster (Newdoria: battleProof.json revenge): its killer goes with it. */
   revenge?: boolean;
+  /** After damage calculation it banishes the monster it battled and itself (battleProof.json banish...): always
+   *  (D.D. Warrior), when the other monster survived the battle (D.D. Warrior Lady: its owner's choice, taken when it
+   *  pays), or when the battle destroyed it (D.D. Assailant). */
+  banish?: "always" | "survivor" | "dies";
   /** Public, ready removal effect with a target on the other side (Lyla versus backrow).
    * Its value is additional to the body, so trading equal ATK can remove a real threat. */
   effectThreat?: number;
