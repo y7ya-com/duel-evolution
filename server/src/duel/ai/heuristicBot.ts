@@ -1266,7 +1266,7 @@ export class HeuristicBot {
     let best = -1, atk = 999;
     ev.summonable.forEach((c, i) => {
       const k = this.#cards.brain.get(c.code);
-      if (!k || k.tributes() > 0 || this.#isFlip(c.code) || this.#ruleFor(c.code)?.keepInHand || this.#locked(c.code)) return;
+      if (!k || (c.location & LOCATION.HAND) === 0 || k.tributes() > 0 || this.#isFlip(c.code) || this.#ruleFor(c.code)?.keepInHand || this.#locked(c.code)) return;
       const a = this.#normalSummonStats(c.code).atk;
       if (a > atk) { atk = a; best = i; }
     });
@@ -2684,7 +2684,7 @@ export class HeuristicBot {
     let summon = 0, summonIndex = -1;
     ev.summonable.forEach((c, i) => {
       const st = this.#normalSummonStats(c.code);
-      if (st.level <= 4 && st.atk > summon && !this.#attackLocked({ ...st, faceDown: false }, this.seat) && !this.#ruleFor(c.code)?.keepInHand) { summon = st.atk; summonIndex = i; }
+      if ((c.location & LOCATION.HAND) !== 0 && st.level <= 4 && st.atk > summon && !this.#attackLocked({ ...st, faceDown: false }, this.seat) && !this.#ruleFor(c.code)?.keepInHand) { summon = st.atk; summonIndex = i; }
     });
     return { standing, turned, turnIndex, summon, summonIndex };
   }
@@ -2819,7 +2819,7 @@ export class HeuristicBot {
     const lentLater = mine.filter((m) => m.stolen && planNow.has(m.seq)).length;
     const waitFor = lentLater === 0 ? 0 : ev.summonable.reduce((best, c) => {
       const n = this.#tributeCount(c.code);
-      return n > 0 && n <= fodder.length + lentLater && !this.#ruleFor(c.code)?.keepInHand ? Math.max(best, this.#stat(c.code).atk) : best;
+      return (c.location & LOCATION.HAND) !== 0 && n > 0 && n <= fodder.length + lentLater && !this.#ruleFor(c.code)?.keepInHand ? Math.max(best, this.#stat(c.code).atk) : best;
     }, 0);
     const bar = opp.reduce((n, m) => Math.max(n, holdOf(m)), 0);
     const lethalOnMe = replyPosition(this.#boardPosition()).myLp <= 0;
@@ -2843,6 +2843,9 @@ export class HeuristicBot {
     });
     ev.summonable.forEach((c, i) => {
       if (seen.has(c.code) || this.#ruleFor(c.code)?.keepInHand) return;
+      // a Gemini monster already on the field: its second Normal Summon adds no body, only the effect its card rule
+      // prices (production re-summoned a face-up Neos Alius in 50 of 155 summons, 44 times with a monster in hand)
+      if ((c.location & LOCATION.HAND) === 0 && !((this.#ruleFor(c.code)?.summonScore?.(this.#withSelf(ctx, c.code, c)) ?? 0) > 0)) return;
       seen.add(c.code);
       let st = this.#normalSummonStats(c.code);
       const summonAtkBonus = st.atk - this.#stat(c.code).atk;
