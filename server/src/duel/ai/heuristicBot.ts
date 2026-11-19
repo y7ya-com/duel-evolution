@@ -2363,7 +2363,12 @@ export class HeuristicBot {
     const lent = new Set(this.#monstersOf(this.#me()).filter((m) => m.stolen).map((m) => m.seq));
     const attackers: PlanAttacker[] = my.filter((m) => !m.faceDown && m.atk > 0 && !m.noAttack && !this.#ruleNoAttack(m.seq))
       .map((m) => { const code = this.#me()?.mzone[m.seq]?.code ?? 0; return { index: m.seq, seq: m.seq, atk: m.atk, canDirect: DIRECT.has(code), directScale: directAttackScale(code), bounces: this.#bounces(code), lent: lent.has(m.seq), pierce: PIERCE.has(code) }; });
-    return { base, my, opp: this.#monstersOf(this.#opp()).map(toPlan), attackers, oppAttackNegates: this.#publicAttackNegates(), oppHonest: this.#publicHonest() };
+    return { base, my, opp: this.#monstersOf(this.#opp()).map(toPlan), attackers, oppAttackNegates: this.#publicAttackNegates(), oppHonest: this.#publicHonest(), oppSetBackrow: this.#oppSetBackrow() };
+  }
+
+  /** The opponent's face-down Spell/Trap cards. */
+  #oppSetBackrow(): number {
+    return this.#opp()?.szone.filter((c) => c && isFaceDown(c.position)).length ?? 0;
   }
 
   /** Usable public answers only: no assumption about the opponent's hand or set cards. */
@@ -2912,7 +2917,7 @@ export class HeuristicBot {
       if (this.#deadAttackers.has(a.sequence) || this.#ruleNoAttack(a.sequence)) return;
       attackers.push({ index, seq: a.sequence, atk: me?.mzone[a.sequence]?.attack ?? this.#stat(a.code).atk, canDirect: a.directAttackable, directScale: directAttackScale(a.code), bounces: this.#bounces(a.code), lent: lent.has(a.sequence), pierce: PIERCE.has(a.code) });
     });
-    const input = { base, my: withSeq(me, base.myMon), opp: withSeq(opp, base.oppMon), attackers, oppAttackNegates: this.#publicAttackNegates(), oppHonest: this.#publicHonest() };
+    const input = { base, my: withSeq(me, base.myMon), opp: withSeq(opp, base.oppMon), attackers, oppAttackNegates: this.#publicAttackNegates(), oppHonest: this.#publicHonest(), oppSetBackrow: this.#oppSetBackrow() };
     return { input, plan: planBattle(input, this.#planOpts()) };
   }
 

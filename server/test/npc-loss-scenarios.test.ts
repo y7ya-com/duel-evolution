@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { DuelCore, Json } from "../src/duel/engine/core.ts";
 import { createNodeDuelCore, ENGINE_DATA_DIR } from "../src/duel/engine/node.ts";
-import { code, leftField, msgs, npcActivated, passive, play, type Scene } from "./npcScenario.ts";
+import { activating, attacker, code, leftField, msgs, npcActivated, passive, play, type Scene } from "./npcScenario.ts";
 
 const haveData = existsSync(join(ENGINE_DATA_DIR, "scripts.pack"));
 
@@ -106,5 +106,69 @@ describe.skipIf(!haveData)("NPC scenarios: production losses (real engine)", () 
     const p = play(dc, scene);
     expect(attacks(p, scene, 1)).not.toContain("D.D. Warrior Lady");
     expect(leftField(p, "Elemental HERO Steam Healer")).toBe(false);
+  });
+
+  // ---- the end of its own turn: what it holds when the opponent's next attack is lethal
+  it("returns a Warrior with The Warrior Returning Alive and sets it in front of a lethal attacker (2208)", () => {
+    const p = play(dc, {
+      npcId: 60, first: "player", turns: 3,
+      npc: { lp: 1500, hand: ["Polymerization", "Polymerization", "The Warrior Returning Alive"],
+        grave: ["King of the Swamp", "Elemental HERO Bubbleman", "Elemental HERO Burstinatrix", "Polymerization", "Elemental HERO Sparkman",
+          "Wroughtweiler", "Elemental HERO Wildheart", "Winged Kuriboh", "Elemental HERO Clayman", "Elemental HERO Sparkman"],
+        szone: ["Hero Signal", ["The A. Forces", "up"]],
+        deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: ["Cyber Dragon", ["Old Vindictive Magician", "set"], ["Treeborn Frog", "def"]] }, player_policy: attacker,
+    });
+    expect(npcActivated(p, "The Warrior Returning Alive")).toBe(true);
+    expect(p.end?.winner).not.toBe(0);
+  });
+
+  // ---- attacks that cannot win the duel but can lose it
+  it("at 150 LP Fenrir does not attack into three set cards, one a Magic Cylinder (2248)", () => {
+    const p = play(dc, {
+      npcId: 21, first: "player", turns: 2,
+      npc: { lp: 150, mzone: ["Fenrir"], deck: Array(20).fill("Reckless Greed") },
+      player: { lp: 6400, mzone: ["Old Vindictive Magician", "Apprentice Magician", "Old Vindictive Magician"],
+        szone: ["Magic Cylinder", "Mirror Force", "Sakuretsu Armor"] }, player_policy: activating("Magic Cylinder"),
+    });
+    expect(msgs(p, "ATTACK")).toHaveLength(0);
+    expect(p.end?.winner).not.toBe(0);
+  });
+
+  it("at 550 LP Cyber Dragon does not attack into set cards for a 450 ATK monster (2256)", () => {
+    const p = play(dc, {
+      npcId: 7, first: "player", turns: 2,
+      npc: { lp: 550, mzone: ["Cyber Dragon"], deck: Array(20).fill("Reckless Greed") },
+      player: { lp: 4800, mzone: ["Old Vindictive Magician"], szone: ["Magic Cylinder", "Mirror Force", "Sakuretsu Armor"] },
+      player_policy: activating("Magic Cylinder"),
+    });
+    expect(p.end?.winner).not.toBe(0);
+  });
+
+  it("with LP to spare Cyber Dragon still attacks into set cards (control)", () => {
+    const p = play(dc, {
+      npcId: 7, first: "player", turns: 2,
+      npc: { lp: 4000, mzone: ["Cyber Dragon"], deck: Array(20).fill("Reckless Greed") },
+      player: { lp: 4800, mzone: ["Old Vindictive Magician"], szone: ["Magic Cylinder", "Mirror Force", "Sakuretsu Armor"] },
+    });
+    expect(leftField(p, "Old Vindictive Magician")).toBe(true);
+  });
+
+  it("at 500 LP it does not attack a set monster that may be Marshmallon (2377)", () => {
+    const p = play(dc, {
+      npcId: 34, first: "player", turns: 2,
+      npc: { lp: 500, mzone: ["Double Coston"], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: [["Marshmallon", "set"]] },
+    });
+    expect(p.end?.winner).not.toBe(0);
+  });
+
+  it("with LP to spare it attacks the set monster (control)", () => {
+    const p = play(dc, {
+      npcId: 34, first: "player", turns: 2,
+      npc: { lp: 3000, mzone: ["Double Coston"], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: [["Petit Moth", "set"]] },
+    });
+    expect(leftField(p, "Petit Moth")).toBe(true);
   });
 });

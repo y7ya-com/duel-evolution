@@ -59,6 +59,8 @@ export interface PlanInput {
   oppAttackNegates?: number;
   /** Honest copies publicly known to remain in the opposing hand. */
   oppHonest?: number;
+  /** The opponent's set Spell/Trap cards (any of them may be a Magic Cylinder). */
+  oppSetBackrow?: number;
 }
 
 export interface PlanOpts {
@@ -377,6 +379,19 @@ export function attackClass(input: PlanInput, a: PlanAttacker, t: PlanMon | null
   return ATTACK_CLASS.NOTHING;
 }
 
+/** An attack that cannot win the duel now but can lose it: one whose attacker's ATK is my LP into set Spell/Trap cards
+ *  (a Magic Cylinder: production died this way at 150 and 550 LP), one on a set monster at 1000 LP or less (Marshmallon's
+ *  1000), or one on a set monster with the monster that keeps me alive (a flip effect that destroys it opens my LP to
+ *  the opponent's next Battle Phase: production lost its last blocker to Old Vindictive Magician at 1500 LP). */
+export function recklessAttack(input: PlanInput, a: PlanAttacker, t: PlanMon | null): boolean {
+  const lp = input.base.myLp;
+  if ((input.oppSetBackrow ?? 0) > 0 && (input.my.find((m) => m.seq === a.seq)?.atk ?? a.atk) >= lp) return true;
+  if (!t || !t.faceDown || t.known) return false;
+  if (lp <= 1000) return true;
+  const board: Position = { ...input.base, myMon: input.my, oppMon: input.opp };
+  return replyPosition(board).myLp > 0 && replyPosition({ ...board, myMon: input.my.filter((m) => m.seq !== a.seq) }).myLp <= 0;
+}
+
 /** Master Duel's attacker order: the attackers that can run over one of the opponent's attack-position monsters first,
  *  strongest first (they clear blockers); then the rest, weakest first (the least valuable attacks probe first). */
 export function attackerOrder(input: PlanInput): PlanAttacker[] {
@@ -399,7 +414,7 @@ export function nextAttack(input: PlanInput): PlannedAttack | null {
     const targets: (PlanMon | null)[] = [...input.opp, ...(openDirect || a.canDirect ? [null] : [])];
     for (const t of targets) {
       const cls = attackClass(input, a, t);
-      if (cls === ATTACK_CLASS.NOTHING) continue;
+      if (cls === ATTACK_CLASS.NOTHING || (cls !== ATTACK_CLASS.LETHAL && recklessAttack(input, a, t))) continue;
       // among equal classes Master Duel takes the bigger net gain (what the opponent loses: damage and the monster's
       // worth), then the earlier attacker, then the target worth the most (an attack-position monster first)
       // (a trade costs my attacker: of two trades, the cheaper attacker's: production sent a Fusion into D.D. Warrior
