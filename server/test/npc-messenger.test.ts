@@ -6,10 +6,12 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { DuelCore, Json } from "../src/duel/engine/core.ts";
 import { createNodeDuelCore, ENGINE_DATA_DIR } from "../src/duel/engine/node.ts";
-import { code, leftField, msgs, npcActivated, play } from "./npcScenario.ts";
+import { yugiDrawWeight } from "../src/duel/ai/yugiBrand.ts";
+import { code, leftField, msgs, npcActivated, play, type Played } from "./npcScenario.ts";
 
 const haveData = existsSync(join(ENGINE_DATA_DIR, "scripts.pack"));
 const MESSENGER: [string, "up"] = ["Messenger of Peace", "up"];
+const drawn = (p: Played) => p.npc.filter((d) => d.sel.heart_of_cards === true).map((d) => Number((d.resp as Json | null)?.card));
 
 describe.skipIf(!haveData)("NPC against Messenger of Peace (real engine)", () => {
   let dc: DuelCore;
@@ -63,5 +65,24 @@ describe.skipIf(!haveData)("NPC against Messenger of Peace (real engine)", () =>
     });
     expect(npcActivated(p, "De-Spell")).toBe(true);
     expect(leftField(p, "Messenger of Peace")).toBe(true);
+  });
+
+  // ---- Yugi (Heart of the Cards: his draw is chosen)
+  it("Yugi materialises an attacker under 1400 ATK or De-Spell against Messenger, not a 1500+ monster", () => {
+    const pool = ["Neo the Magic Swordsman", "Gemini Elf", "Celtic Guardian", "De-Spell", "Mystical Space Typhoon"].map(code);
+    const p = play(dc, { npcId: 53, heart_of_cards: 1, heart_pool: pool, first: "player", turns: 2,
+      npc: {}, player: { szone: [MESSENGER] } });
+    expect([code("Celtic Guardian"), code("De-Spell")]).toContain(drawn(p)[0]);
+  });
+
+  it("Yugi with a 1600+ attacker under Messenger materialises De-Spell, lighter than Mystical Space Typhoon", () => {
+    const pool = ["De-Spell", "Mystical Space Typhoon", "Petit Moth"].map(code);
+    const p = play(dc, { npcId: 53, heart_of_cards: 1, heart_pool: pool, first: "player", turns: 2,
+      npc: { mzone: ["Dark Magician"] }, player: { lp: 2000, szone: [MESSENGER] } });
+    expect(drawn(p)[0]).toBe(code("De-Spell"));
+  });
+
+  it("De-Spell weighs lighter than Mystical Space Typhoon in Yugi's draws", () => {
+    expect(yugiDrawWeight("de-spell")).toBeLessThan(yugiDrawWeight("mystical space typhoon"));
   });
 });

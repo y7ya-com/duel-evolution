@@ -1044,6 +1044,12 @@ export class HeuristicBot {
     return n;
   }
 
+  /** A face-up battle lock of the opponent's stops a 1500 ATK attacker of mine (Messenger of Peace). */
+  #oppMonstersLocked(): boolean {
+    return this.#attackLocked({ atk: 1500, level: 4, faceDown: false }, this.seat)
+      && !!this.#opp()?.szone.some((c) => c && c.code && !isFaceDown(c.position) && ATTACK_LOCKS.test(this.#nameOf(c.code)));
+  }
+
   /** The most destroying one of the opponent's face-up battle locks frees of my attack (#lockUnlocks). */
   #oppLockUnlocks(): number {
     return Math.max(0, ...(this.#opp()?.szone ?? []).map((c) => this.#lockUnlocks(c, 1 - this.seat)));
@@ -2039,12 +2045,15 @@ export class HeuristicBot {
       + (fragileDefense.test(name) && held.has(name) ? 1 : 0);
     // Without the engine (#lightestFit) a last resort still waits until his life is on the line.
     const threatened = this.#monstersOf(foe).filter(m => !m.faceDown).reduce((t, m) => t + m.atk, 0) >= ctx.myLp;
+    const lockFree = ctx.ext?.oppLockUnlocks ?? 0, lockUp = this.#oppMonstersLocked();
     const rank = (c: CardRef): number => {
       const name = this.#nameOf(c.code), k = this.#cards.brain.get(c.code), st = this.#normalSummonStats(c.code);
       let score = this.#worth(c.code, true) - (YUGI_LAST_RESORT.has(name) && !threatened ? 15000 : 0);
       if ((k?.type ?? 0) & TYPE_MONSTER) {
         const tributes = /^(slifer the sky dragon|obelisk the tormentor|the winged dragon of ra)$/.test(name) ? 3 : k?.tributes() ?? 0;
-        score += tributes > field ? -5000 : st.atk + (st.atk > ctx.oppMaxAtk ? 1500 : 0);
+        // (under the opponent's Messenger of Peace a 1500+ body attacks nothing: owner, materialise 1400 and under)
+        const stopped = this.#attackLocked({ atk: st.atk, level: st.level, faceDown: false }, this.seat);
+        score += tributes > field ? -5000 : stopped ? st.def * 0.3 - 2500 : st.atk + (st.atk > ctx.oppMaxAtk ? 1500 : 0);
         if (YUGI_SIGNATURE.test(name)) score += tributes <= field || (name === "dark magician" && has("ancient rules")) ? 6500 : 600;
         if (this.#normalSummoned) score -= 1500;
         if (magnets.includes(name) && !has(name)) score += (magnets.filter(has).length >= 2 || has("valkyrion the magna warrior")) ? 8000 : 500;
@@ -2071,6 +2080,9 @@ export class HeuristicBot {
         if (/^(raigeki|dark hole|lightning vortex|snatch steal|brain control|smashing ground|fissure)$/.test(name))
           score += ctx.oppMon.length ? (ctx.oppMaxAtk >= ctx.myMaxAtk ? 12000 : 4000) : -4000;
         if (/^(mystical space typhoon|heavy storm|harpie's feather duster|giant trunade)$/.test(name)) score += ctx.oppBackrow ? 6000 : -4000;
+        if (name === "de-spell") score += lockFree > 0 || (ctx.ext?.oppFaceUpSpells ?? 0) > 0 ? 6000 : -4000;
+        // the opponent's battle lock that stops my attackers (owner: MST or De-Spell the Messenger of Peace)
+        if (lockFree > 0 && /^(mystical space typhoon|dust tornado|de-spell)$/.test(name)) score += 3000;
         if (/^(monster reborn|premature burial)$/.test(name)) score += Math.max(ctx.myGraveMaxAtk ?? 0, ctx.oppGraveMaxAtk ?? 0) > 1500 ? 5000 : -3000;
         if (name === "heart of the underdog") score += !has(name) && !(me?.szone.some(c => c && this.#nameOf(c.code) === name)) ? 6500 : -5000;
         if (/^(reload|magical mallet)$/.test(name)) score -= hand.length < 3 ? 5000 : 500;
@@ -2152,7 +2164,11 @@ export class HeuristicBot {
       (c: CardRef) => /^(marshmallon|spirit reaper|swords of revealing light)$/.test(this.#nameOf(c.code)),
       // The light answers reach the engine too (#lightestFit): one monster, one set card, several monsters.
       (c: CardRef) => /^(smashing ground|fissure|hammer shot)$/.test(this.#nameOf(c.code)),
-      (c: CardRef) => /^(mystical space typhoon|dust tornado)$/.test(this.#nameOf(c.code)),
+      (c: CardRef) => /^(mystical space typhoon|dust tornado|de-spell)$/.test(this.#nameOf(c.code)),
+      // under the opponent's Messenger of Peace: an attacker it does not stop, the other way past it (owner)
+      ...(lockUp ? [(c: CardRef) => { const k = this.#cards.brain.get(c.code), st = this.#stat(c.code);
+        return !!k && (k.type & TYPE_MONSTER) !== 0 && k.tributes() === 0 && st.atk >= 1000 && st.atk <= 1400
+          && !this.#attackLocked({ ...st, faceDown: false }, this.seat); }] : []),
       (c: CardRef) => this.#nameOf(c.code) === "dark hole",
       (c: CardRef) => this.#nameOf(c.code) === "raigeki",
     ];

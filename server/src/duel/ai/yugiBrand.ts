@@ -14,7 +14,7 @@ const ON_BRAND = new Set([
   "gandora the dragon of destruction", "catapult turtle", "electromagnetic turtle", "slifer the sky dragon",
   "obelisk the tormentor", "the winged dragon of ra", "old vindictive magician", "apprentice magician",
   // spells
-  "dark hole", "monster reborn", "polymerization", "de-fusion", "swords of revealing light", "change of heart",
+  "dark hole", "de-spell", "monster reborn", "polymerization", "de-fusion", "swords of revealing light", "change of heart",
   "brain control", "multiply", "book of secret arts", "thousand knives", "magical dimension", "dark magic attack",
   "dark magic curtain", "black luster ritual", "black magic ritual", "ancient rules", "mystic box", "dimension magic",
   "magic formula", "monster reincarnation", "sage's stone", "magician's unite", "lightforce sword", "black pendant",
@@ -31,6 +31,8 @@ export const yugiCopyLimit = (name: string): number => ON_BRAND.has(name) ? 3 : 
  * when Yugi would lose without it. Listed cards keep this order whoever's they are; any other card weighs 0 if it
  * is Yugi's own and 10 if not. */
 const WEIGHT: Record<string, number> = {
+  // De-Spell takes one Spell, MST any Spell or Trap: the lighter answer to a Messenger of Peace (owner)
+  "de-spell": 4,
   "smashing ground": 5, "fissure": 5, "hammer shot": 5, "mystical space typhoon": 5, "dust tornado": 5, "book of moon": 5,
   "change of heart": 6, "brain control": 6, "snatch steal": 12,
   "dark hole": 15, "lightning vortex": 15, "torrential tribute": 15,
