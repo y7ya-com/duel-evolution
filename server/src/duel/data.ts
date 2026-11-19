@@ -8,6 +8,7 @@ import NP from "../../gamedata/npc_profiles.json";
 import DJ from "../../gamedata/duel.json";
 import { YUGI_DECKS } from "./yugiDecks.ts";
 import { HELL_KAISER_DECKS } from "./hellKaiserDecks.ts";
+import { NPC_DECK_OVERRIDES } from "./npcDecks.ts";
 import { CardMap, type TranslatorData } from "./translator/cardmap.ts";
 import { CardDB, type BrainCardsJson, type NpcProfilesJson } from "./brain/index.ts";
 import type { DuelCore } from "./engine/core.ts";
@@ -24,8 +25,8 @@ export function brainDb(): CardDB {
 }
 
 export const NPC_PROFILES = NP as unknown as NpcProfilesJson;
-/** Official recipes by passcode, with the owner's tuned boss recipes. */
-export const NPC_DECKS = { ...(DJ as unknown as { npc_decks: Record<string, Deck> }).npc_decks, ...HELL_KAISER_DECKS, ...YUGI_DECKS };
+/** Official recipes by passcode, with the NPCs' rebuilt recipes (npcDecks.ts) and the owner's tuned boss recipes. */
+export const NPC_DECKS = { ...(DJ as unknown as { npc_decks: Record<string, Deck> }).npc_decks, ...NPC_DECK_OVERRIDES, ...HELL_KAISER_DECKS, ...YUGI_DECKS };
 /** research/ia/cards_yo2.csv, by passcode: the 2008 client's cards -> [csv kind, 2008 limit, name] */
 export const DECK_CARDS = (DJ as unknown as { cards: Record<string, [number, number, string]> }).cards;
 
