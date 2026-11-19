@@ -2,13 +2,16 @@
 
 python3 client/tools/era2008_assets.py --merge <merge.dat> --gamedata server/gamedata --out <directory>
 Loose files override modern card.dat faces. Output is Konami-derived and must not be committed.
+<out>/orig/ is the Settings page's "Original (2008)" card pictures: list_card.txt for data/card and data/mini, loose,
+so they win over card.dat's and mini.dat's own. Every card with a 2008 face names merge.dat's file; the cards the 2008
+client never had keep card.dat's. lazyfs mounts it only for a player who picked them.
 """
 import argparse
 import json
 import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from cardart import Merge
+from cardart import Merge, card_names
 from newcards import strings
 
 
@@ -46,6 +49,30 @@ def build(merge, cards, catalog, out):
     return entries
 
 
+def original_lists(merge, cards):
+    """card.dat's and mini.dat's list_card.txt with merge.dat's 2008 file for every card that has one"""
+    names = card_names(merge, cards)
+    for c in cards:
+        if c.get("new") or c.get("noart") or not c.get("big"):
+            continue
+        if f"data/card/{c['big']}" in merge.toc and f"data/mini/{c['mini']}" in merge.toc:
+            names["card"][c["i"]], names["mini"][c["i"]] = c["big"], c["mini"]
+    return names
+
+
+def build_original(merge, cards, out):
+    manifest = []
+    for folder, lines in original_lists(merge, cards).items():
+        data = "\r\n".join(lines).encode("ascii")
+        path = f"merge/data/{folder}/list_card.txt"
+        os.makedirs(os.path.join(out, os.path.dirname(path)), exist_ok=True)
+        with open(os.path.join(out, path), "wb") as f:
+            f.write(data)
+        manifest.append(f"{len(data)}\t{path}")
+    with open(os.path.join(out, "files.txt"), "w") as f:
+        f.write("\n".join(manifest) + "\n")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     for arg in ("--merge", "--gamedata", "--out"):
@@ -56,7 +83,9 @@ def main():
         catalog = json.load(f)
     with open(os.path.join(a.gamedata, "cards.json")) as f:
         cards = json.load(f)
-    result = build(Merge(a.merge), cards, catalog, a.out)
+    merge = Merge(a.merge)
+    result = build(merge, cards, catalog, a.out)
+    build_original(merge, cards, os.path.join(a.out, "orig"))
     print(f"2008 card assets: {len(result)} faces and localized descriptions in {a.out}")
 
 

@@ -292,8 +292,9 @@ export const ROUTES = {
     ['wait', 8000], ['click', 511, 670], ['wait', 3000], ['window', 'CChatWindow', 30000], ['scene', 0x26, 900000], ['wait', 6000]],
     flip: ['CWindowModelKaban', 'CWindowModelDeck'] },
   // a player with a character: row 0 -> My Room (scene 10), the menu, Edit Deck (yo2-speed's recomp-menus.md coordinates)
-  // the social windows from My Room's Main Menu (43,747; entries every 26 px from Edit Deck at 140,422)
-  ...Object.fromEntries([['profile', 448, 'CWindowModelProfile'], ['dmail', 552, 'CWindowModelDMail'], ['ignore', 630, 'CWindowModelBlacklist'],
+  // the social windows from My Room's Main Menu (43,747; entries every 26 px from Edit Deck at 140,396; Settings,
+  // ovr/audiomenu.c, after Duel Log grew the menu up a row: the entries above it moved up 26 px, the ones below stayed)
+  ...Object.fromEntries([['profile', 422, 'CWindowModelProfile'], ['dmail', 526, 'CWindowModelDMail'], ['ignore', 630, 'CWindowModelBlacklist'],
     ['friends', 656, 'CWindowModelFriendlist'], ['teams', 682, 'CWindowModelTeamlist']].map(([n, y, cls]) =>
     [n, { player: 'Social Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
       ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['click', 140, y], ['wait', 4000]], flip: [cls] }])),
@@ -372,11 +373,11 @@ export const ROUTES = {
     return { ...ROUTES['duel-in'], steps: [...ROUTES['duel-yesno'].steps, ['click', 428, 436], ['scene', 32, 180000], ['wait', 15000],
       ['shot', 'result'], ['js', DUELLOGS_JS], ['wait', 1000], ['log', 'duellogs']], flip: [] };
   },
-  // ... and the saved record seen again from My Room's Main Menu, Duel record (entry 7: 140, 604): run with the same
+  // ... and the saved record seen again from My Room's Main Menu, Duel record (entry 7: 140, 578): run with the same
   // YO2_CHROME_PROFILE as 'duel-record' (the game's files are kept in that profile's IndexedDB) and the same player
   'duel-record-view': { player: 'Duel Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000],
     ['wait', 2500], ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['shot', 'menu'],
-    ['click', 140, 604], ['window', 'CWindowModelDuellogTop', 30000], ['wait', 2000], ['shot', 'records'],
+    ['click', 140, 578], ['window', 'CWindowModelDuellogTop', 30000], ['wait', 2000], ['shot', 'records'],
     // Latest Duel Logs: the client's own (duellogs/list.txt)
     ['click', 400, 227], ['wait', 5000], ['shot', 'latest'], ['snap', 'latest'], ['js', DUELLOGS_JS], ['wait', 1000],
     ['log', 'duellogs'], ['click', 300, 312], ['wait', 5000], ['shot', 'entry'], ['snap', 'entry'],
@@ -387,9 +388,9 @@ export const ROUTES = {
   // the social windows' proof (owner: before / after with open, close and typing): from My Room's Main Menu, the window
   // as the engine draws it, then in HTML, then its Close (or OK) pressed: the HTML button closes it in the game.
   // D-Mail: Write Mail too (the mail form, CWindowModelDMailSend, then in HTML)
-  ...Object.fromEntries([['profile', 448, 'CWindowModelProfile', [512, 562]], ['dmail', 552, 'CWindowModelDMail', [512, 621]],
+  ...Object.fromEntries([['profile', 422, 'CWindowModelProfile', [512, 562]], ['dmail', 526, 'CWindowModelDMail', [512, 621]],
     ['ignore', 630, 'CWindowModelBlacklist', [512, 467]], ['friends', 656, 'CWindowModelFriendlist', [737, 467]],
-    ['teams', 682, 'CWindowModelTeamlist', [737, 467]], ['comment', 503, 'CWindowModelSetComment', [596, 462]],
+    ['teams', 682, 'CWindowModelTeamlist', [737, 467]], ['comment', 477, 'CWindowModelSetComment', [596, 462]],
     // the Ignore list's Add to Ignore List: its name dialog over the list
     ['ignoreadd', 630, 'CWindowModelBlacklistInput', [588, 413], ['CWindowModelBlacklist', 711, 467]],
     ].map(([n, y, cls, close, via]) => ['sp-' + n, { player: 'Social Tester',
@@ -403,17 +404,17 @@ export const ROUTES = {
         ['wait', 1500], ['shot', 'typed-html']] : [['click', ...close], ['wait', 2500], ['shot', 'closed-html']])],
     flip: [] }])),
   deck: { player: 'Deck Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
-    ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['click', 140, 422],
+    ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['click', 140, 396],
     ['window', 'CWindowModelKaban', 90000], ['wait', 4000]], flip: ['CWindowModelDeck', 'CWindowModelKaban', 'CCardDetailViewDlg'] },
   // the modern deck editor (svelte/modern/deck/Editor.svelte): the deck route, then Modern UI on. DECK_ID=0 with
   // STACK_PROGRESSION=0 (stack.py): a character with every card and no starter, for a full trunk
   'modern-deck': { player: 'Modern Tester', deck: process.env.DECK_ID != null ? +process.env.DECK_ID : undefined, steps: [['scene', 4, 90000],
     ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 3000],
-    ['click', 43, 747], ['wait', 1500], ['click', 140, 422], ['window', 'CWindowModelKaban', 90000], ['wait', 4000],
+    ['click', 43, 747], ['wait', 1500], ['click', 140, 396], ['window', 'CWindowModelKaban', 90000], ['wait', 4000],
     ['js', 'yo2Html.modern(true)'], ['wait', 3000]], flip: [] },
   // the deck editor's file list: the deck route, then SAVE DECK (the side button at 0, 67)
   'deck-files': { player: 'Deck Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
-    ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['click', 140, 422],
+    ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['click', 140, 396],
     ['window', 'CWindowModelKaban', 90000], ['wait', 4000], ['click', 60, 80], ['window', 'CWindowModelFileList', 30000], ['wait', 2000]],
     flip: ['CWindowModelFileList'] },
   'shop-menu': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: SHOP_STEPS, flip: ['CShopCategoryWindow', 'CShopMileagePlate'] },
@@ -463,7 +464,7 @@ export const ROUTES = {
     // My Room (DS_MYROOM), the deck editor (DS_DECK: Main Menu, Edit Deck)
     const DS_MYROOM = [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 560, 342, 7],
       ['scene', 10, 90000], ['wait', 4000]];
-    const DS_DECK = [...DS_MYROOM, ['click', 43, 747], ['wait', 2500], ['click', 140, 422], ['window', 'CWindowModelKaban', 90000], ['wait', 4000]];
+    const DS_DECK = [...DS_MYROOM, ['click', 43, 747], ['wait', 2500], ['click', 140, 396], ['window', 'CWindowModelKaban', 90000], ['wait', 4000]];
     return {
       // each: the window as the engine draws it (open-engine) and its snapshot, in HTML (open-html), a button of the HTML
       // pressed (the page's own click on the DOM, <press>-after: the game's answer and snapshot; console.txt: PRESS),
@@ -477,7 +478,7 @@ export const ROUTES = {
         ['ds-move', 'CWindowModelMove', [[200, 752]], [['close', 479, 560]]],
         ['ds-findmenu', 'CFindMenu', [[213, 620]], [['showall', 358, 732]]],
         // Duel Options (My Room's Main Menu, Duel Setting): Auto Card Placing OFF, then Cancel
-        ['ds-config', 'CWindowModelDuelConfig', [[43, 747], [140, 526]], [['chainoff', 624, 279], ['cancel', 635, 590]], DS_MYROOM],
+        ['ds-config', 'CWindowModelDuelConfig', [[43, 747], [140, 500]], [['chainoff', 624, 279], ['cancel', 635, 590]], DS_MYROOM],
         // SAVE DECK, the deck "deck" picked, OK: "Do you want to overwrite the file?" (No: back to the list); Yes: saved,
         // the OK box (OK closes it)
         ['dlg-yesno', 'CWindowModelDialogYesNo', [[60, 80], [504, 360], [599, 500]], [['no', 596, 436]], DS_DECK, 'Deck Tester'],
