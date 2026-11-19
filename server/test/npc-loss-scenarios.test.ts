@@ -457,4 +457,24 @@ describe.skipIf(!haveData)("NPC scenarios: production losses (real engine)", () 
     });
     expect(msgs(p, "SET").filter((m) => Number(m.controller ?? (m.card as Json | undefined)?.controller) === 1 && (Number(m.location ?? (m.card as Json | undefined)?.location) & 0x08) !== 0)).toHaveLength(0);
   });
+
+  // ---- Card of Sanctity: this engine's script banishes my hand and field for two cards (deck lab trace npc77-g20)
+  it("does not banish a full hand with Card of Sanctity", () => {
+    const p = play(dc, {
+      npcId: 77, first: "player", turns: 2,
+      npc: { hand: ["Dark Jeroid", "Card of Sanctity", "Gil Garth", "Giant Orc", "Monster Reborn", "Drillago"],
+        deck: [...Array(14).fill("Reckless Greed"), "Pot of Greed", "Graceful Charity", "Pot of Greed", "Night Assailant", "Pot of Greed", "Raigeki"] },
+      player: { mzone: [["Petit Moth", "set"]], szone: [["Ancient City - Rainbow Ruins", "up"]] },
+    });
+    expect(npcActivated(p, "Card of Sanctity")).toBe(false);
+  });
+
+  it("casts Card of Sanctity with nothing but a dead card to banish (control)", () => {
+    const p = play(dc, {
+      npcId: 77, first: "npc", turns: 1,
+      npc: { hand: ["Card of Sanctity", "Obelisk the Tormentor"], deck: Array(20).fill("Slifer the Sky Dragon") },
+      player: { mzone: [["Petit Moth", "set"]] },
+    });
+    expect(npcActivated(p, "Card of Sanctity")).toBe(true);
+  });
 });
