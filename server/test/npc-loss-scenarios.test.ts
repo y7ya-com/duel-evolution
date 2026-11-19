@@ -540,4 +540,14 @@ describe.skipIf(!haveData)("NPC scenarios: production losses (real engine)", () 
     expect(msgs(p, "PAY_LPCOST").filter((m) => Number(m.player) === 1)).toHaveLength(0);
     expect(p.end?.winner).not.toBe(0);
   });
+
+  it("tributes the Brain Controlled Wulf for Skull Archfiend of Lightning, not a Shadowknight beside it (npc26-g10)", () => {
+    const p = play(dc, {
+      npcId: 26, first: "player", turns: 2,
+      npc: { hand: ["Brain Control", "Skull Archfiend of Lightning", "Shadowknight Archfiend"], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: ["Wulf, Lightsworn Beast"] },
+    });
+    expect(npcActivated(p, "Brain Control")).toBe(true);
+    expect(msgs(p, "SUMMONING", "Skull Archfiend of Lightning")).toHaveLength(1);
+  });
 });

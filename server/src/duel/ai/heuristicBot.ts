@@ -1274,11 +1274,14 @@ export class HeuristicBot {
     // (production set Warrior Lady of the Wasteland facing an empty field and backrow)
     if (this.#opp()?.szone.some((c) => c) ?? true) return null;
     let best = -1, atk = 999;
+    // (not one a borrowed attacker's Tribute Summon in Main Phase 2 beats: production summoned Shadowknight Archfiend
+    // beside a Brain Controlled Wulf with Skull Archfiend of Lightning in hand: deck lab, NPC 26)
+    const waitFor = this.#lentTributeAtk(ev, this.#monstersOf(this.#me()).filter((m) => !m.stolen).length);
     ev.summonable.forEach((c, i) => {
       const k = this.#cards.brain.get(c.code);
       if (!k || (c.location & LOCATION.HAND) === 0 || k.tributes() > 0 || this.#isFlip(c.code) || this.#ruleFor(c.code)?.keepInHand || this.#locked(c.code)) return;
       const a = this.#normalSummonStats(c.code).atk;
-      if (a > atk) { atk = a; best = i; }
+      if (a > atk && a >= waitFor) { atk = a; best = i; }
     });
     return best >= 0 ? respIdle("SELECT_SUMMON", best) : null;
   }
@@ -2801,6 +2804,17 @@ export class HeuristicBot {
     return { value: evaluate({ ...end, myHand: 0 }), verdict: outcomeScore(end), trade };
   }
 
+  /** The ATK of the best monster in my hand that a borrowed attacker of the battle plan, tributed in Main Phase 2 with
+   *  `fodder` other monsters, lets me Tribute Summon (0 none): a smaller Normal Summon now waits for it. */
+  #lentTributeAtk(ev: P<"selectIdleCmd">, fodder: number): number {
+    const planNow = ev.canBattlePhase && this.#battleAhead() ? new Set(this.#mainOnePlan().map((a) => a.seq)) : new Set<number>();
+    const lentLater = this.#monstersOf(this.#me()).filter((m) => m.stolen && planNow.has(m.seq)).length;
+    return lentLater === 0 ? 0 : ev.summonable.reduce((best, c) => {
+      const n = this.#tributeCount(c.code);
+      return (c.location & LOCATION.HAND) !== 0 && n > 0 && n <= fodder + lentLater && !this.#ruleFor(c.code)?.keepInHand ? Math.max(best, this.#stat(c.code).atk) : best;
+    }, 0);
+  }
+
   /** My Main Phase 1 with my Battle Phase still ahead (no Battle Phase on the duel's first turn). */
   #battleAhead(): boolean {
     return this.#turnPlayer === this.seat && this.#board?.phase === PHASE.MAIN1 && this.#turn > 1;
@@ -2835,11 +2849,7 @@ export class HeuristicBot {
     // a borrowed monster that attacks first is a tribute in Main 2: the Normal Summon waits for the Tribute Summon it
     // makes then (production summoned D.D. Warrior Lady beside a Brain Controlled monster with Raiza in hand, and the
     // borrowed monster went back and beat it: duel 2431)
-    const lentLater = mine.filter((m) => m.stolen && planNow.has(m.seq)).length;
-    const waitFor = lentLater === 0 ? 0 : ev.summonable.reduce((best, c) => {
-      const n = this.#tributeCount(c.code);
-      return (c.location & LOCATION.HAND) !== 0 && n > 0 && n <= fodder.length + lentLater && !this.#ruleFor(c.code)?.keepInHand ? Math.max(best, this.#stat(c.code).atk) : best;
-    }, 0);
+    const waitFor = this.#lentTributeAtk(ev, fodder.length);
     const bar = opp.reduce((n, m) => Math.max(n, holdOf(m)), 0);
     const lethalOnMe = replyPosition(this.#boardPosition()).myLp <= 0;
     const stops = (def: number) => opp.filter((m) => m.attackPos && m.atk <= def).length;
