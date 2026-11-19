@@ -309,6 +309,8 @@ export class HeuristicBot {
   #soulMark: { turn: number; seq: number; link: number } | null = null;
   /** The opponent's monster an Honest of theirs raised in my battle: its zone and ATK before, for the turn it lasts. */
   #honestBoost: { turn: number; seq: number; atk: number } | null = null;
+  /** The LP my Wall of Revealing Light was paid with: the opponent's monsters up to that ATK cannot attack. */
+  #wallPaid = 0;
   /** Lethal was counted this turn: turn every body up, summon the strongest, attack. */
   #allIn = false;
   #rules: Record<string, CardRule>;
@@ -559,6 +561,7 @@ export class HeuristicBot {
     this.#lentTurn = from.#lentTurn;
     this.#soulMark = from.#soulMark;
     this.#honestBoost = from.#honestBoost;
+    this.#wallPaid = from.#wallPaid;
     this.#attackSeen = from.#attackSeen;
     this.#deadAttackers = new Set(from.#deadAttackers);
     this.#attackedThisTurn = new Set(from.#attackedThisTurn);
@@ -955,7 +958,7 @@ export class HeuristicBot {
       });
     });
     const locks = this.#faceUpLocks();
-    if (locks.size > 0) for (const m of out) m.noAttack = this.#attackLocked(m, p === this.#me() ? this.seat : 1 - this.seat, locks);
+    if (locks.size > 0 || this.#wallPaid > 0) for (const m of out) m.noAttack = this.#attackLocked(m, p === this.#me() ? this.seat : 1 - this.seat, locks);
     return out;
   }
 
@@ -998,6 +1001,9 @@ export class HeuristicBot {
    *  defence), the opponent's Swords of Revealing Light. A set monster's Level is unknown: it may attack. */
   #attackLocked(m: { atk: number; level: number; faceDown: boolean }, owner: number, locks = this.#faceUpLocks()): boolean {
     if (locks.has("nightmare's steelcage")) return true;
+    // my own Wall of Revealing Light, at the LP I paid for it
+    if (owner !== this.seat && !m.faceDown && m.atk <= this.#wallPaid
+      && this.#me()?.szone.some((c) => c && !isFaceDown(c.position) && this.#nameOf(c.code) === "wall of revealing light")) return true;
     if ([...(locks.get("swords of revealing light") ?? [])].some((who) => who !== owner)) return true;
     if (m.faceDown) return false;
     if (locks.has("messenger of peace") && m.atk >= 1500) return true;
@@ -2232,7 +2238,11 @@ export class HeuristicBot {
       case "selectCounter": return this.#selectCounter(ev);
       case "announceRace": return { type: "ANNOUNCE_RACE", races: this.#tribeRace(ev) };
       case "announceAttrib": return { type: "ANNOUNCE_ATTRIB", attributes: lowestBits(ev.available, ev.count) };
-      case "announceNumber": return { type: "ANNOUNCE_NUMBER", value: this.#ruleFor(this.#lastActivated)?.number?.(this.#withSelf(this.#ctx(), this.#lastActivated), ev.options.map(Number)) ?? 0 };
+      case "announceNumber": {
+        const value = this.#ruleFor(this.#lastActivated)?.number?.(this.#withSelf(this.#ctx(), this.#lastActivated), ev.options.map(Number)) ?? 0;
+        if (this.#nameOf(this.#lastActivated) === "wall of revealing light") this.#wallPaid = Number(ev.options[value] ?? 0);
+        return { type: "ANNOUNCE_NUMBER", value };
+      }
       case "sortCard": return respSort();
       case "selectSum": return solveSum(ev, (i) => this.#materialCost(ev.cards[i]!));
       case "announceCard": {
@@ -3172,6 +3182,9 @@ export class HeuristicBot {
     // first whose rule says yes is the answer.
     const prio = (c: Activatable): number => this.#ruleFor(c.code)?.chainPriority ?? (ctx.oppChained && this.#negates(c.code) ? 50 : 0);
     let order = ev.chains.map((c, i) => ({ i, p: prio(c) })).sort((a, b) => b.p - a.p).map((x) => x.i);
+    // an attacker a lock of mine already stops (my Wall of Revealing Light, just paid) needs no second card (production
+    // chained Raigeki Break on a D.D. Survivor its Wall had stopped: duel 2477)
+    if (!own && ctx.attackAtk > 0 && !ctx.oppChained && this.#attack && this.#oppMonsters().find((m) => m.seq === this.#attack!.sequence)?.noAttack) return respChain(null);
     // an attack on me: of the answers that would fire, the cheapest that does the job (production spent Mirror Force on
     // a lone attacker with Sakuretsu Armor set, and Raigeki Break plus a discard where Sakuretsu was free)
     if (!own && ctx.attackAtk > 0 && !ctx.oppChained) {

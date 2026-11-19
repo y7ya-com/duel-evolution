@@ -405,4 +405,13 @@ describe.skipIf(!haveData)("NPC scenarios: production losses (real engine)", () 
     });
     expect(npcActivated(p, "Sakuretsu Armor") || npcActivated(p, "Mirror Force")).toBe(true);
   });
+
+  it("answers one attack once: Wall of Revealing Light or Raigeki Break, not both (2477)", () => {
+    const p = play(dc, {
+      npcId: 57, first: "npc", turns: 2,
+      npc: { hand: ["Polymerization", "Darklord Marie", "Messenger of Peace"], szone: ["Wall of Revealing Light", "Raigeki Break", "Mystical Space Typhoon"], deck: Array(20).fill("Reckless Greed") },
+      player: { mzone: ["D.D. Survivor"] }, player_policy: attacker,
+    });
+    expect(npcActivated(p, "Wall of Revealing Light") && npcActivated(p, "Raigeki Break")).toBe(false);
+  });
 });
