@@ -225,4 +225,15 @@ describe.skipIf(!haveData)("NPC scenarios: production losses (real engine)", () 
     expect(msgs(p, "SUMMONING", "Raiza the Storm Monarch")).toHaveLength(1);
     expect(msgs(p, "SUMMONING", "D.D. Warrior Lady")).toHaveLength(0);
   });
+
+  // ---- set cards used as they are destroyed
+  it("lets a targeted Limiter Removal go rather than destroy its own Machines at the End Phase (2603)", () => {
+    const p = play(dc, {
+      npcId: 63, first: "player", turns: 2,
+      npc: { mzone: ["V-Tiger Jet", "Z-Metal Tank"], szone: ["Limiter Removal"], deck: Array(20).fill("Reckless Greed") },
+      player: { hand: ["Mystical Space Typhoon"] }, player_policy: activating("Mystical Space Typhoon"),
+    });
+    expect(npcActivated(p, "Limiter Removal")).toBe(false);
+    expect(leftField(p, "V-Tiger Jet")).toBe(false);
+  });
 });
