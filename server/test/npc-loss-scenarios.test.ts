@@ -434,4 +434,27 @@ describe.skipIf(!haveData)("NPC scenarios: production losses (real engine)", () 
     });
     expect(npcActivated(p, "Heavy Storm")).toBe(true);
   });
+
+  // ---- Destiny Board needs a free zone for each letter (deck lab traces npc81-g30, npc81-g61)
+  it("keeps the last Spell/Trap zone free for Destiny Board's next letter, not a set Sakuretsu Armor", () => {
+    const p = play(dc, {
+      npcId: 81, first: "npc", turns: 2,
+      npc: { lp: 2600, hand: ["Sakuretsu Armor", "Threatening Roar"],
+        szone: [null, ["Card Trader", "up"], ["Destiny Board", "up"], ["Card Trader", "up"], ["Card Trader", "up"]],
+        deck: ["Spirit Message \"I\"", ...Array(19).fill("Petit Moth")] },
+      player: { lp: 700, mzone: [["Lyla, Lightsworn Sorceress", "def"]] },
+    });
+    const letter = code("Spirit Message \"I\"");
+    expect(msgs(p, "MOVE").some((m) => Number(m.card ?? m.code) === letter && (Number((m.to as Json | undefined)?.location) & 0x08) !== 0)).toBe(true);
+  });
+
+  it("does not set a second Destiny Board into the zone the next letter needs", () => {
+    const p = play(dc, {
+      npcId: 81, first: "npc", turns: 1,
+      npc: { hand: ["Destiny Board", "Dark Ruler Ha Des"], szone: ["Magic Cylinder", ["Destiny Board", "up"], "Threatening Roar", ["Spirit Message \"I\"", "up"]],
+        deck: Array(20).fill("Petit Moth") },
+      player: { mzone: ["Cyber Dragon"] },
+    });
+    expect(msgs(p, "SET").filter((m) => Number(m.controller ?? (m.card as Json | undefined)?.controller) === 1 && (Number(m.location ?? (m.card as Json | undefined)?.location) & 0x08) !== 0)).toHaveLength(0);
+  });
 });

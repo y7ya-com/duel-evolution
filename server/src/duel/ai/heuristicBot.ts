@@ -1157,12 +1157,14 @@ export class HeuristicBot {
     const free = me ? me.szone.slice(0, 5).filter((c) => !c).length : 5;
     const handSpell = !!me && me.hand.some((c) => { const t = this.#cards.brain.get(c)?.type ?? 0; return (t & TYPE_SPELL) !== 0 && (t & (TYPE_QUICKPLAY | TYPE_FIELD)) === 0 && !neverSet(c); });
     if (free <= 1 && handSpell && (me?.hand.length ?? 0) < 7) return -1;
+    if (free <= 1 && this.#destinyBoardUp()) return -1;
     // a last card in hand that only repeats a card already on my field stays there while a set card needs a discard to
     // work (production set a second Macro Cosmos, and its Divine Wrath could not answer)
     const keepFodder = !!me && me.hand.length <= 1 && me.szone.some((c) => c && c.code && isFaceDown(c.position) && DISCARD_COST.test(this.#nameOf(c.code)));
     const setCodes = new Set(me ? me.szone.filter((c): c is BoardCard => !!c && isFaceDown(c.position)).map((c) => c.code) : []);
     for (let i = 0; i < ev.spellSet.length; i++) {
       if (free <= 2 && setCodes.has(ev.spellSet[i]!.code)) continue;
+      if (this.#destinyBoardUp() && this.#nameOf(ev.spellSet[i]!.code) === "destiny board") continue;
       if (keepFodder && me!.szone.some((c) => c && c.code === ev.spellSet[i]!.code)) continue;
       const t = this.#cards.brain.get(ev.spellSet[i]!.code)?.type ?? 0;
       // With battle and summon coverage already set, reserve redundant answers against a wipe.
@@ -1183,6 +1185,12 @@ export class HeuristicBot {
       if (quick < 0 && (t & TYPE_QUICKPLAY)) quick = i;
     }
     return quick;
+  }
+
+  /** My face-up Destiny Board, its message not complete: each letter it places needs a free Spell/Trap zone (production
+   *  set a second Destiny Board, and a Sakuretsu Armor a letter from winning, into the last one: deck lab, NPC 81). */
+  #destinyBoardUp(): boolean {
+    return !!this.#me()?.szone.some((c) => c && c.code && !isFaceDown(c.position) && this.#nameOf(c.code) === "destiny board");
   }
 
   /** Keep a free Cyber Dragon before stealing/removing the board closes its summon window. */
@@ -1310,6 +1318,8 @@ export class HeuristicBot {
   #setOverHandLimit(ev: P<"selectIdleCmd">): Json | null {
     const me = this.#me();
     if (!me || me.hand.length <= 6 || ev.spellSet.length === 0) return null;
+    // (a card discarded costs less than Destiny Board's next letter)
+    if (this.#destinyBoardUp() && me.szone.slice(0, 5).filter((c) => !c).length <= 1) return null;
     let best = -1, worth = -Infinity;
     ev.spellSet.forEach((c, i) => {
       if (neverSet(c.code) || this.#locked(c.code)) return;
@@ -1357,6 +1367,9 @@ export class HeuristicBot {
     if (name === "giant trunade" && ctx.ext?.lethalThrough && action && this.#whatIf(action).lethal === false) return -Infinity;
     const rule = this.#ruleFor(code);
     if (rule?.idleActivate && !rule.idleActivate(this.#withSelf(ctx, code, ref, action))) return -Infinity;
+    // a card that stays on the field takes the zone Destiny Board's next letter needs
+    if (ref && (ref.location & LOCATION.HAND) !== 0 && ((this.#cards.brain.get(code)?.type ?? 0) & (TYPE_CONTINUOUS | TYPE_EQUIP)) !== 0
+      && this.#destinyBoardUp() && (this.#me()?.szone.slice(0, 5).filter((c) => !c).length ?? 5) <= 1) return -Infinity;
     // a battle lock its rule allows goes up first when the attacks it stops threaten 40% of my LP next turn: the
     // rollouts price the card kept in hand over the LP it saves (production held Swords of Revealing Light and
     // Messenger of Peace into lethal, duels 2448 and 2439)
