@@ -120,7 +120,7 @@
     "maryokutai": {"chainReact": {"all": ["oppChained", {"any": [{">": ["oppChainThreat", "selfValue"]}, "selfThreatened"]}]}},
     "a-team: trap disposal unit": {"chainReact": {"all": ["oppChained", {"any": [{">": ["oppChainThreat", "selfValue"]}, "selfThreatened"]}]}},
     "level down!?": {"idleActivate": {">": ["effectGain", 0]}, "chainReact": {"all": [{">": ["effectGain", 0]}, {"any": [{">": ["attackAtk", 0]}, "oppEndPhase"]}]}},
-    "the winged dragon of ra": {"yesNo": {"all": ["myTurn", {">": [{"-": ["myLp", 100]}, "oppTopAtk"]}, {"any": [{"==": [{"count": "oppMon"}, 0]}, {"<=": ["myLp", 2100]}, {">=": [{"-": ["myLp", 100]}, "oppLp"]}]}]}, "idleActivate": {"all": [{">": ["myLp", 1000]}, {">": [{"count": "oppMon"}, 0]}, {"any": [{">=": ["oppTopAtk", 1500]}, {">": [{"count": "oppMon"}, 1]}]}]}, "idlePriority": 108},
+    "the winged dragon of ra": {"yesNo": {"all": ["preBattle", {"all": ["myTurn", {">": [{"-": ["myLp", 100]}, "oppTopAtk"]}, {"any": [{"==": [{"count": "oppMon"}, 0]}, {"<=": ["myLp", 2100]}, {">=": [{"-": ["myLp", 100]}, "oppLp"]}]}]}]}, "idleActivate": {"all": [{">": ["myLp", 1000]}, {">": [{"count": "oppMon"}, 0]}, {"any": [{">=": ["oppTopAtk", 1500]}, {">": [{"count": "oppMon"}, 1]}]}]}, "idlePriority": 108, "summonScore": {"if": [{"all": ["preBattle", {">=": [{"-": ["myLp", 100]}, "oppLp"]}, {"==": [{"count": "oppMon"}, 0]}]}, 6000, -3000]}},
     "fake trap": {"chainReact": {"all": ["oppChained", "oppChainHitsMyBackrow"]}, "idleActivate": false, "doomed": false},
     "pulling the rug": {"chainReact": {"all": ["oppChained", {">": ["oppChainThreat", 0]}]}},
     "checkmate": {"idleActivate": {"all": ["preBattle", {"named": "terrorking archfiend"}, {">=": [{"count": "myMon"}, 2]}, {">": [{"count": "oppMon", "where": {">=": [{"if": ["attackPos", "atk", "def"]}, 2000]}}, 0]}]}, "battleActivate": {"all": [{"named": "terrorking archfiend"}, {">=": [{"count": "myMon"}, 2]}, {">": [{"count": "oppMon"}, 0]}]}},
@@ -379,7 +379,7 @@
     "inferno reckless summon": {"chainReact": {"any": [{"all": [{">=": [{"onMyField": "marauding captain"}, 1]}, {">=": [{"+": [{"inMyHand": "marauding captain"}, {"inMyDeck": "marauding captain"}, {"inMyGrave": "marauding captain"}]}, 1]}]}, {"all": [{">=": [{"onMyField": "warrior lady of the wasteland"}, 1]}, {">=": [{"+": [{"inMyHand": "warrior lady of the wasteland"}, {"inMyDeck": "warrior lady of the wasteland"}, {"inMyGrave": "warrior lady of the wasteland"}]}, 1]}]}, {"all": [{">=": [{"onMyField": "d.d. warrior lady"}, 1]}, {">=": [{"+": [{"inMyHand": "d.d. warrior lady"}, {"inMyDeck": "d.d. warrior lady"}, {"inMyGrave": "d.d. warrior lady"}]}, 1]}]}, {"all": [{">=": [{"onMyField": "rocket warrior"}, 1]}, {">=": [{"+": [{"inMyHand": "rocket warrior"}, {"inMyDeck": "rocket warrior"}, {"inMyGrave": "rocket warrior"}]}, 1]}]}, {"all": [{">=": [{"-": [{"onMyField": "d.d. warrior"}, {"onMyField": "d.d. warrior lady"}]}, 1]}, {">=": [{"-": [{"+": [{"inMyHand": "d.d. warrior"}, {"inMyDeck": "d.d. warrior"}, {"inMyGrave": "d.d. warrior"}]}, {"+": [{"inMyHand": "d.d. warrior lady"}, {"inMyDeck": "d.d. warrior lady"}, {"inMyGrave": "d.d. warrior lady"}]}]}, 1]}]}, {"all": [{">=": [{"onMyField": "spell striker"}, 1]}, {">=": [{"+": [{"inMyHand": "spell striker"}, {"inMyDeck": "spell striker"}, {"inMyGrave": "spell striker"}]}, 1]}]}]}, "ownTurn": true},
     "blade knight": {"summonScore": {"if": [{"<=": ["myHand", 2]}, 400, 0]}},
     "kuriboh": {"chainReact": {"all": [{">": ["incomingDamage", 0]}, {"any": ["attackLethal", {">=": ["incomingDamage", "myLp"]}, {"all": [{">=": ["incomingDamage", 1500]}, {"any": [{"<=": ["myLp", {"*": [2, "incomingDamage"]}]}, "attackerIsStrongest"]}]}]}]}},
-    "puppet master": {"yesNo": {">": ["myLp", 2000]}, "pick": {"score": "atk"}},
+    "puppet master": {"yesNo": {">": ["myLp", 2000]}, "pick": {"score": "atk"}, "summonScore": {"if": [{"all": [{">=": ["myGraveMonsters", 2]}, {"canPay": 2000}]}, 2500, -1000]}},
     "monster reincarnation": {"pick": {"score": {"if": ["inGrave", {"if": ["copyInHand", {"/": ["atk", 10]}, {"if": [{"is": "exodia the forbidden one"}, 300, {"if": [{"is": "left arm of the forbidden one"}, 290, {"if": [{"is": "right arm of the forbidden one"}, 280, {"if": [{"is": "left leg of the forbidden one"}, 270, {"if": [{"is": "right leg of the forbidden one"}, 260, {"/": ["atk", 10]}]}]}]}]}]}]}, {"if": [{"any": [{"is": "exodia the forbidden one"}, {"is": "left arm of the forbidden one"}, {"is": "right arm of the forbidden one"}, {"is": "left leg of the forbidden one"}, {"is": "right leg of the forbidden one"}]}, -100000, {"if": ["copyInHand", 6000, {"if": ["isMonster", {"-": [5000, "atk"]}, 0]}]}]}]}}},
     "mystic tomato": {"pick": {"score": {"if": [{"is": "sangan"}, 400, {"if": [{"is": "witch of the black forest"}, 350, {"if": [{"is": "exodia the forbidden one"}, 300, {"if": [{"is": "right leg of the forbidden one"}, 290, {"if": [{"is": "left leg of the forbidden one"}, 280, {"if": [{"is": "right arm of the forbidden one"}, 270, {"if": [{"is": "left arm of the forbidden one"}, 260, {"min": [{"/": ["atk", 10]}, 150]}]}]}]}]}]}]}]}}},
     "spirit message \"a\"": {"idleActivate": false, "chainReact": false, "keepInHand": true},
@@ -447,16 +447,21 @@
     "gold sarcophagus": {"idleActivate": {">": ["myDeck", 2]}, "idlePriority": 100, "pick": {"score": {"+": ["worth", {"if": ["alreadyHave", -3000, 0]}]}}},
     "contract with the dark master": {"idleActivate": true, "idlePriority": 90},
     "neo-spacian grand mole": {"summonScore": {"if": [{">": [{"count": "oppMon", "where": {"not": "faceDown"}}, 0]}, 600, 0]}},
-    "lava golem": {"specialSummon": {"all": [{">=": [{"count": "oppMon"}, 2]}, {"any": ["myLockActive", {">": ["oppMaxAtk", "myMaxAtk"]}, {">=": [{"count": "oppMon"}, 3]}]}]}, "idlePriority": 100},
+    "lava golem": {"specialSummon": {"all": [{">=": [{"count": "oppMon"}, 2]}, {"any": ["myLockActive", {">": ["oppMaxAtk", "myMaxAtk"]}, {">=": [{"count": "oppMon"}, 3]}, {"<=": ["oppLp", 2000]}, {">=": [{"+": [{"inMyHand": "messenger of peace"}, {"inMyHand": "gravity bind"}, {"inMyHand": "swords of revealing light"}, {"inMyHand": "nightmare's steelcage"}]}, 1]}]}]}, "idlePriority": 100},
     "solar flare dragon": {"summonScore": {"if": [{"any": ["myLockActive", {"<=": ["oppTopAtk", 1500]}, {">=": [{"onMyField": "ufo turtle"}, 1]}]}, 500, 0]}},
     "ufo turtle": {"summonScore": {"if": [{">=": [{"onMyField": "solar flare dragon"}, 1]}, 800, 0]}},
     "des koala": {"flip": {">=": ["oppHand", 3]}},
     "overload fusion": {"pick": {"score": {"if": ["inExtra", 0, {"if": ["inGrave", {"+": [1000, "atk"]}, {"-": [1600, "atk"]}]}]}, "min": 0}},
     "crystal beast cobalt eagle": {"idleActivate": false},
     "a cat of ill omen": {"pick": {"score": {"+": ["worth", {"if": [{"is": "gravity bind"}, {"*": [{"count": "oppMon", "where": {">=": ["level", 4]}}, 1500]}, 0]}, {"if": [{"is": "mirror force"}, {"*": [{"count": "oppMon", "where": "attackPos"}, 800]}, 0]}]}}},
-    "warrior lady of the wasteland": {"pick": {"score": {"+": ["atk", {"if": [{"is": "warrior lady of the wasteland"}, {"if": ["myTurn", 0, 1000]}, 0]}, {"if": [{"is": "cyber tutu"}, -800, 0]}]}}}
+    "warrior lady of the wasteland": {"pick": {"score": {"+": ["atk", {"if": [{"is": "warrior lady of the wasteland"}, {"if": ["myTurn", 0, 1000]}, 0]}, {"if": [{"is": "cyber tutu"}, -800, 0]}]}}},
+    "the flute of summoning dragon": {"idleActivate": {">=": [{"+": [{"inMyHand": "blue-eyes white dragon"}, {"inMyHand": "divine dragon ragnarok"}, {"inMyHand": "masked dragon"}, {"inMyHand": "red-eyes black dragon"}]}, 1]}, "idlePriority": 85}
   },
   "npcs": {
+    "34": {
+      "the wicked avatar": {"summonScore": {"+": [{"max": ["oppTopAtk", "myMaxAtk"]}, 1600]}},
+      "the wicked eraser": {"summonScore": {"+": [{"*": [1000, {"+": [{"count": "oppMon"}, "oppBackrow"]}]}, 500]}}
+    },
     "65": {
       "level limit - area b": {"idleActivate": {"all": [{"not": "sameCardActive"}, {"any": ["outgunned", {"<": ["myMaxAtk", 1800]}]}]}},
       "card destruction": {"idleActivate": {"all": [{"all": [{"==": ["oppDiscardPayoff", 0]}, {"any": [{">": ["oppHand", "oppDeck"]}, {"all": [{"<=": ["myMaxAtk", "oppMaxAtk"]}, {"any": [{">=": ["oppHand", 5]}, {"all": [{">=": ["oppHand", 3]}, {">=": ["myHand", 3]}, {">=": [{"*": ["myHandTributes", 2]}, {"-": ["myHand", 1]}]}]}]}]}, {"all": [{">=": ["myHand", 4]}, {"==": [{"count": "myMon"}, 0]}, {"==": ["myHandTributes", 0]}]}]}]}, {"not": {"all": ["normalSummonLeft", {">=": [{"inMyHand": "snipe hunter"}, 1]}]}}]}}
@@ -480,7 +485,8 @@
       "slifer the sky dragon": {"summonScore": {"if": [{"all": [{">=": ["myHand", 5]}, {">=": [{"count": "myMon"}, 3]}, {"not": "fieldMonsterEffectsNegated"}]}, 2000, 0]}}
     },
     "38": {
-      "reasoning": {"idleActivate": {"all": [{"<": [{"count": "myMon"}, 3]}, {">=": [{"+": [{"inMyDeck": "dark magician of chaos"}, {"inMyDeck": "jinzo"}, {"inMyDeck": "d.d.m. - different dimension master"}, {"inMyDeck": "toon cannon soldier"}]}, 1]}]}, "idlePriority": 60}
+      "reasoning": {"idleActivate": {"all": [{"<": [{"count": "myMon"}, 3]}, {">=": [{"+": [{"inMyDeck": "dark magician of chaos"}, {"inMyDeck": "jinzo"}, {"inMyDeck": "d.d.m. - different dimension master"}, {"inMyDeck": "toon cannon soldier"}]}, 1]}]}, "idlePriority": 60},
+      "mausoleum of the emperor": {"idleActivate": {"all": [{">": ["myHandTributes", 0]}, {">": ["myLp", 2500]}]}, "idlePriority": 85, "yesNo": {"all": [{">": ["myHandTributes", 0]}, {">": ["myLp", 2500]}]}}
     },
     "68": {
       "advanced ritual art": {"idleActivate": true, "idlePriority": 55, "pick": {"score": {"if": ["inDeck", {"+": ["atk", {"if": [{"any": [{"all": [{">=": [{"inMyHand": "sky scourge enrise"}, 1]}, {"==": [{"inMyHand": "sky scourge norleras"}, 0]}, {">=": ["myGraveDarkFiends", 1]}, {">=": ["myGraveLightFairies", 1]}, {"<": ["myGraveLightFairies", 3]}, {"is": "dunames dark witch"}]}, {"all": [{">=": [{"inMyHand": "sky scourge norleras"}, 1]}, {"==": [{"inMyHand": "sky scourge enrise"}, 0]}, {">=": ["myGraveLightFairies", 1]}, {">=": ["myGraveDarkFiends", 1]}, {"<": ["myGraveDarkFiends", 3]}, {"any": [{"is": "zure, knight of dark world"}, {"is": "archfiend soldier"}]}]}]}, 10000, 0]}]}, "atk"]}}}
