@@ -66,3 +66,8 @@
 006b69f0  # CNetLobby_OfferRoom::onMain: bounded duel request wait (duelrequest.c)
 006b9930  # UPDATE_PLAYERAVATAR: keep our active character in sync after wardrobe equips
 00a02ad0  # CAreaMap player sync: reload our chibi when its appearance changes
+009c9ca0  # CChibiAvatarElm::requestTextures (newstyle.c: with the elm's motion records)
+009ca1c0  # CChibiAvatarElm::releaseTextures (newstyle.c: the same)
+009ca6c0  # CChibiAvatarElm::texturesLoaded (newstyle.c: the same)
+009cca40  # CChibiAvatarElm::createEngine (newstyle.c: the same)
+009ccfc0  # CChibiAvatarElm::applyParts (newstyle.c: + the new-style outfit's body frames)
