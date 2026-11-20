@@ -6,7 +6,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
-import { PY_DUEL_RULE, type DuelCore, type Json } from "../src/duel/engine/core.ts";
+import { PY_DUEL_RULE, type DuelCore, type DuelSetup, type Json } from "../src/duel/engine/core.ts";
 import { createNodeDuelCore, ENGINE_DATA_DIR } from "../src/duel/engine/node.ts";
 import { cardmap } from "../src/duel/data.ts";
 import { LIST_ANY, LIST_ONE, M_LIST, T_VIEW_LIST } from "../src/duel/translator/consts.ts";
@@ -18,7 +18,8 @@ const haveData = existsSync(join(ENGINE_DATA_DIR, "scripts.pack"));
 const GD = join(import.meta.dirname, "..", "gamedata");
 const ELF = 15025844, DARK_MAGICIAN = 46986414, FOOLISH_BURIAL = 81439173, MONSTER_REBORN = 83764718;
 const CHAOS_SORCERER = 9596126;
-const ZONE_HAND = 0x0b, CMD_SPSUMMON = 2, CMD_ACTIVATE = 3;
+const LAQUARI = 78868776, DARIUS = 25924653, BESTIARI = 41470137, HERAKLINOS = 27346636, GYZARUS = 48156348;
+const ZONE_HAND = 0x0b, ZONE_EXTRA = 0x0c, CMD_SPSUMMON = 2, CMD_ACTIVATE = 3;
 
 const u32 = (...xs: number[]) => {
   const b = Buffer.alloc(4 * xs.length);
@@ -48,13 +49,14 @@ class Duel {
   out: Msg[] = [];
   /** the client's codec (client/recomp/rt/cardwire.cpp): the translator speaks the card wire */
   wire = new WireDecoder(GD);
-  constructor(private dc: DuelCore, private id: string, top: number[], cfg: Record<string, unknown> = {}) {
+  constructor(private dc: DuelCore, private id: string, top: number[], cfg: Record<string, unknown> = {},
+    o: { extra?: number[]; setup?: DuelSetup } = {}) {
     const main = [...Array(35 - top.length).fill(ELF), ...Array(5).fill(DARK_MAGICIAN), ...top.slice().reverse()];
-    const decks = [{ main, extra: [] }, { main: Array(40).fill(ELF), extra: [] }];
+    const decks = [{ main, extra: o.extra ?? [] }, { main: Array(40).fill(ELF), extra: [] }];
     this.d = new YO2Duel(decks, { first: 0, cardmap: cardmap(), cfg, rng: new PyRandom(1) });
     this.d.query = () => dc.query(id);
     this.d.start();
-    this.evs = dc.new(id, decks, { first: 0, seed: 1, shuffle: false, rule: PY_DUEL_RULE, bot: [false, true] });
+    this.evs = dc.new(id, decks, { first: 0, seed: 1, shuffle: false, rule: PY_DUEL_RULE, bot: [false, true], setup: o.setup });
     this.pump();
   }
 
@@ -189,6 +191,55 @@ describe.skipIf(!haveData)("picking from the deck / graveyard shows the client's
     expect(h.client(0x6423, u32(0))).toEqual({ type: "SELECT_UNSELECT_CARD", index: null });
     expect(h.last.type).toBe("SELECT_IDLECMD");
     expect((dc.query("pick-unsel-cancel") as any).players[0].grave.length).toBe(4);
+  }, 60_000);
+});
+
+// The bug (Discord, 2026-11-20): a click on the extra deck carries no card, so with Laquari, Bestiari and Darius out the
+// translator always summoned the extra deck's first Contact Fusion (Heraklinos) and Gyzarus could never be picked.
+describe.skipIf(!haveData)("a pile command several cards can take asks which card", () => {
+  let dc: DuelCore;
+  beforeAll(async () => { dc = await createNodeDuelCore(); }, 60_000);
+
+  const beasts = (id: string, cfg: Record<string, unknown> = {}) => {
+    const setup: DuelSetup = { cards: [LAQUARI, BESTIARI, DARIUS].map((code, sequence) => ({ player: 0, code, location: "mzone", sequence })) };
+    const g = new Duel(dc, id, [ELF, ELF, ELF, ELF, ELF], cfg, { extra: [HERAKLINOS, GYZARUS], setup });
+    expect(g.last.type).toBe("SELECT_IDLECMD");
+    expect(g.last.special_summons.map((x: any) => x.code).sort()).toEqual([HERAKLINOS, GYZARUS].sort());
+    return g;
+  };
+
+  it("the extra deck opens the card list of its summonable monsters; the marked one is summoned", () => {
+    const g = beasts("gb-list");
+    expect(g.client(0x6350, u32(0, ZONE_EXTRA, 0, CMD_SPSUMMON))).toBeNull();
+    const s = shown(g.out);
+    expect([s.lists.map((l) => l.kind), s.views]).toEqual([[LIST_ANY], [[0, LIST_ANY]]]);
+    expect(s.lists[0].ids.slice().sort()).toEqual([g.yo2(HERAKLINOS), g.yo2(GYZARUS)].sort());
+    const gy = g.items(GYZARUS)[0];
+    g.client(0x6432, u32(gy, 1));
+    const i = g.last.special_summons.findIndex((x: any) => x.code === GYZARUS);
+    expect(g.client(0x6423, u32(1))).toEqual({ type: "SELECT_IDLECMD", action: "SELECT_SPECIAL_SUMMON", index: i });
+    // the Contact Fusion's own prompts (its materials, its zone) answered by the engine until the summon happens
+    const summons: number[] = [];
+    for (let n = 0; n < 10 && !summons.length; n++) {
+      g.evs = dc.auto("gb-list");
+      summons.push(...g.evs.filter((e: any) => e.type === "SPSUMMONING").map((e: any) => e.code));
+      g.pump();
+    }
+    expect(summons).toEqual([GYZARUS]);
+  }, 60_000);
+
+  it("closing the list with no card goes back to the Main Phase prompt", () => {
+    const g = beasts("gb-list-cancel");
+    g.client(0x6350, u32(0, ZONE_EXTRA, 0, CMD_SPSUMMON));
+    g.client(0x6426, u32(0));
+    expect(g.client(0x6423, u32(0))).toBeNull();
+    expect([g.d.state.mode, shown(g.out).request]).toEqual(["idle", true]);
+    expect(g.last.type).toBe("SELECT_IDLECMD");
+  }, 60_000);
+
+  it("idle_list off (py): the click summons the extra deck's first option", () => {
+    const g = beasts("gb-list-py", { idle_list: false });
+    expect(g.client(0x6350, u32(0, ZONE_EXTRA, 0, CMD_SPSUMMON))).toEqual({ type: "SELECT_IDLECMD", action: "SELECT_SPECIAL_SUMMON", index: 0 });
   }, 60_000);
 });
 

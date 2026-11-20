@@ -198,6 +198,12 @@ INTENTIONAL):
   candidates in the deck, graveyard, banished zone or extra deck opens the client's card list (0x6610 + 0x1b B=0x33,
   as SELECT_CARD already did), not py's bare mask on the pile, which showed no card. Several cards can be marked in
   one list; the next prompts of the same pick take them in order. The py-parity replays set `unselect_list: false`.
+- **A pile command several cards can take asks which card** (translator `idle_list`). The client's click on the
+  deck, graveyard, banished zone or extra deck (0x6350) names the pile, not a card, and py played the pile's first
+  option for the command. With Laquari, Bestiari and Darius out, Special Summon on the extra deck always gave
+  Heraklinos, and Gyzarus could never be summoned (Discord, 2026-11-20). When more than one card of the pile takes the
+  command, the click now opens the card list (LIST_ANY) of those cards: the marked one plays, and closing it with none
+  goes back to the prompt. The py-parity replays set `idle_list: false`.
 - **Automatic card placement goes centre-first**, as on the official server: OCGcore zones 2, 1, 3, 0, 4 (the
   centre, the two next to it, then the edges), per player from their own side, so the opponent needs no mirroring.
   One helper, `src/duel/zones.ts`, orders every zone picker: the engine's `auto` (bot.ts), the translator's answer

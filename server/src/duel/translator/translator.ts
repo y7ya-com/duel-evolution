@@ -2350,6 +2350,11 @@ export class YO2Duel {
       this.log(`[traductor] ordenar: lista cerrada con ${repr(chosen)}: se vuelve a abrir`);
       return [null, this._list_request()];
     }
+    if (st.idle) {
+      // only a mark plays: the cursor alone (0x6426) on a list closed with right click is no pick
+      this.state = st.idle.prev;
+      return chosen.length ? this._play(st.idle.picks[chosen[0]]) : [null, this._resend()];
+    }
     if (!chosen.length && st.single !== null) chosen = [st.single];
     if (st.unselect && chosen.length && chosen.length <= st.max) {
       this.unsel_queue = { keys: chosen.slice(1).map((i) => st.keys[i]), done: st.lmode === K.LIST_ANY };
@@ -2942,11 +2947,9 @@ export class YO2Duel {
         this.log(`[traductor] jugada sin opción: j=${p} zona=0x${zone.toString(16)} índice=${idx} cmd=${cmd}`);
         return [null, this._resend()];
       }
-      const t = this.waiting.type;
-      if (mode === "chain") return this._answer(_respond(t, { index: pick[5] }));
-      this.attacking = mode === "battle" && pick[4] === "SELECT_BATTLE";
-      this.attacker = this.attacking && pick[1] < 5 ? [pick[0], pick[1]] : null;
-      return this._answer(_respond(t, { action: pick[4], index: pick[5] }));
+      const picks = same.filter((o: any[]) => o[3] === cmd);
+      if (picks.length > 1 && this.cfg.idle_list && K.LIST_ZONES.includes(zone)) return [null, this._idle_list(picks)];
+      return this._play(pick);
     }
     if (mode === "sum") return this._sum_click(p, zone, idx);
     if (mode === "card" || mode === "tribute" || mode === "unselect") {
@@ -2961,6 +2964,34 @@ export class YO2Duel {
       return [null, this._pick_request()];
     }
     return [null, []];
+  }
+
+  /** An idle, battle or chain option [p, zone, idx, cmd, action, index] -> the answer to the pending prompt. */
+  _play(pick: any[]): [Cmd, Out[]] {
+    const mode = this.state.mode;
+    const t = this.waiting.type;
+    if (mode === "chain") return this._answer(_respond(t, { index: pick[5] }));
+    this.attacking = mode === "battle" && pick[4] === "SELECT_BATTLE";
+    this.attacker = this.attacking && pick[1] < 5 ? [pick[0], pick[1]] : null;
+    return this._answer(_respond(t, { action: pick[4], index: pick[5] }));
+  }
+
+  /** idle_list (ours; py shares the bug, DESIGN.md "Deliberate changes from 2008"): a click on a pile carries no card,
+   *  so when several cards of one pile take the clicked command (the Gladiator Beasts' Contact Fusions in the extra
+   *  deck: Laquari + Darius could only ever summon Heraklinos) it opens the client's card list (LIST_ANY: right click
+   *  closes it, also with none) to name the card, where py played the pile's first option. The first marked card
+   *  plays; closing it with none goes back to the pending prompt. */
+  _idle_list(picks: any[][]): Out[] {
+    const names: Record<number, PileName> = { [ZONE_DECK]: "deck", [ZONE_GRAVE]: "grave", [ZONE_BANISH]: "banish", [ZONE_EXTRA]: "extra" };
+    const items = picks.map(([p, z, i]) => {
+      const name = names[z];
+      const uid = this.side[p].pile(name)[i] as number;
+      const c = this.card(uid);
+      return [this._hides(c, name, p) ? this._visible(c, name, p) : this._pc(c.code), (uid >> 1) & 0xff, c.owner & 1];
+    });
+    this.state = { mode: "list", idle: { prev: this.state, picks }, items, lmode: K.LIST_ANY, min: 0, max: 1,
+      marks: new Map(), single: null };
+    return this._list_request();
   }
 
   /** «Ver Detalles» on a pile: 0x6610 with its cards + 0x6202 type 0x1b B=0x33. */

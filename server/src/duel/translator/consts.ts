@@ -188,4 +188,5 @@ export const DEFAULT_CFG: Record<string, any> = {
   declare_hint: true, ritual_sum: true, turn_counter_player: true, opp_hand_pick: true,
   // ours, not py's (DESIGN.md "Deliberate changes from 2008"); the py-parity replays turn it off
   unselect_list: true,
+  idle_list: true,   // ours, not py's (DESIGN.md "Deliberate changes from 2008"); py-parity replays: off
 };
