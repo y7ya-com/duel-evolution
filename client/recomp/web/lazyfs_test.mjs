@@ -700,4 +700,20 @@ console.log("prefetch=0: ok");
     delete files[path];
     console.log("2008 printed card text: ok");
 }
+// The authored items' loose files (client/tools/custom_assets.py, in the same hashed folder): the exe reads them as files,
+// and the HTML UI (cosmetics/art.js) gets them by their merge/data name through looseEntry, the folder's copy winning.
+{
+    const csv = "c-test/merge/data/avatar/wu/wm_data.csv", art = "c-test/merge/data/avatar/chibi/cm_nb_01_c01.pak";
+    files[csv] = Buffer.from("10,121,wm_dc_04_c01_r.png,wm_dc_04_c01_l.png,****,****,****,****,****,0,248,768,520\r\n");
+    files[art] = Buffer.from("YO2NSPK1 the new-style pack");
+    const r = makeEnv(new Map(), new Map(), { search: "?prefetch=0", era: { base: "c-test/", cards: {} } });
+    await r.ready();
+    const L = r.Module.yo2Lazy;
+    assert.equal(L.looseFiles.get("data/avatar/chibi/cm_nb_01_c01.pak"), art);
+    assert.deepEqual(Buffer.from(await L.looseEntry("DATA/AVATAR/WU/WM_DATA.CSV")), files[csv]);
+    assert.deepEqual(Buffer.from(r.read("/game/merge/data/avatar/chibi/cm_nb_01_c01.pak", 0, files[art].length)), files[art]);
+    assert.equal(await L.looseEntry("data/avatar/wu/none.png"), null);
+    delete files[csv]; delete files[art];
+    console.log("authored items' loose files: ok");
+}
 console.log("lazyfs_test ok");

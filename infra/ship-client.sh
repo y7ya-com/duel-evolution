@@ -93,10 +93,15 @@ PY
 echo "$(git -C $R rev-parse --short HEAD) $(git -C $R branch --show-current) dirty: $(git -C $R status --short -uno | tr '\n' ' ') built $(date -u -r $B/yo2rc.wasm '+%Y-%m-%d %H:%M:%S UTC')" > $O/BUILD.txt
 cat $O/BUILD.txt
 # Original printed text and faces for the legacy effect catalog. Build them from the owner's game, never an API.
-# Hash the complete set so older open tabs keep their own release's assets.
+# Hash the complete set so older open tabs keep their own release's assets (lazyfs.js mounts it over game/).
 ERA_TMP=$(mktemp -d)
 "${YO2_ASSET_PYTHON:-python3}" "$C/tools/era2008_assets.py" \
   --merge "${YO2_MERGE:-${YO2_GAME:-$HOME/.cache/yo2-game}/merge.dat}" --gamedata "$R/server/gamedata" --out "$ERA_TMP"
+# the authored items' game files (client/custom-assets/<pack>: art from infra/fetch-private.sh, checked against its
+# pack.json; new-style outfits' packs and newstyle.txt; replaced originals; the table rows that name them) as loose
+# merge/data files in the same folder; files.txt anew. Placeholder art only on a DRY=1 test page.
+"${YO2_ASSET_PYTHON:-python3}" "$C/tools/custom_assets.py" ${DRY:+--allow-placeholders} \
+  --merge "${YO2_MERGE:-${YO2_GAME:-$HOME/.cache/yo2-game}/merge.dat}" --packs "$C/custom-assets" --out "$ERA_TMP"
 python3 - "$ERA_TMP" "$O" <<'PYERA'
 import hashlib, json, os, shutil, sys
 src, out = sys.argv[1:]

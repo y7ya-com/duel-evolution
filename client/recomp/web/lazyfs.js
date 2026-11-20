@@ -585,6 +585,9 @@ Module.preRun.push(() => {
         wantSpan("data/map/map_" + m, 1, "map:" + m);
         for (const x of next) wantSpan("data/map/map_" + x, 3, "map:" + x);
         for (const d of AVATARS) wantSpan(d, 4, "avatars");   // the other players and NPCs a lobby shows
+        // the new-style outfits' packs (ovr/newstyle.c reads one whole, ~1 MB, the first time a lobby shows that outfit
+        // in that skin tone): in memory before then
+        for (const [name, url] of looseFiles) if (/^data\/avatar\/chibi\/c[mw]_nb_\d\d_c0\d\.pak$/.test(name)) wantFile(url, 4, "avatars");
     }
     function onMiss(url, i) {
         if (url !== archive) return;
@@ -800,6 +803,20 @@ Module.preRun.push(() => {
 
     // ---- boot: each lazy file's ETag (request version), then last session's pinned chunks from the store
     const lazy = [];
+    // Loose merge/data/ files win over merge.dat's entries in CFile::Open (the authored items' art and their tables, from
+    // the shipped asset folder: client/tools/custom_assets.py). The HTML UI reads the same files (cosmetics/art.js
+    // gameFile), not the archive's: looseFiles (lower-case name under merge/ -> url; the last mount wins, as in the
+    // game's file system), looseEntry(name) -> bytes or null.
+    const looseFiles = L.looseFiles = new Map();
+    L.looseEntry = async (name) => {
+        const url = looseFiles.get(name.toLowerCase()), file = url && files.get(url);
+        if (!file) return null;
+        const response = await fetch(url + file.ver);
+        if (!response.ok) throw new Error(`yo2rc: loose asset ${name} (${response.status})`);
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        if (bytes.length !== file.size) throw new Error(`yo2rc: incomplete loose asset ${name}`);
+        return bytes;
+    };
     function readReal(url, buffer, offset, pos, end) {   // [pos, end) of a lazy file into buffer[offset..]
         const head = url === archive ? dirBuf : url === cardArc ? cardHead : url === miniArc ? miniHead : null;   // merge.dat's directory (the sidecar), card.dat's, mini.dat's
         if (head && pos < head.length) {
@@ -827,6 +844,7 @@ Module.preRun.push(() => {
             FS.mkdirTree(parent);
             const url = base + rel.split("/").map(encodeURIComponent).join("/");
             files.set(url, { size, etag: "", ver: "" });
+            if (/^merge\/data\//i.test(rel)) looseFiles.set(rel.slice(6).toLowerCase(), url);
             if (size > 0) lazy.push(url);   // small files too: otherwise fonts/system.bin never persist on warm visits
             if (/(^|\/)merge\.dat$/i.test(rel)) archive = url;
             if (/^merge\.log$/i.test(rel)) mergeLog = url;   // 1.5 KB, the patcher reads it every start
