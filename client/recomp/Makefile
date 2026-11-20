@@ -87,6 +87,13 @@ $(B)/liveappearance_test: rt/liveappearance_test.c ovr/liveappearance.c $(RT_HDR
 worldparts_test: $(B)/worldparts_test   # ovr/worldparts.c's world rule: build/worldparts_test [rows] (the file says how)
 $(B)/worldparts_test: rt/worldparts_test.c ovr/worldparts.c $(RT_HDRS) | $(B)
 	$(CC) -O1 -g -Wall -Wno-unused-function -fsanitize=address,undefined -Irt rt/worldparts_test.c -o $@
+nspak_test: $(B)/nspak_test $(B)/nspak_placeholder.pak   # ovr/nspak.h: new-style packs, broken ones refused (newstyle.c)
+	$(B)/nspak_test $(B)/nspak_placeholder.pak
+$(B)/nspak_test: rt/nspak_test.c ovr/nspak.h | $(B)
+	$(CC) -O1 -g -Wall -Wno-unused-function -fsanitize=address,undefined rt/nspak_test.c -o $@
+$(B)/nspak_placeholder.pak: ../tools/newstyle_pack.py ../tools/newstyle_motions.py | $(B)
+	$${YO2_ASSET_PYTHON:-python3} -I ../tools/newstyle_pack.py --placeholder $@
+
 d3d8_test: $(B)/d3d8_test   # crash #17: a texture that dies bound answers "gone" (ASan reports the use-after-free)
 $(B)/d3d8_test: rt/d3d8_test.cpp rt/d3d8.cpp ../platform/gfx/d3d8.cpp ../platform/com.h | $(B)
 	clang++ -std=c++17 -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -DSDL_MAIN_HANDLED $(SDL_CFLAGS) $(PLAT_INC) -I$(OUT) \

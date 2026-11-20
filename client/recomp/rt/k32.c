@@ -49,7 +49,7 @@ static void set_err(CPU *c, uint32_t e) { c->thread->last_error = e; }
 // ---------------------------------------------------------------- paths
 // Guest paths: drive letter + backslashes. Everything resolves inside the game folder (read-only) with writes going
 // to an overlay folder; a file in the overlay shadows the game folder's copy.
-const char *rc_game_dir, *rc_write_dir;
+const char *rc_game_dir, *rc_write_dir, *rc_mem_dir;
 
 // The game folder is read-only, so its listings are cached (every open used to re-read each directory on its path:
 // 17% of the deck editor's entry frame). The overlay changes under us and is scanned every time.
@@ -144,9 +144,11 @@ static void guest_rel(const char *g, char *rel, size_t n) {
     snprintf(rel, n, "%s", s);
 }
 
-// for reading: overlay first, then game dir. for writing: overlay (parent dirs created on demand).
+// for reading: overlay first, then the memory folder (rc_mem_dir, when set), then game dir. for writing: overlay
+// (parent dirs created on demand).
 static int host_path(const char *rel, int write, char *out, size_t n) {
     if (resolve_in(rc_write_dir, rel, out, n)) return 1;
+    if (!write && rc_mem_dir && resolve_in(rc_mem_dir, rel, out, n)) return 1;
     if (!write && resolve_in(rc_game_dir, rel, out, n)) return 1;
     if (write) {
         resolve_in(rc_write_dir, rel, out, n);

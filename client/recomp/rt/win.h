@@ -25,6 +25,9 @@ typedef struct RcHandle {
 
 extern RcHandle rc_handles[RC_MAX_HANDLES];
 extern const char *rc_game_dir, *rc_write_dir;
+// a folder of files made at run time (ovr/newstyle.c's checked packs), searched after the overlay and before the game
+// folder; NULL until something is put there. Not persisted.
+extern const char *rc_mem_dir;
 uint32_t rc_handle_new(int type);
 RcHandle *rc_handle(uint32_t h);
 int rc_host_path(const char *guest, int write, char *out, size_t n);
