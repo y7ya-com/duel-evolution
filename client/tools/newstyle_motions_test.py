@@ -30,8 +30,8 @@ class MotionsTest(unittest.TestCase):
                         body_pic = p.replace('cm_', pre + '_', 1)
                         self.assertTrue(LEGACY.match(p) or os.path.exists(Path(out) / body_pic), (name, p))
                     frames = sum(1 for l in text.split('\r\n') if l.startswith('SWF::Element::Tag::ShowFrame->new('))
-                    count, hold, _ = N.MOTIONS[m]
-                    self.assertEqual(frames, count * hold, name)
+                    count, total, _ = N.MOTIONS[m]
+                    self.assertEqual(frames, total, name)
                     self.assertIn('Name => "cm_atari_01_mc"', text)   # the lobby's hit area
 
     def test_the_head_follows_the_neck_anchor(self):
@@ -45,6 +45,22 @@ class MotionsTest(unittest.TestCase):
         text = N.motion_dump('n', 7, N.default_anchors(), 'shape').decode('ascii')
         self.assertIn('cm_h1_01_c01_n03_01.png', text)    # facing 7 = facing 3 drawn mirrored by the engine
         self.assertIn('cm_nb_00_c01_n07_01.png', text)    # but its own body
+
+    def test_the_head_is_drawn_over_the_body(self):
+        for f in range(1, 9):
+            text = N.motion_dump('n', f, N.default_anchors(), 'trim').decode('ascii')
+            pngs = re.findall(r'png => ([^,]+),', text)
+            body, head = pngs.index(f'cm_nb_00_c01_n{f:02d}_01.png'), pngs.index(f'cm_nb_00_c01_hsn{f:02d}_01.png')
+            places = [int(x) for x in re.findall(r'FileName => (\d+),', text)]
+            self.assertLess(places.index(body), places.index(head), f)   # characters are defined in depth order
+
+    def test_legacy_frame_counts_and_every_body_frame_shown(self):
+        anchors = N.default_anchors()
+        for m, (count, total, code) in N.MOTIONS.items():
+            text = N.motion_dump(m, 1, anchors, 'trim').decode('ascii')
+            self.assertIn(f'Frame count = {total}', text)
+            shown = set(re.findall(rf'cm_nb_00_c01_{code}01_(\d\d)\.png', text))
+            self.assertEqual(len(shown), count, m)
 
 
 if __name__ == '__main__':

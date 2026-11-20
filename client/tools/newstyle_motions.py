@@ -1,7 +1,10 @@
 """newstyle_motions.py: the SWF motion dumps of a new-style chibi body (client/recomp/ovr/newstyle.c), and a
 placeholder body to test them with.
 
-    python3 -I newstyle_motions.py <out folder> [--rig rig.json] [--placeholder] [--crop png|shape]
+    python3 -I newstyle_motions.py <out folder> [--rig rig.json] [--placeholder] [--crop png|shape|trim]
+
+A real outfit is packed by newstyle_pack.py (its own 56 dumps, its body frames and trimmed heads per skin tone, in one
+checked .pak per skin tone); this file is the dump writer it uses, and the placeholder body for engine tests.
 
 writes, for each body in the rig (m, f):
   <out>/nm_{n,w,g,t}01..08.txt, nm_d01_01..03.txt   (female nw_*): the 56 motion files ovr/newstyle.c loads, in the
@@ -14,10 +17,11 @@ The motion files only reference PNG names; no game art is copied. The player's o
 names (cm_h1_01_c01_n0F_01, ...), which the exe's applyMaleParts / applyFemaleParts rewrite into the player's parts,
 and from the head of the body picture cm_bo_01_c01_n0F_01 (rows 0..HEAD_ROWS-1: the bald head in the player's skin
 colour). --crop shape (default) draws that head through a DefineShape whose bounds cover only those rows (no new
-files); --crop png names a pre-cut head picture cm_hs_01_c01_n0F_01 instead (made from the archive at pack time).
+files); --crop png names a pre-cut head picture cm_hs_01_c01_n0F_01 instead (made from the archive at pack time);
+--crop trim names one pre-cut head per body frame (newstyle_pack.py: its neck strip trimmed under the collar).
 
-Rig (JSON; the defaults below are the placeholder's): per motion its frame count and how many SWF frames each body
-frame is held, and per facing (1..8, engine dirs 0..7: 1 front, 3 facing left, 5 back, 7 facing right) and frame
+Rig (JSON; the defaults below are the placeholder's): per body motion code (n stand, w walk, g gesture, d duel; the
+frame counts are MOTIONS') and per facing (1..8, engine dirs 0..7: 1 front, 3 facing left, 5 back, 7 facing right) and frame
 the neck anchor [x, y] in the 128 x 128 body picture's pixels. Body frames of facings 6..8 are stored mirrored (the
 engine mirrors facings 6..8 as a whole, and their head is the legacy 4..2 art mirrored, as for a legacy avatar).
 """
@@ -25,12 +29,16 @@ import argparse, json, math, os, sys
 
 # legacy facing (1..5) and its draw order for each engine facing 1..8 (6..8 use 4..2: the engine mirrors them)
 LEGACY_FACING = [1, 2, 3, 4, 5, 4, 3, 2]
-ORDER = {   # bottom first, as the legacy cm_n0F.txt (dc's place is the body's; hs is the legacy bo's)
-    1: ['h2', 'hs', 'body', 'mo', 'ey', 'a1', 'a2', 'h1'],
-    2: ['h2', 'hs', 'body', 'mo', 'ey', 'a1', 'a2', 'h1'],
-    3: ['hs', 'h2', 'mo', 'ey', 'a1', 'a2', 'body', 'h1'],
-    4: ['hs', 'mo', 'ey', 'a1', 'a2', 'body', 'h2', 'h1'],
-    5: ['hs', 'body', 'h1', 'h2'],
+# The draw order, bottom first, per legacy facing (rig-yugi pack.py HEAD_OVER_BODY): the player's legacy head is always
+# drawn over the new-style body (the legacy movies drew the body over the bald head, so a new body's collar cut into
+# the chin); among the head layers the legacy order stays: the back hair behind the head where the legacy movie has it
+# there (facings 1, 2: under the body too), over the head from the side and the back.
+ORDER = {
+    1: ['h2', 'body', 'hs', 'mo', 'ey', 'a1', 'a2', 'h1'],
+    2: ['h2', 'body', 'hs', 'mo', 'ey', 'a1', 'a2', 'h1'],
+    3: ['body', 'hs', 'h2', 'mo', 'ey', 'a1', 'a2', 'h1'],
+    4: ['body', 'hs', 'mo', 'ey', 'a1', 'a2', 'h2', 'h1'],
+    5: ['body', 'hs', 'h1', 'h2'],
 }
 BODY_AT = (-18, 8)          # where every legacy 128 x 128 body layer is placed (stage px)
 FACE_AT = (14, 8)           # the 64 x 64 face layers (mo, ey, a1, a2)
@@ -40,28 +48,31 @@ NECK_REF = (64, 52)         # the legacy standing head's chin in its body pictur
 HEAD_ROWS = 53              # sits on the new frame's neck anchor; rows 0..52 of bo_01 are the head (chin at ~52)
 SIZE = {'body': 128, 'hs': 128, 'h1': 128, 'h2': 128, 'mo': 64, 'ey': 64, 'a1': 64, 'a2': 64, 'dd': 64}
 
-MOTIONS = {   # name: (body frames, SWF frames each, the body frames' motion code)
-    'n': (4, 8, 'n'), 'w': (8, 3, 'w'), 'g': (4, 6, 'n'), 't': (1, 12, 'n'),
-    'd01_01': (1, 35, 'd'), 'd01_02': (1, 30, 'd'), 'd01_03': (1, 12, 'd'),
+# name: (body frames, SWF frames in all, the body frames' motion code). The SWF frame counts are the legacy dumps'
+# (cm_n01 1, cm_g01 23, cm_t01 12, cm_d01_01..03 35 / 30 / 12) except the walk: 8 drawings x 3 (legacy 20), which
+# loops. Body frame k of SWF frame t is t * frames // total. t (the idle blink) shows the stand frame.
+MOTIONS = {
+    'n': (1, 1, 'n'), 'w': (8, 24, 'w'), 'g': (8, 23, 'g'), 't': (1, 12, 'n'),
+    'd01_01': (6, 35, 'd'), 'd01_02': (6, 30, 'd'), 'd01_03': (6, 12, 'd'),
 }
+BODY_FRAMES = {code: count for count, _, code in MOTIONS.values()}   # n 1, w 8, g 8, d 6
 
 
 def default_anchors():
-    """The placeholder's neck anchors: idle breathes (1 px), the walk bobs (2 px) and sways on the side facings."""
+    """The placeholder's neck anchors: the walk bobs (2 px) and sways on the side facings, the gesture and duel
+    breathe (1 px)."""
     a = {}
-    for m, (count, _, code) in MOTIONS.items():
-        if code != m and m not in ('d01_01',):
-            continue
+    for code, count in BODY_FRAMES.items():
         rows = []
         for f in range(1, 9):
-            side = {1: 0, 2: 1, 3: 1, 4: 1, 5: 0, 6: 1, 7: 1, 8: 1}[f]
+            side = 0 if f in (1, 5) else 1
             fr = []
             for k in range(count):
                 if code == 'w':
                     ph = k / count * 2 * math.pi
                     fr.append([NECK_REF[0] + round(side * math.sin(ph)), NECK_REF[1] + 1 - round(1.5 * abs(math.sin(ph)) + 0.5)])
-                elif code == 'n':
-                    fr.append([NECK_REF[0], NECK_REF[1] + (1 if k in (1, 2) else 0)])
+                elif code in ('g', 'd'):
+                    fr.append([NECK_REF[0], NECK_REF[1] + (1 if k % 4 in (1, 2) else 0)])
                 else:
                     fr.append(list(NECK_REF))
             rows.append(fr)
@@ -153,30 +164,34 @@ class Dump:
 
 
 def motion_dump(motion, facing, anchors, crop, body_prefix='nb_00_c01'):
-    """The dump of `motion` ('n', 'w', ..., 'd01_02') for engine facing 1..8 (all frames of a d motion face front)."""
-    count, hold, code = MOTIONS[motion]
+    """The dump of `motion` ('n', 'w', ..., 'd01_02') for engine facing 1..8 (all frames of a d motion face front).
+    crop: how the bald head is drawn: 'shape' (cm_bo_01 clipped to its head rows), 'png' (the pre-cut head
+    cm_hs_01_c01_n0F_01) or 'trim' (a pre-cut head per body frame, its neck strip trimmed where the body's collar
+    rises under it: cm_<body_prefix>_hs<code><facing>_<frame>.png, renamed with the body frames)."""
+    count, total, code = MOTIONS[motion]
     if code == 'd':
         facing = 1
     lf = LEGACY_FACING[facing - 1]
     order = ORDER[lf] + (['dd'] if code == 'd' else [])
-    total = count * hold
     d = Dump()
     d.place(1, d.char('cm_atari_01.png', (48, 24)), 22, 104, name='cm_atari_01_mc')   # the hit area the lobby clicks
     d.place(3, d.char('cm_sh_01_c01_n01_01.png', 64), 14, 84)
     shown = {}
     anc = anchors[code][facing - 1]
     for t in range(total):
-        k = t // hold
+        k = t * count // total
         ax, ay = anc[k % len(anc)]
         dx, dy = ax - NECK_REF[0], ay - NECK_REF[1]
+        frame = k % len(anc) + 1
         layers = {}
         for i, kind in enumerate(order):
             depth = 5 + 2 * i
             if kind == 'body':
-                frame = 1 if code == 'd' else k + 1
                 layers[depth] = (f'cm_{body_prefix}_{code}{facing:02d}_{frame:02d}.png', 128, None, *BODY_AT)
             elif kind == 'hs':
-                if crop == 'png':
+                if crop == 'trim':
+                    layers[depth] = (f'cm_{body_prefix}_hs{code}{facing:02d}_{frame:02d}.png', 128, None, BODY_AT[0] + dx, BODY_AT[1] + dy)
+                elif crop == 'png':
                     layers[depth] = (f'cm_hs_01_c01_n{lf:02d}_01.png', 128, None, BODY_AT[0] + dx, BODY_AT[1] + dy)
                 else:
                     layers[depth] = (f'cm_bo_01_c01_n{lf:02d}_01.png', 128, HEAD_ROWS, BODY_AT[0] + dx, BODY_AT[1] + dy)
@@ -194,7 +209,7 @@ def motion_dump(motion, facing, anchors, crop, body_prefix='nb_00_c01'):
                     layers[depth] = (f'cm_dd_01_c01_d01_{n:02d}.png', 64, None, *DISK_AT)
             else:
                 pic = f'n{lf:02d}_01'
-                if kind == 'ey' and code == 't':   # the blink: legacy t0F's eye frames
+                if kind == 'ey' and motion == 't':   # the blink: legacy t0F's eye frames
                     pic = f'n{lf:02d}_{2 if t < 4 or t >= 8 else 3:02d}'
                 layers[depth] = (f'cm_{kind}_01_c01_{pic}.png', 64, None, FACE_AT[0] + dx, FACE_AT[1] + dy)
         for depth in sorted(set(shown) | set(layers)):
@@ -210,15 +225,16 @@ def motion_dump(motion, facing, anchors, crop, body_prefix='nb_00_c01'):
     return d.text(total)
 
 
-def motion_files(body):
-    """{file name: (motion, facing)} for the 56 engines (ovr/newstyle.c motion_file)."""
-    p = 'nm' if body == 'm' else 'nw'
+def motion_files(body, stem=None):
+    """{file name: (motion, facing)} for the 56 engines (ovr/newstyle.c motion_file). stem: the name before the
+    motion, default nm_ / nw_ (the prototype's shared set); one outfit's own set is "cm_nb_<code>_"."""
+    p = stem if stem is not None else ('nm_' if body == 'm' else 'nw_')
     out = {}
     for m in 'nwgt':
         for f in range(1, 9):
-            out[f'{p}_{m}{f:02d}.txt'] = (m, f)
+            out[f'{p}{m}{f:02d}.txt'] = (m, f)
     for i in (1, 2, 3):
-        out[f'{p}_d01_{i:02d}.txt'] = (f'd01_{i:02d}', 1)
+        out[f'{p}d01_{i:02d}.txt'] = (f'd01_{i:02d}', 1)
     return out
 
 
@@ -230,7 +246,7 @@ def placeholder(out, body, anchors):
     pre = 'cm' if body == 'm' else 'cw'
     hues = [(220, 60, 60), (230, 140, 40), (200, 190, 40), (70, 170, 70), (60, 150, 210), (90, 90, 220), (160, 80, 200), (210, 80, 150)]
     made = 0
-    for code, count in (('n', 4), ('w', 8), ('d', 1)):
+    for code, count in BODY_FRAMES.items():
         for f in range(1, 9):
             if code == 'd' and f != 1:
                 continue
@@ -276,7 +292,7 @@ def main():
     ap.add_argument('out')
     ap.add_argument('--rig', help='rig JSON: {"anchors": {"n": [8 facings x frames x [x, y]], "w": ..., "d": ...}}')
     ap.add_argument('--placeholder', action='store_true', help='also write the test body frames and newstyle.txt')
-    ap.add_argument('--crop', choices=('shape', 'png'), default='shape')
+    ap.add_argument('--crop', choices=('shape', 'png', 'trim'), default='shape')
     ap.add_argument('--bodies', default='mf')
     ap.add_argument('--table', default='m 6f 00', help='newstyle.txt lines (";"-separated) with --placeholder')
     a = ap.parse_args()
