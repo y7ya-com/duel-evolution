@@ -6,7 +6,7 @@ import * as PP from "../src/game/persist.ts";
 import { rowsToState, stateToRows } from "../src/db/project.ts";
 import { BOXES, COSMETICS, FREE_COSMETICS, COSMETIC_BY_ID, DROP_EXCLUSIONS, expandCosmeticBits, cosmeticPool, outfitArtworkId, AVATAR_ROWS,
   BODY_WIP_NOTICE, BOX_BODY_NOTICE, SPLIT_FAMILIES, MERGED_FAMILIES, boxDisclosure, resolveCosmeticId } from "../src/game/cosmetics-catalog.ts";
-import { lawfulLook, cosmeticInfo, cosmeticOpen, cosmeticEquip, cosmeticAppearance, cosmeticTrade, cosmeticTradeAccept, cosmeticTradeCancel, syncCosmeticOwnership } from "../src/game/cosmetics.ts";
+import { grantCosmetic, lawfulLook, cosmeticInfo, cosmeticOpen, cosmeticEquip, cosmeticAppearance, cosmeticTrade, cosmeticTradeAccept, cosmeticTradeCancel, syncCosmeticOwnership } from "../src/game/cosmetics.ts";
 
 function fixture() {
   PP.setProgression(true);
@@ -244,6 +244,51 @@ describe("a design owns every real body equivalent", () => {
     const female = cosmeticAppearance(f.game, f.a, { gender: "female" }) as any;
     expect(female.appearance.looks["0"][6]).toBe(0x80); // no Téa's garms for a Yugi-only owner after the split
     expect(female.inventory.find((i: any) => i.id === "outfit:yugi")).toMatchObject({ owned: true, compatible: false, notice: BODY_WIP_NOTICE.female });
+  });
+});
+
+describe("the admin cosmetic grant (POST /__admin/cosmetic-grant)", () => {
+  it("unlocks Yami Yugi's Garms for the whole account once, pushes the ownership live, makes no copy, and a male character can wear it", () => {
+    const f = fixture();
+    const sent: [number, Uint8Array][] = [];
+    f.a.conns.set(f.game.ports.game, { closed: false, post: (id: number, d: Uint8Array) => sent.push([id, d]) } as any);
+    mutate(f, st => { st.accounts.alice.profiles["1"] = PP.blankProfile("alice2"); st.accounts.alice.profiles["1"].prog = 1; });
+    expect(cosmeticEquip(f.game, f.a, { id: "outfit:yugi", world: 0 })).toMatchObject({ error: "not-owned" });
+    const out = f.game.admin.run("cosmetic-grant", { acct: "alice", id: "outfit:yugi" }) as any;
+    expect(out).toEqual({ id: "outfit:yugi", granted: true, online: true });
+    const st = raw(f).accounts.alice;
+    expect(st.cosmetics.owned).toContain("outfit:yugi");
+    expect(st.cosmetics.copies["outfit:yugi"] ?? 0).toBe(0);
+    for (const slot of ["0", "1"]) expect(st.profiles[slot].pbin).toContain(121);   // every character
+    expect(sent.map(([id]) => id)).toEqual([0x3114]);                                 // the client's ownership, at once
+    // again: nothing changes (no tradable copy, no second push of a different state)
+    expect(f.game.admin.run("cosmetic-grant", { acct: "alice", id: "outfit:yugi" })).toMatchObject({ granted: false });
+    expect(raw(f).accounts.alice.cosmetics.copies["outfit:yugi"] ?? 0).toBe(0);
+    expect(raw(f).accounts.alice.cosmetics.owned.filter((id: string) => id === "outfit:yugi")).toHaveLength(1);
+    // worn: the male row 0x79 (the new-style table's clothes number)
+    expect(cosmeticEquip(f.game, f.a, { id: "outfit:yugi", world: 0 })).toMatchObject({ equipped: { id: "outfit:yugi", parts: expect.arrayContaining([0x79]) } });
+    expect((cosmeticEquip(f.game, f.a, { id: "outfit:yugi", world: 0 }) as any).equipped.parts[6]).toBe(0x79);
+    // other accounts untouched
+    expect(raw(f).accounts.bob.cosmetics?.owned ?? []).not.toContain("outfit:yugi");
+  });
+  it("a female character can't wear it (male only: Téa's Garms is the female item)", () => {
+    const f = fixture();
+    mutate(f, st => { st.accounts.alice.profiles["0"].avatar = { a: "0100203040607680b020000000000000" }; });
+    f.game.admin.run("cosmetic-grant", { acct: "alice", id: "outfit:yugi" });
+    expect(cosmeticEquip(f.game, f.a, { id: "outfit:yugi", world: 0 })).toMatchObject({ error: "no-compatible-variant", reason: "body" });
+  });
+  it("refuses an unknown item or account, changing nothing", () => {
+    const f = fixture(); const before = raw(f);
+    expect(() => grantCosmetic(f.game, "alice", "outfit:nope")).toThrow(/no such item/);
+    expect(() => grantCosmetic(f.game, "nobody", "outfit:yugi")).toThrow(/no such account/);
+    expect(() => f.game.admin.run("cosmetic-grant", { acct: "alice" })).toThrow();
+    expect(raw(f)).toEqual(before);
+  });
+  it("an offline account gets it in its stored state", () => {
+    const f = fixture();
+    f.game.hub.sessions.delete("bob");
+    expect(grantCosmetic(f.game, "bob", "outfit:yugi")).toEqual({ id: "outfit:yugi", granted: true, online: false });
+    expect(raw(f).accounts.bob.profiles["0"].pbin).toContain(121);
   });
 });
 

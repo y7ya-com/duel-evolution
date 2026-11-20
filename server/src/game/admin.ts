@@ -8,6 +8,7 @@ import * as PP from "./persist.ts";
 import type { Game } from "./game.ts";
 import type { Session } from "./hub.ts";
 import { pushInventory } from "./starter.ts";
+import { grantCosmetic } from "./cosmetics.ts";
 
 export const AUTH_BANNED = -246;
 const REJECT_CLOSE_S = 1.5;
@@ -220,6 +221,8 @@ export class Admin {
       case "take": return this.take(String(body.acct), body.slot == null ? null : Number(body.slot), Array.isArray(body.cards) ? body.cards : [], String(body.src ?? "admin take"));
       case "grant": return this.grant(String(body.acct), body.slot == null ? null : Number(body.slot), Array.isArray(body.cards) ? body.cards : [], String(body.src ?? "admin grant"));
       case "online": return { online: this.status().players.filter((p) => p.online).length, duels: this.duels() };
+      // a cosmetic item unlocked for an account (cosmetics.ts grantCosmetic): { acct, id: "outfit:yugi" }
+      case "cosmetic-grant": return grantCosmetic(this.g, String(body.acct ?? ""), String(body.id ?? ""));
       case "tournament": { const t = this.g.to!.startTournament(body.serial ?? 1, body.day ?? 1, body.name ?? "CHAMPIONSHIP", body.max ?? 8); return { state: t.state }; }
       case "claim": return { result: this.claim(String(body.acct), String(body.userId)) };
       case "start": { this.data.start = body.start ?? {}; this.sink("start", "start", this.data.start); return { ok: true }; }

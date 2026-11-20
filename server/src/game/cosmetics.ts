@@ -128,6 +128,24 @@ function pushOwnership(g: Game, s: Session, p: PP.P): void {
   const account = s.conns.get(g.ports.game);
   if (account && !account.closed) account.post(0x3114, PP.pbinBytes(p, rankView(p)));
 }
+/** Trusted admin path (POST /__admin/cosmetic-grant { acct, id }): unlock one catalog item for the whole account (a
+ *  gift, a prize or a correction), as owning it from a box or a drop does: every character gets its bits, and a
+ *  connected client its new ownership at once (0x3114). Idempotent: an owned item is left as it is, and no tradable
+ *  copy is ever made. Throws on an unknown item or account (the admin route answers 400). */
+export function grantCosmetic(g: Game, acct: string, id: string): { id: string; granted: boolean; online: boolean } {
+  const item = COSMETIC_BY_ID.get(id);
+  if (!item) throw new Error(`no such item: ${id}`);
+  const a = accountCopy(g, acct);
+  if (!a) throw new Error(`no such account: ${acct}`);
+  const l = ledger(a), granted = !l.owned.includes(item.id);
+  if (granted) { l.owned.push(item.id); l.owned.sort(); }
+  for (const p of Object.values(a.profiles ?? {}) as PP.P[]) project(p, l);
+  g.store.commit({}, { [acct]: a });
+  const s = g.hub.sessions.get(acct), p = s && s.slot !== null ? profile(a, s) : null;
+  if (s && p) pushOwnership(g, s, p);
+  g.log(`[economia] admin cosmetic grant ${acct.slice(0, 8)}: ${item.id}${granted ? "" : " (already owned)"}`);
+  return { id: item.id, granted, online: !!(s && p) };
+}
 function pity(l: Ledger, box: Box): Pity {
   const p = l.pity[box.id] ??= { superMisses: 0, ultraMisses: 0 };
   p.superMisses = box.superAt === null ? 0 : Math.min(box.superAt - 1, nat(p.superMisses));
