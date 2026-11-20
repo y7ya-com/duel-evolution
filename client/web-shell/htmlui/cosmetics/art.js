@@ -5,6 +5,8 @@
 //     to a size x size game-px box (crisp at any DPR), else a graceful placeholder. -> { ready: Promise<bool>, destroy }
 //   itemArtUrls(item, body)  -> Promise<string[]>: the art's layers as blob URLs, bottom first ([] when none can be read)
 //   itemArtPaths(item, body) -> { paths, w, h, body, fallback, crop? }: the merge.dat names (pure; the mapping below)
+//   newstyleArt(item, body)  -> Promise<{ pak, name } | null>: a new-style outfit's picture (client/recomp/ovr/newstyle.c:
+//     its own front standing body in its pack, data/avatar/chibi/c?_nb_<code>_c01.pak; newstyle.txt says which)
 //   artBody(item, body)      -> { body, fallback }: the body whose art is shown (a single-body item shows its own body's
 //     art for the other body, fallback true: renderItemArt marks the box data-fallback, for its caller to dim)
 // `item` is the server's API item (server/src/game/cosmetics.ts itemOut: { id, name, kind, slot, rarity, variants:
@@ -194,11 +196,14 @@ function directory(L) {
     return { url, entries: keep };
   })().catch(e => { dirLoad = null; throw e; });   // a dropped connection: asked again next time
 }
-/** One merge.dat file's bytes by its (lower-case) name, or null. Exported for the tests. */
+/** One game file's bytes by its (lower-case) name, or null: the shipped loose file if there is one (it wins over
+ *  merge.dat's entry in the game too: the authored items' art, client/tools/custom_assets.py), else merge.dat's.
+ *  Exported for the tests. */
 export async function gameFile(name) {
   const L = lazy();
   if (!L) return null;
   name = name.toLowerCase();
+  if (L.looseEntry && L.looseFiles?.has(name)) return L.looseEntry(name);
   if (L.entry && L.files2?.has(name)) return L.entry(name);
   const d = await directory(L), e = d?.entries.get(name);
   if (!e) return null;
@@ -231,8 +236,70 @@ export function pictureUrl(name) {
   return loads.get(name);
 }
 
-/** The item's art layers for `body` as blob URLs, bottom first; [] when the item has no art or it can't be read. */
+// ---- new-style outfits (client/recomp/ovr/newstyle.c): drawn from their own pack, not the legacy clothes picture
+
+const NEWSTYLE_TABLE = CHIBI + 'newstyle.txt';
+/** newstyle.txt's lines ("m 79 01": body, clothes number in hex, code) -> Map "male:121" -> "01". Pure. */
+export function parseNewstyle(text) {
+  const out = new Map();
+  for (const line of String(text || '').split('\n')) {
+    const m = /^\s*([mf])\s+([0-9a-f]{1,2})\s+(\d\d)\b/i.exec(line);
+    if (m && m[3] !== '00') { const k = `${m[1] === 'f' ? 'female' : 'male'}:${parseInt(m[2], 16)}`; if (!out.has(k)) out.set(k, m[3]); }
+  }
+  return out;
+}
+let newstyleLoad = null;
+/** The shipped newstyle table (an empty Map without one: every outfit is legacy). Read once a session. */
+export function newstyleTable() {
+  return newstyleLoad ||= gameFile(NEWSTYLE_TABLE).then(b => parseNewstyle(b ? new TextDecoder().decode(b) : ''))
+    .catch(() => { newstyleLoad = null; return new Map(); });
+}
+/** One stored entry of a new-style pack (newstyle_pack.py's format: "YO2NSPK1", u32 count, per entry u8 name length,
+ *  name, u8 method, u32 stored, u32 size, u32 crc; then the data), or null. Pure. */
+export function pakEntry(bytes, name) {
+  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+  if (b.length < 12 || String.fromCharCode(...b.subarray(0, 8)) !== 'YO2NSPK1') return null;
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength), n = dv.getUint32(8, true);
+  let at = 12, data = 0, hit = null;
+  for (let i = 0; i < n; i++) {
+    if (at >= b.length) return null;
+    const ln = b[at], nm = String.fromCharCode(...b.subarray(at + 1, at + 1 + ln));
+    if (at + 1 + ln + 13 > b.length) return null;
+    const method = b[at + 1 + ln], stored = dv.getUint32(at + 2 + ln, true), size = dv.getUint32(at + 6 + ln, true);
+    if (nm === name && method === 0 && stored === size) hit = [data, stored];
+    data += stored;
+    at += 1 + ln + 13;
+  }
+  if (!hit || at + data !== b.length) return null;
+  return b.slice(at + hit[0], at + hit[0] + hit[1]);
+}
+/** A new-style outfit's front standing body (skin tone 1) for `body`'s variant of `item`: { pak, name } or null. */
+export async function newstyleArt(item, body = 'male') {
+  const { body: shown } = artBody(item, body);
+  const v = item?.kind === 'outfit' || item?.slot === 6 ? (item?.variants || []).find(x => x.gender === shown) : null;
+  if (!v) return null;
+  const code = (await newstyleTable()).get(`${shown}:${v.number}`);
+  if (!code) return null;
+  const pre = shown === 'female' ? 'cw' : 'cm';
+  return { pak: `${CHIBI}${pre}_nb_${code}_c01.pak`, name: `${pre}_nb_${code}_c01_n01_01.png` };
+}
+const paks = new Map();
+async function newstyleUrl(art) {
+  const key = art.pak + '|' + art.name;
+  if (urls.has(key)) return urls.get(key);
+  const pak = paks.get(art.pak) || paks.set(art.pak, gameFile(art.pak).catch(() => null)).get(art.pak);
+  const png = pakEntry(await pak, art.name);
+  if (!png) { paks.delete(art.pak); return null; }
+  const u = URL.createObjectURL(new Blob([png], { type: 'image/png' }));
+  urls.set(key, u);
+  return u;
+}
+
+/** The item's art layers for `body` as blob URLs, bottom first; [] when the item has no art or it can't be read. A
+ *  new-style outfit shows its new-style body (its pack); if that can't be read, its legacy picture, as the game does. */
 export async function itemArtUrls(item, body = 'male', opts) {
+  const ns = await newstyleArt(item, body).catch(() => null);
+  if (ns) { const u = await newstyleUrl(ns).catch(() => null); if (u) return [u]; }
   const { paths } = itemArtPaths(item, body, opts);
   if (!paths.length) return [];
   const got = await Promise.all(paths.map(pictureUrl));
@@ -322,4 +389,4 @@ export function renderItemArt(el, item, { body = 'male', size, lit = false, fit 
 }
 
 /** Tests: forget the directory and the pictures read so far. */
-export function _reset() { dirLoad = null; dirFor = null; urls.clear(); loads.clear(); queue.length = 0; boxes.clear(); }
+export function _reset() { dirLoad = null; dirFor = null; newstyleLoad = null; paks.clear(); urls.clear(); loads.clear(); queue.length = 0; boxes.clear(); }

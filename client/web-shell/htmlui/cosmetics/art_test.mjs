@@ -152,4 +152,47 @@ assert.deepEqual(await itemArtUrls(cloak, 'female'), []);   // cw_dc_98 isn't in
 // no runtime at all (mock.html): nothing, no throw
 globalThis.Module = undefined; A._reset();
 assert.deepEqual(await itemArtUrls(suit, 'male'), []);
+
+// 4) shipped loose files (custom_assets.py) win over merge.dat's, and a new-style outfit (newstyle.txt) shows its own
+// front standing body from its pack (client/tools/newstyle_pack.py's format); a pack that can't be read: the legacy art
+const { parseNewstyle, pakEntry, newstyleArt } = A;
+assert.deepEqual([...parseNewstyle('# body clothes code\nm 79 01  # outfit:yugi\nf 76 02\nm 79 03\nm 7a 00\n')],
+  [['male:121', '01'], ['female:118', '02']]);   // the first line wins; code 00 is the template, never an outfit
+const pak = entries => {   // stored entries only, as the PNGs are
+  const enc = new TextEncoder(), head = [...enc.encode('YO2NSPK1'), 0, 0, 0, 0], body = [];
+  const u32 = v => [v & 255, v >> 8 & 255, v >> 16 & 255, v >>> 24];
+  head.splice(8, 4, ...u32(entries.length));
+  for (const [n, b] of entries) { head.push(n.length, ...enc.encode(n), 0, ...u32(b.length), ...u32(b.length), 0, 0, 0, 0); body.push(...b); }
+  return Uint8Array.from([...head, ...body]);
+};
+const front = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 42, 42, 42, 42, 42, 42, 42]);
+const yugiPak = pak([['cm_nb_01_c01_n01.txt', Uint8Array.from([1, 2, 3])], ['cm_nb_01_c01_n01_01.png', front]]);
+assert.deepEqual([...pakEntry(yugiPak, 'cm_nb_01_c01_n01_01.png')], [...front]);
+assert.equal(pakEntry(yugiPak, 'cm_nb_01_c01_w01_01.png'), null);
+assert.equal(pakEntry(yugiPak.subarray(0, yugiPak.length - 1), 'cm_nb_01_c01_n01_01.png'), null);   // short: refused
+assert.equal(pakEntry(Uint8Array.from([1, 2, 3]), 'x'), null);
+const loose = new Map([['data/avatar/chibi/newstyle.txt', new TextEncoder().encode('m 79 01\n')],
+  ['data/avatar/chibi/cm_nb_01_c01.pak', yugiPak], ['data/avatar/chibi/cm_dc_98_c01_n01_01.png', Uint8Array.from([5, 5])]]);
+const looseRuntime = () => ({ yo2Lazy: { files: new Map([['game/merge.dat', { size: total, ver: '' }]]), files2: new Map(),
+  pinned: new Map([['game/merge.dat#0', { data: arc, tag: 'toc' }]]), lru: new Map(),
+  entry: async name => { const e = parseDirectory(arc).get(name); return e ? arc.slice(e[0], e[1]) : null; },
+  looseFiles: new Map([...loose.keys()].map(k => [k, 'c-x/merge/' + k])),
+  looseEntry: async name => loose.get(name) ?? null } });
+globalThis.Module = looseRuntime(); A._reset();
+assert.deepEqual([...await gameFile('data/avatar/chibi/cm_dc_98_c01_n01_01.png')], [5, 5], 'the loose file wins');
+const yugi = item('outfit', 6, [['male', 0x79]], { id: 'outfit:yugi' }), tea = item('outfit', 6, [['female', 0x76]]);
+assert.deepEqual(await newstyleArt(yugi, 'male'), { pak: 'data/avatar/chibi/cm_nb_01_c01.pak', name: 'cm_nb_01_c01_n01_01.png' });
+assert.equal(await newstyleArt(tea, 'female'), null);                       // Téa's Garms: legacy (dc_04 too)
+assert.equal(await newstyleArt(cloak, 'male'), null);
+assert.equal(await newstyleArt(item('hair', 1, [['male', 0x79]]), 'male'), null);   // only outfits
+assert.deepEqual(await itemArtUrls(yugi, 'male'), [`blob:${front.length}`]);
+assert.deepEqual(await itemArtUrls(cloak, 'male'), ['blob:2']);             // a legacy outfit: its legacy picture
+// the pack missing (or broken): the legacy picture, as the game falls back
+loose.delete('data/avatar/chibi/cm_nb_01_c01.pak'); A._reset(); globalThis.Module = looseRuntime();
+const legacyYugi = await itemArtUrls(yugi, 'male');
+assert.deepEqual(legacyYugi, [], 'cm_dc_04 is not in the synthetic archive, so the legacy route was asked');
+// no new-style table (an older ship): legacy art, nothing thrown
+loose.delete('data/avatar/chibi/newstyle.txt'); A._reset(); globalThis.Module = looseRuntime();
+assert.equal(await newstyleArt(yugi, 'male'), null);
+globalThis.Module = undefined; A._reset();
 console.log('art_test: ok');
