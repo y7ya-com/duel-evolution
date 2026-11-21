@@ -59,8 +59,12 @@ const MAX_IDLE_ACTIONS = 24; // hard safety cap on plays per turn (prevents path
 const HEART_FIT_MARGIN = 1000;
 const YUGI_SIGNATURE = /^(dark magician(?: girl| of chaos)?|skilled dark magician|apprentice magician|buster blader|summoned skull|gaia the fierce knight|swift gaia the fierce knight|curse of dragon|gazelle the king of mythical beasts|berfomet|kuriboh|big shield gardna|obnoxious celtic guard|alpha the magnet warrior|beta the magnet warrior|gamma the magnet warrior|valkyrion the magna warrior|king's knight|queen's knight|jack's knight|slifer the sky dragon|obelisk the tormentor|the winged dragon of ra|black luster soldier(?: - envoy of the beginning)?|gandora the dragon of destruction|polymerization|ancient rules|magical dimension|dark magic attack|thousand knives|monster reborn)$/;
 
-/** Spells whose resolution is a Fusion or Ritual Summon (ritual spells are also found by type). */
-const SUMMON_SPELL = /^(polymerization|dark fusion|dark calling|miracle fusion|power bond|overload fusion|fusion gate|super polymerization|contract with the abyss|advanced ritual art)$/;
+/** Spells whose resolution is a Fusion or Ritual Summon (ritual spells are also found by type), or the Special Summon
+ *  a swarm turn is built on (Crystal Beacon: production let it resolve with Solemn Judgment set and took 5500). */
+const SUMMON_SPELL = /^(polymerization|dark fusion|dark calling|miracle fusion|power bond|overload fusion|fusion gate|super polymerization|contract with the abyss|advanced ritual art|crystal beacon)$/;
+/** Untargeted removal that hits a known part of my field: Mirror Force my attack-position monsters, Crush Card Virus
+ *  my monsters with 1500+ ATK (their links name no targets, so Solemn Judgment saw nothing of his at stake). */
+const HITS_ATTACKERS = /^(mirror force)$/, HITS_1500 = /^(crush card virus)$/;
 /** Burn spells Yugi's draw skill can finish with: their damage to the opponent. */
 const BURN_SPELL: Record<string, number> = { "poison of the old man": 1200, "tremendous fire": 1000, ookazi: 800, "final flame": 600, hinotama: 500, sparks: 200 };
 /** Opposing cards that remove, negate or play around set Spells/Traps. Counted in the opponent's whole submitted
@@ -303,6 +307,9 @@ export class HeuristicBot {
    *  and let a 6200 through Bottomless Trap Hole). */
   #oppSummonAtk = 0;
   #oppSummonSeq = -1;
+  /** The zone of the monster this seat summoned last this phase (-1 none): what a summon trap answering it (Bottomless
+   *  Trap Hole, Trap Hole) takes, though it targets nothing. */
+  #mySummonSeq = -1;
   /** The engine's hint for this seat's next card pick (HINT type 3: 518 = equip...). */
   #hint = 0;
   /** The card this seat activated last (what a following target pick belongs to). */
@@ -458,7 +465,7 @@ export class HeuristicBot {
         const k = this.#cards.brain.get(code);
         const clears = CLEARS_BACKROW.test(this.#nameOf(code)) || !!k?.has("storm_all") || (!!k?.has("storm_opp") && Number(ev.controller) !== this.seat);
         this.#links.push({ code, controller: Number(ev.controller), location: Number(ev.location), sequence: Number(ev.sequence),
-          targets: [], clears, negates: this.#negates(code) });
+          targets: Number(ev.controller) !== this.seat ? this.#implicitTargets(code) : [], clears, negates: this.#negates(code) });
         break;
       }
       case "BECOME_TARGET":
@@ -476,11 +483,12 @@ export class HeuristicBot {
       case "NEW_PHASE": case "NEW_TURN":
         if (ev.type === "NEW_TURN" && ev.player !== undefined) this.#msgTurnPlayer = Number(ev.player);
         if (ev.type === "NEW_PHASE" && Number(ev.phase) === PHASE.STANDBY && this.#msgTurnPlayer === this.seat) this.#countStandby();
-        this.#attack = null; this.#myAttack = null; this.#oppSummonAtk = 0; if (ev.type === "NEW_TURN") { this.#attackedThisTurn.clear(); this.#oppAttackedThisTurn.clear(); } if (ev.type === "NEW_TURN") { this.#normalSummoned = false; this.#oppNormalSummoned = false; } break;
+        this.#attack = null; this.#myAttack = null; this.#oppSummonAtk = 0; this.#mySummonSeq = -1; if (ev.type === "NEW_TURN") { this.#attackedThisTurn.clear(); this.#oppAttackedThisTurn.clear(); } if (ev.type === "NEW_TURN") { this.#normalSummoned = false; this.#oppNormalSummoned = false; } break;
       case "SUMMONING": case "SPSUMMONING": case "FLIPSUMMONING":
         if (ev.type === "SUMMONING") { if (Number(ev.controller) === this.seat) this.#normalSummoned = true; else this.#oppNormalSummoned = true; }
         this.#oppSummonAtk = Number(ev.controller) !== this.seat && Number(ev.code) ? Math.max(1, this.#stat(Number(ev.code)).atk) : 0;
         this.#oppSummonSeq = this.#oppSummonAtk > 0 && (Number(ev.location) & LOCATION.MZONE) !== 0 ? Number(ev.sequence) : -1;
+        if (Number(ev.controller) === this.seat && (Number(ev.location) & LOCATION.MZONE) !== 0) this.#mySummonSeq = Number(ev.sequence);
         break;
       case "SET":
         // a monster Set uses the Normal Summon too
@@ -587,6 +595,7 @@ export class HeuristicBot {
     this.#lastActivated = from.#lastActivated;
     this.#oppSummonAtk = from.#oppSummonAtk;
     this.#oppSummonSeq = from.#oppSummonSeq;
+    this.#mySummonSeq = from.#mySummonSeq;
     this.#solving = from.#solving;
     this.#stacking = from.#stacking;
     this.#standbys = new Map(from.#standbys);
@@ -789,6 +798,21 @@ export class HeuristicBot {
       negated = !negated && l.negates && !!below && below.controller !== l.controller;
     }
     return out;
+  }
+
+  /** What an opponent's untargeted link takes of my monsters, as target keys: a summon trap (Bottomless Trap Hole, Trap
+   *  Hole: tagged on_summon + removal) the monster I just summoned, Mirror Force / Crush Card Virus the monsters they
+   *  destroy (production: Solemn Judgment let Bottomless Trap Hole take Tribe-Infecting Virus at 700 LP). */
+  #implicitTargets(code: number): string[] {
+    const k = this.#cards.brain.get(code), name = this.#nameOf(code), me = this.#me();
+    if (!k || !me) return [];
+    const key = (i: number) => `${LOCATION.MZONE}:${i}`;
+    if (HITS_ATTACKERS.test(name) || HITS_1500.test(name)) {
+      return me.mzone.flatMap((c, i) => c && !isFaceDown(c.position)
+        && (HITS_ATTACKERS.test(name) ? (c.position & POS.ATTACK) !== 0 : (c.attack ?? 0) >= 1500) ? [key(i)] : []);
+    }
+    if (k.has("on_summon") && (k.has("destroy_monster") || k.has("bounce")) && this.#mySummonSeq >= 0 && me.mzone[this.#mySummonSeq]) return [key(this.#mySummonSeq)];
+    return [];
   }
 
   /** A set card of ours the opponent's chain is about to take (and not one whose effect would leave with it). */

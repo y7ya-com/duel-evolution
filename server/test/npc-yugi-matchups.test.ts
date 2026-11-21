@@ -112,6 +112,32 @@ it("negates a fusion spell with Solemn Judgment even though it targets nothing o
   expect(p.msgs.some(m => m.type === "SPSUMMONING" && m.code === code("Evil HERO Dark Gaia"))).toBe(false);
 });
 
+it("negates Bottomless Trap Hole on the monster he just summoned when it costs little", () => {
+  // Production 2842: at 700 LP he let Bottomless Trap Hole take Tribe-Infecting Virus with Solemn Judgment set: the trap
+  // targets nothing, so its link showed nothing of his at stake.
+  const p = play(dc, {
+    npcId: 53, heart_of_cards: 1, handAwareDraw: true, first: "npc", turns: 1,
+    heart_pool: [code("Marshmallon")],
+    npc: { lp: 700, hand: ["Skilled Dark Magician"], szone: ["Solemn Judgment"] },
+    player: { szone: ["Bottomless Trap Hole"] },
+    player_policy: activating("Bottomless Trap Hole"),
+  });
+  expect(npcActivated(p, "Solemn Judgment")).toBe(true);
+  expect(leftField(p, "Skilled Dark Magician")).toBe(false);
+});
+
+it("negates Mirror Force when it would take more of his attackers than Solemn Judgment costs", () => {
+  const p = play(dc, {
+    npcId: 53, heart_of_cards: 1, handAwareDraw: true, first: "player", turns: 2,
+    heart_pool: [code("Marshmallon")],
+    npc: { lp: 6000, mzone: [["Skilled Dark Magician", "atk"], ["Beta The Magnet Warrior", "atk"]], szone: ["Solemn Judgment"] },
+    player: { lp: 3000, szone: ["Mirror Force"] },
+    player_policy: activating("Mirror Force"),
+  });
+  expect(npcActivated(p, "Solemn Judgment")).toBe(true);
+  expect(leftField(p, "Beta The Magnet Warrior")).toBe(false);
+});
+
 it("never uses a draw effect other than his one Pot of Greed", () => {
   // Lab: Monster Reborn on the opponent's Cyber Valley, then its banish-and-draw-two.
   const p = play(dc, {
