@@ -40,9 +40,13 @@
 //  - The pose is waistUpAvatarNew's third argument: 0 in the avatar editor (ChangeAvatar/yo2ChangeAvatar.cpp, the
 //    right arm up, the disk on it), 1 on Select Player (PlayerSelect/yo2PlayerSelect.cpp). Both draw it at 50 %.
 //  - The blend is the TexMaker's (blendPixel): colour = dst * (1 - a) + src * a, alpha = the larger of the two.
+// New-style items (cosmetics/waistup-newstyle.js, the engine's ovr/newstylewu.c): an outfit listed in
+// data/avatar/wu/newstyle.txt draws its own body picture (skin in the player's tone), the head layers at its neck
+// anchor, the disk through its transform and the fist over it; a missing or broken pack draws the original layers.
 // One deviation: a byte with no row (the exe's avatarValidate puts the whole look back to the default) takes the
 // default part of its slot here (CAvatarData::setDefault), so one bad byte changes one part.
 import { gameFile, pictureUrl, WAISTUP } from './art.js';
+import { newstyleWaistUp, blendSkin, blendDisk } from './waistup-newstyle.js';
 
 export const CANVAS = 768;
 export const POSE = { editor: 0, select: 1 };
@@ -198,9 +202,13 @@ export function blendInto(dst, size, src, L) {
 }
 const busts = new Map();   // the layers' key -> the composed 768 x 768 canvas (the last few)
 async function compose(layers) {
-  const key = layers.map(l => `${l.path}@${l.x},${l.y}`).join('|');
+  const key = layers.map(l => `${l.path}@${l.x},${l.y},${l.h}${l.nw ? `:${l.nw}${l.tone || ''}` : ''}`).join('|');
   if (busts.has(key)) return busts.get(key);
-  const pics = await Promise.all(layers.map(l => picture(l.path).catch(() => null)));
+  const pics = await Promise.all(layers.map(l => {
+    if (!l.pixels) return picture(l.path).catch(() => null);
+    l.pixels.box ||= opaqueBox(l.pixels);
+    return l.pixels;
+  }));
   if (!pics.some(Boolean)) return null;
   // each layer's drawn box on the canvas (its picture's visible pixels, inside its w x h, at its x, y): the focus crops
   const boxes = layers.map((l, i) => {
@@ -211,7 +219,12 @@ async function compose(layers) {
   c.width = c.height = CANVAS;
   const g = c.getContext('2d');
   const img = g.createImageData(CANVAS, CANVAS);
-  layers.forEach((l, i) => { if (pics[i]) blendInto(img.data, CANVAS, pics[i], l); });
+  layers.forEach((l, i) => {
+    if (!pics[i]) return;
+    if (l.nw === 'body' || l.nw === 'hand') blendSkin(img.data, CANVAS, pics[i], l.x, l.y, l.lut);
+    else if (l.nw === 'disk') blendDisk(img.data, CANVAS, pics[i], l.x, l.y, l.w, l.h, l.disk);
+    else blendInto(img.data, CANVAS, pics[i], l);
+  });
   g.putImageData(img, 0, 0);
   const out = { canvas: c, boxes };
   busts.set(key, out);
@@ -256,7 +269,7 @@ export function renderWaistUp(el, parts16, { gender, world = 0, pose = 0, crop =
   el.dataset.look = look;
   el.dataset.state = 'loading';
   let dead = false;
-  const layers = waistUpRows(p[0]).then(rows => (rows ? waistUpLayers(rows, p, { pose }) : []));
+  const layers = waistUpRows(p[0]).then(rows => (rows ? newstyleWaistUp(waistUpLayers(rows, p, { pose })).catch(() => waistUpLayers(rows, p, { pose })) : []));
   const ready = layers.then(async L => {
     if (!live()) return false;
     el.dataset.layers = L.map(l => l.image.replace(/\.png$/, '')).join(' ');
