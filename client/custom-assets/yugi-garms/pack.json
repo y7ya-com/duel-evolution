@@ -2,17 +2,17 @@
   "id": "outfit:yugi",
   "name": "Yami Yugi's Garms",
   "kind": "outfit",
-  "note": "male clothes 0x79 (PBIN bit 121, text 3319, legacy art cm_dc_04_c01): the new-style chibi (the rig-yugi b7 model through the chibi3d renderer, packed by client/tools/newstyle_pack.py) and new waist-up art replacing wm_dc_04_c01",
+  "note": "male clothes 0x79 (PBIN bit 121, text 3319, legacy art cm_dc_04_c01 / wm_dc_04_c01): the new-style chibi (the rig-yugi b7 model through the chibi3d renderer, packed by client/tools/newstyle_pack.py) and the new-style waist-up (the sleeved jacket, painted per pose and converted by client/tools/newstyle_wu.py: neutral-grey skin, the disk anchors, the front hand); the original wm_dc_04_c01 stays in merge.dat as the fallback",
   "newstyle": [
     ["m", "79", "01"]
   ],
-  "replaces": ["merge/data/avatar/wu/wm_dc_04_c01_l.png", "merge/data/avatar/wu/wm_dc_04_c01_r.png"],
-  "placeholder": ["merge/data/avatar/wu/wm_dc_04_c01_l.png", "merge/data/avatar/wu/wm_dc_04_c01_r.png"],
+  "newstyleWaistup": [
+    ["m", "79", "01", "wm_dc_04_c01"]
+  ],
   "files": {
     "merge/data/avatar/chibi/cm_nb_01_c01.pak": "79c2129ecf03820b039e9a92dc48bcfe1f40e673ac8edb8d97fc7f749354a137",
     "merge/data/avatar/chibi/cm_nb_01_c02.pak": "9ecf202d30a710e405c7126f3efc9c51cdb1c9576153fbecf0096dd1f204942a",
     "merge/data/avatar/chibi/cm_nb_01_c03.pak": "e4ff793f61274f1ce58b800c83ee231be0dc88152e3790be281a0c053dd0c90b",
-    "merge/data/avatar/wu/wm_dc_04_c01_l.png": "5a26899b0f9d7a2b822e26fb39e2db3223674613899e4b51aba430fa385e67f2",
-    "merge/data/avatar/wu/wm_dc_04_c01_r.png": "b47f651502e6b7d81d9767abb38ff1144f53070a79abb10ba32c8fe4002f3406"
+    "merge/data/avatar/wu/wm_nw_01.pak": "c5204a0a6a085bed5492a054134106381e03964feda131ae2b31e1cd80f2e631"
   }
 }

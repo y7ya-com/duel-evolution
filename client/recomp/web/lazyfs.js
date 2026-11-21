@@ -586,8 +586,10 @@ Module.preRun.push(() => {
         for (const x of next) wantSpan("data/map/map_" + x, 3, "map:" + x);
         for (const d of AVATARS) wantSpan(d, 4, "avatars");   // the other players and NPCs a lobby shows
         // the new-style outfits' packs (ovr/newstyle.c reads one whole, ~1 MB, the first time a lobby shows that outfit
-        // in that skin tone): in memory before then
-        for (const [name, url] of looseFiles) if (/^data\/avatar\/chibi\/c[mw]_nb_\d\d_c0\d\.pak$/.test(name)) wantFile(url, 4, "avatars");
+        // in that skin tone; ovr/newstylewu.c its waist-up pack, ~0.7 MB, the first time a bust shows it): in memory
+        // before then
+        for (const [name, url] of looseFiles)
+            if (/^data\/avatar\/(chibi\/c[mw]_nb_\d\d_c0\d|wu\/w[mw]_nw_\d\d)\.pak$/.test(name)) wantFile(url, 4, "avatars");
     }
     function onMiss(url, i) {
         if (url !== archive) return;

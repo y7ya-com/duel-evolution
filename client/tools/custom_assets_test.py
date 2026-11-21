@@ -11,7 +11,7 @@ import re
 import tempfile
 import unittest
 
-from custom_assets import NEWSTYLE, build, load_packs, newstyle_table, patch_pbin, patch_waistup, rehash, write_manifest
+from custom_assets import NEWSTYLE, NEWSTYLE_WU, newstyle_wu_table, build, load_packs, newstyle_table, patch_pbin, patch_waistup, rehash, write_manifest
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKS = ROOT / "client/custom-assets"
@@ -139,6 +139,35 @@ class BuildTest(unittest.TestCase):
             (d / "art/merge/data/avatar/chibi/cm_nb_01_c02.pak").unlink()
             with self.assertRaises(FileNotFoundError):
                 build(merge(), load_packs(str(Path(tmp) / "packs")), str(Path(tmp) / "out2"))
+
+
+WU_OUTFIT = {"id": "outfit:wu", "name": "Waist Garms", "kind": "outfit", "newstyleWaistup": [["m", "79", "01", "wm_dc_04_c01"]]}
+
+
+class NewstyleWaistupTest(unittest.TestCase):
+    make = BuildTest.make
+
+    def test_the_table_names_the_clothes_row_s_own_picture(self):
+        t = newstyle_wu_table([WU_OUTFIT], merge()).decode()
+        self.assertEqual(t.splitlines()[1], "m 79 01 wm_dc_04_c01  # outfit:wu")
+        self.assertIsNone(newstyle_wu_table([DISK]))
+        for bad in (["m", "79", "01", "wm_dc_05_c01"], ["m", "78", "01", "wm_dc_04_c01"], ["f", "79", "01", "wm_dc_04_c01"],
+                    ["m", "79", "00", "wm_dc_04_c01"], ["m", "79", "01", "wm_dc_04_c01; rm"]):
+            with self.assertRaises(ValueError, msg=bad):
+                newstyle_wu_table([{**WU_OUTFIT, "newstyleWaistup": [bad]}], merge())
+        with self.assertRaises(ValueError):   # one clothes number, two items
+            newstyle_wu_table([WU_OUTFIT, {**WU_OUTFIT, "id": "outfit:o", "newstyleWaistup": [["m", "79", "02", "wm_dc_04_c01"]]}])
+
+    def test_the_pack_and_the_table_ship(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            files = {"merge/data/avatar/wu/wm_nw_01.pak": b"pak"}
+            self.make(tmp, WU_OUTFIT, files)
+            written = build(merge(), load_packs(str(Path(tmp) / "packs")), str(Path(tmp) / "out"))
+            self.assertEqual(sorted(written), sorted([*files, NEWSTYLE_WU]))
+        with tempfile.TemporaryDirectory() as tmp:   # its pack missing
+            self.make(tmp, WU_OUTFIT, {"merge/data/avatar/wu/wm_nw_02.pak": b"another code"})
+            with self.assertRaises(ValueError):
+                build(merge(), load_packs(str(Path(tmp) / "packs")), str(Path(tmp) / "out"))
 
 
 class AgreementTest(unittest.TestCase):

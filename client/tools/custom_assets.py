@@ -14,6 +14,10 @@ infra/fetch-private.sh like html-ui/assets). This writes into <out>:
   - new-style chibi outfits ("newstyle": [[body, clothes hex, code]]: client/recomp/ovr/newstyle.c,
     client/tools/newstyle_pack.py): the pack must carry its three skin tones' packs, merge/data/avatar/chibi/
     c?_nb_<code>_c0{1,2,3}.pak, and merge/data/avatar/chibi/newstyle.txt (the engine's table) is written from all packs;
+  - new-style waist-up items ("newstyleWaistup": [[body, clothes hex, code, clothes picture stem]]:
+    client/recomp/ovr/newstylewu.c, client/tools/newstyle_wu.py): the pack must carry merge/data/avatar/wu/
+    {wm,ww}_nw_<code>.pak, the stem must be that clothes number's row in merge.dat's {wm,ww}_data.csv, and
+    merge/data/avatar/wu/newstyle.txt (the engine's and the HTML UI's table) is written from all packs;
   - merge/data/common/yo2pbinmap.dat and merge/data/avatar/wu/{wm,ww}_data.csv, merge.dat's own with the packs' rows:
     "pbin" (new part rows: a PBIN row must be vacant in the original), "waistup" (a new part's waist-up row, which must
     not exist yet), "waistupRows" ({"wm": {"<category>,<number>": [x, y, w, h]}}: an existing row's rectangle, for
@@ -35,6 +39,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 PBIN = "data/common/yo2pbinmap.dat"
 WU = "data/avatar/wu/{body}_data.csv"
 NEWSTYLE = "merge/data/avatar/chibi/newstyle.txt"
+NEWSTYLE_WU = "merge/data/avatar/wu/newstyle.txt"
 CATEGORY = {"dueldisk": 12}   # the waist-up layer's category (wm_data.csv column 1)
 SLOT = {"dueldisk": 8}
 
@@ -110,6 +115,34 @@ def newstyle_table(packs):
             + "".join(line + "\n" for line in lines)).encode("ascii") if lines else None
 
 
+def newstyle_wu_table(packs, merge=None):
+    """newstyle.txt for the waist-up (ovr/newstylewu.c, htmlui waistup-newstyle.js): "<m|f> <clothes hex> <code>
+    <clothes picture stem>" per item; with merge, the stem must be the clothes row's own picture (wm_data.csv /
+    ww_data.csv category 10, the clothes number, file1 = <stem>_r.png)."""
+    lines, seen = [], set()
+    rows = {}
+    for pack in packs:
+        for body, clothes, code, stem in pack.get("newstyleWaistup", []):
+            pre = "ww" if body == "f" else "wm"
+            if body not in "mf" or not re.fullmatch(r"[0-9a-f]{2}", clothes) or not re.fullmatch(r"\d\d", code) or code == "00" \
+                    or not re.fullmatch(pre + r"_[a-z0-9_]{1,44}", stem):
+                raise ValueError(f"{pack['id']}: bad newstyleWaistup row {body} {clothes} {code} {stem}")
+            for key in ((body, clothes), (body, "code", code), (body, "stem", stem)):
+                if key in seen:
+                    raise ValueError(f"{pack['id']}: newstyleWaistup {key} twice")
+                seen.add(key)
+            if merge is not None:
+                if pre not in rows:
+                    data, _ = _lines(merge.read(WU.format(body=pre)))
+                    rows[pre] = {tuple(r.split(",")[:2]): r.split(",") for r in data if r and not r.startswith("//")}
+                row = rows[pre].get(("10", str(int(clothes, 16))))
+                if not row or row[2].lower() != f"{stem}_r.png" or row[3].lower() != f"{stem}_l.png":
+                    raise ValueError(f"{pack['id']}: {stem} is not clothes 0x{clothes}'s waist-up row in {WU.format(body=pre)}")
+            lines.append(f"{body} {clothes} {code} {stem}  # {pack['id']}")
+    return ("# body clothes(hex) code clothes-picture-stem: client/recomp/ovr/newstylewu.c (written by client/tools/custom_assets.py)\n"
+            + "".join(line + "\n" for line in lines)).encode("ascii") if lines else None
+
+
 def build(merge, packs, out, allow_placeholders=False):
     """Write the packs' files into out (see the module docstring). -> the relative paths written."""
     written = []
@@ -140,8 +173,12 @@ def build(merge, packs, out, allow_placeholders=False):
                 rel = f"merge/data/avatar/chibi/{pre}_nb_{code}_c0{s}.pak"
                 if rel not in pack["files"]:
                     raise ValueError(f"{pack['id']}: no {rel} (client/tools/newstyle_pack.py makes it)")
+        for body, _, code, _ in pack.get("newstyleWaistup", []):
+            rel = f"merge/data/avatar/wu/{'ww' if body == 'f' else 'wm'}_nw_{code}.pak"
+            if rel not in pack["files"]:
+                raise ValueError(f"{pack['id']}: no {rel} (client/tools/newstyle_wu.py makes it)")
         for rel, digest in sorted(pack["files"].items()):
-            if not rel.startswith("merge/data/") or rel == NEWSTYLE:
+            if not rel.startswith("merge/data/") or rel in (NEWSTYLE, NEWSTYLE_WU):
                 raise ValueError(f"{pack['id']}: {rel} is not a game file this tool ships")
             src = os.path.join(pack["dir"], "art", rel)
             if not os.path.isfile(src):
@@ -162,6 +199,11 @@ def build(merge, packs, out, allow_placeholders=False):
     if any(p.get("waistup") or p.get("waistupRows") for p in packs):
         for body in ("wm", "ww"):
             put("merge/" + WU.format(body=body), patch_waistup(merge.read(WU.format(body=body)), body, packs))
+    table = newstyle_wu_table(packs, merge)
+    if table:
+        if in_archive(NEWSTYLE_WU):
+            raise ValueError(f"{NEWSTYLE_WU}: merge.dat has one")
+        put(NEWSTYLE_WU, table)
     table = newstyle_table(packs)
     if table:
         if in_archive(NEWSTYLE):
