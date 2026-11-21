@@ -71,3 +71,5 @@
 009ca6c0  # CChibiAvatarElm::texturesLoaded (newstyle.c: the same)
 009cca40  # CChibiAvatarElm::createEngine (newstyle.c: the same)
 009ccfc0  # CChibiAvatarElm::applyParts (newstyle.c: + the new-style outfit's body frames)
+009bf5e0  # CAvatarTexMaker::setLayers (newstylewu.c: a new-style waist-up item's layers re-placed and tagged)
+009c0d80  # CAvatarTexMaker::blendLayer (newstylewu.c: a tagged layer drawn from the item's pack)

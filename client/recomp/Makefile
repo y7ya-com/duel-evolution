@@ -87,6 +87,12 @@ $(B)/liveappearance_test: rt/liveappearance_test.c ovr/liveappearance.c $(RT_HDR
 worldparts_test: $(B)/worldparts_test   # ovr/worldparts.c's world rule: build/worldparts_test [rows] (the file says how)
 $(B)/worldparts_test: rt/worldparts_test.c ovr/worldparts.c $(RT_HDRS) | $(B)
 	$(CC) -O1 -g -Wall -Wno-unused-function -fsanitize=address,undefined -Irt rt/worldparts_test.c -o $@
+nwpak_test: $(B)/nwpak_test $(B)/nwpak_placeholder.pak   # ovr/nwpak.h: new-style waist-up packs (newstylewu.c)
+	$(B)/nwpak_test $(B)/nwpak_placeholder.pak
+$(B)/nwpak_placeholder.pak: ../tools/newstyle_wu.py | $(B)
+	$${YO2_ASSET_PYTHON:-python3} -I ../tools/newstyle_wu.py placeholder --out $@
+$(B)/nwpak_test: rt/nwpak_test.c ovr/nwpak.h ovr/nspak.h | $(B)
+	$(CC) -O1 -g -Wall -Wno-unused-function -fsanitize=address,undefined rt/nwpak_test.c -lm -o $@
 nspak_test: $(B)/nspak_test $(B)/nspak_placeholder.pak   # ovr/nspak.h: new-style packs, broken ones refused (newstyle.c)
 	$(B)/nspak_test $(B)/nspak_placeholder.pak
 $(B)/nspak_test: rt/nspak_test.c ovr/nspak.h | $(B)
