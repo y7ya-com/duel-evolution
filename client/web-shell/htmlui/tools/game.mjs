@@ -56,8 +56,15 @@ const srv = createServer((req, res) => {
   if (SHIP && !p.startsWith('/game/') && !p.startsWith('/fonts/')) {   // the shipped page and its files
     const f = p === '/' ? path.join(SHIP, 'index.html') : p.startsWith('/loader/') ? path.join(shell, p) : path.join(SHIP, p);
     try {
-      const b = readFileSync(f);
-      res.writeHead(200, { ...ISO, 'Content-Type': MIME[f.split('.').pop()] || 'application/octet-stream' });
+      const b = readFileSync(f), type = MIME[f.split('.').pop()] || 'application/octet-stream';
+      // byte ranges, as R2 answers them: lazyfs.js reads the shipped loose files (custom assets) synchronously by range
+      const m = /bytes=(\d+)-(\d*)/.exec(req.headers.range || '');
+      if (m && +m[1] < b.length) {
+        const a = +m[1], e = m[2] ? Math.min(+m[2], b.length - 1) : b.length - 1;
+        res.writeHead(206, { ...ISO, 'Content-Type': type, 'Content-Range': `bytes ${a}-${e}/${b.length}`, 'Content-Length': e - a + 1 });
+        return res.end(b.subarray(a, e + 1));
+      }
+      res.writeHead(200, { ...ISO, 'Content-Type': type });
       return res.end(b);
     } catch { res.writeHead(404, ISO); return res.end(); }
   }
