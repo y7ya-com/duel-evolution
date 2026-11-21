@@ -10,9 +10,11 @@ grey, so a painting need not match the bare body pixel for pixel nor leave room 
     luminance of the tone 1 skin colour it was; each tone is a few colour stops over v, linear between them);
   - the player's head (the bare body's head rows, the face layers, both hair layers) goes over the item's neck at
     the pose's NECK anchor (offset from the bare body's own);
-  - the duel disk strip is drawn through the pose's DISK transform (rotation, scale, translation about the base
-    pose's wrist: the disk follows the drawn forearm), then the FRONT HAND (the disk arm's fist, cut from the body
-    picture) over it.
+  - the duel disk strip is drawn LAST, through the pose's DISK transform (rotation, scale, translation about the
+    base pose's wrist: the disk follows the drawn forearm). As in the 2008 part loop, nothing goes over the disk:
+    the original strips hold no hand pixels and the bare body's fist is behind them wherever they overlap, so the
+    deck holder, the console and the zones always stay on top (ground truth: every shipped disk family composited
+    on the bare body, both poses).
 
 Commands (python with numpy, opencv, scipy, pillow; --wu: a folder of the game's data/avatar/wu pictures):
 
@@ -30,8 +32,7 @@ Commands (python with numpy, opencv, scipy, pillow; --wu: a folder of the game's
             a garment in that box matched region to region (mean and spread in Lab)
   calibrate --wu <dir> --body body_<pose>.png --pose r|l --out anchors_<pose>.json [--override <json>]
             the anchors: the disk transform (the bare body's disk arm, forearm and fist, matched as a silhouette
-            against the item's skin: rotation, scale, shift searched), the front hand (the fist past the fitted
-            wrist), the neck (the bare body's, as a painting on it or in its pose keeps it; set it by --override for
+            against the item's skin: rotation, scale, shift searched), the neck (the bare body's, as a painting on it or in its pose keeps it; set it by --override for
             a figure drawn elsewhere). --override: a JSON whose keys replace the computed ones
             ({"disk": {"angle": 2.5}, "neck": [368, 304]}).
   pack      --dir <work dir> --code 01 [--body m] --out <dir>
@@ -43,7 +44,7 @@ Commands (python with numpy, opencv, scipy, pillow; --wu: a folder of the game's
   placeholder --out <pak>                                    a pack drawn from shapes, for the tests (no game art)
 
 Pack (the chibi packs' container, client/tools/newstyle_pack.py: "YO2NSPK1", entries stored): body_r.png, body_l.png
-(RGBA, the picture's box on the 768 canvas in its anchors), hand_r.png, hand_l.png (the front hand, same box) and
+(RGBA, the picture's box on the 768 canvas in its anchors) and
 wu.txt (the anchors and the ramp, one record per line; '#' comments):
 
     bare <x> <y>                               where the bare body's row (c?_bo_01) sits on the canvas the records
@@ -52,7 +53,7 @@ wu.txt (the anchors and the ramp, one record per line; '#' comments):
                                                the bare body's layer
     ramp <v0> <v1> ... <vK-1>                 the grey stops (0 = first, 255 = last, increasing; K 2..16)
     tone <S> <r g b> x K                       skin tone S's colour at each stop (S = 1..)
-    pose <r|l> <x> <y> <w> <h>                 the body / hand pictures' box on the 768 canvas
+    pose <r|l> <x> <y> <w> <h>                 the body picture's box on the 768 canvas
     neck <r|l> <dx> <dy>                       the head layers' offset from the bare body's
     headcut <r|l> <y>                          the bare body's rows above y (canvas) are the head
     disk <r|l> <cx> <cy> <angle> <scale> <dx> <dy>
@@ -211,7 +212,7 @@ def ramp_lut(ramp, tone):
 
 
 def swap_skin(img, ramp, tone):
-    """A body / hand picture with its skin greys in skin tone `tone` (uint8 RGBA)."""
+    """A body picture with its skin greys in skin tone `tone` (uint8 RGBA)."""
     np = _np()
     out = img.copy()
     sk = is_skin_grey(img)
@@ -513,7 +514,7 @@ def arm_mask(pose):
 
 
 def calibrate(wu, body, pose, overrides=None, sex='wm'):
-    """-> (anchors dict, hand mask (bool 768 x 768)). The base pose's disk arm (forearm and fist, BASE_ARM's outline)
+    """-> anchors dict. The base pose's disk arm (forearm and fist, BASE_ARM's outline)
     is matched against the item's skin as a silhouette: the transform (rotation -24..24 degrees about the base wrist,
     scale 0.88..1.12, shift +-48 px; coarse grid, then finer) that puts the most of the arm on the item's skin and the
     least of the ring round it (where the bare body has no body) on skin. Occluders on the arm (a wristband, a
@@ -578,50 +579,15 @@ def calibrate(wu, body, pose, overrides=None, sex='wm'):
             anchors[k] = {**anchors[k], **v}
         else:
             anchors[k] = v
-    hand = front_hand(body, pose, anchors)
-    return anchors, hand
+    return anchors
 
 
-def front_hand(body, pose, anchors):
-    """The disk arm's fist in the item's body: its skin (and the line work round it) past the drawn wrist, away from
-    the elbow, the connected part only. Drawn over the disk."""
-    import cv2
-    np = _np()
-    from scipy import ndimage as ndi
-    arm = BASE_ARM[pose]
-    d = anchors['disk']
-    M = similarity(d['cx'], d['cy'], d['angle'], d['scale'], d['dx'], d['dy'])
-    w = M @ np.array([*arm['wrist'], 1.0])
-    e = M @ np.array([*arm['elbow'], 1.0])
-    u = (w - e) / np.linalg.norm(w - e)          # pointing from the elbow to the hand
-    yy, xx = np.mgrid[:CANVAS, :CANVAS]
-    along = (xx - w[0]) * u[0] + (yy - w[1]) * u[1]
-    dist = np.hypot(xx - w[0], yy - w[1])
-    region = (along > -4) & (dist < 95)
-    sk = is_skin_grey(body) & region
-    sk = ndi.binary_opening(sk, iterations=1)
-    lb, n = ndi.label(sk)
-    if not n:
-        return np.zeros((CANVAS, CANVAS), bool)
-    # the component nearest the wrist, past it
-    sizes = ndi.sum(sk, lb, range(1, n + 1))
-    cm = ndi.center_of_mass(sk, lb, range(1, n + 1))
-    best = min(range(n), key=lambda i: np.hypot(cm[i][1] - w[0], cm[i][0] - w[1]) - sizes[i] * 0.01)
-    fist = lb == best + 1
-    fist = ndi.binary_fill_holes(ndi.binary_closing(fist, iterations=3))
-    # its outline: the opaque pixels within 4 px
-    ring = ndi.binary_dilation(fist, iterations=4) & (body[..., 3] > 0) & (along > -6)
-    return (fist | ring) & region | (fist & (along > -6))
-
-
-def bust_parts(body, hand):
-    """The pictures' common box (x, y, w, h) on the canvas and the two cropped arrays."""
+def bust_parts(body):
+    """The picture's box (x, y, w, h) on the canvas and the cropped array."""
     np = _np()
     ys, xs = np.nonzero(body[..., 3] > 0)
     x0, y0, x1, y1 = int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
-    h = np.zeros_like(body)
-    h[hand] = body[hand]
-    return (x0, y0, x1 - x0, y1 - y0), body[y0:y1, x0:x1].copy(), h[y0:y1, x0:x1].copy()
+    return (x0, y0, x1 - x0, y1 - y0), body[y0:y1, x0:x1].copy()
 
 
 # ---------------------------------------------------------------- the pack
@@ -699,7 +665,7 @@ def write_pak(entries):
     return b''.join(head + data)
 
 
-PAK_NAMES = ('body_r.png', 'body_l.png', 'hand_r.png', 'hand_l.png', 'wu.txt')
+PAK_NAMES = ('body_r.png', 'body_l.png', 'wu.txt')
 
 
 def read_pak(blob):
@@ -732,26 +698,24 @@ def read_pak(blob):
     wu = parse_wu(out['wu.txt'])
     for p in 'rl':
         x, y, w, h = (int(v) for v in wu['pose'][p]['box'])
-        for kind in ('body', 'hand'):
-            im = Image.open(io.BytesIO(out[f'{kind}_{p}.png']))
-            im.load()
-            if im.size != (w, h) or im.mode != 'RGBA':
-                raise ValueError(f'{kind}_{p}.png: {im.size} {im.mode}, the box is {w} x {h}')
+        im = Image.open(io.BytesIO(out[f'body_{p}.png']))
+        im.load()
+        if im.size != (w, h) or im.mode != 'RGBA':
+            raise ValueError(f'body_{p}.png: {im.size} {im.mode}, the box is {w} x {h}')
     return out
 
 
 def pack(work, body='m'):
-    """<work>/body_{r,l}.png + anchors_{r,l}.json + hand_{r,l}.png + ramp.json -> the pack's bytes."""
+    """<work>/body_{r,l}.png + anchors_{r,l}.json + ramp.json -> the pack's bytes."""
     np = _np()
     ramp = json.load(open(os.path.join(work, 'ramp.json')))
     entries, poses = [], {}
     for pose in 'rl':
         b = load_rgba(os.path.join(work, f'body_{pose}.png'))
-        hand = load_rgba(os.path.join(work, f'hand_{pose}.png'))[..., 3] > 0
         a = json.load(open(os.path.join(work, f'anchors_{pose}.json')))
-        box, bc, hc = bust_parts(b, hand)
+        box, bc = bust_parts(b)
         poses[pose] = (box, a)
-        entries += [(f'body_{pose}.png', png_bytes(bc)), (f'hand_{pose}.png', png_bytes(hc))]
+        entries.append((f'body_{pose}.png', png_bytes(bc)))
     entries.append(('wu.txt', wu_text(ramp, poses)))
     order = {n: i for i, n in enumerate(PAK_NAMES)}
     blob = write_pak(sorted(entries, key=lambda e: order[e[0]]))
@@ -767,8 +731,8 @@ PLACEHOLDER_RAMP = {'stops': [0, 73, 176, 230, 255],
 
 def placeholder():
     """A pack drawn from shapes (no game art): the tests' (rt/nwpak_test.c, waistup_test.mjs). Per pose a 200 x 300
-    box at (284, 300): a blue coat with a grey (skin) arm band across it and a grey square fist; the fist is the
-    front hand; the r disk turned 10 degrees and moved (6, -4), the l one scaled 1.1, the l head 3 px right."""
+    box at (284, 300): a blue coat with a grey (skin) arm band across it and a grey square fist;
+    the r disk turned 10 degrees and moved (6, -4), the l one scaled 1.1, the l head 3 px right."""
     np = _np()
     entries, poses = [], {}
     for pose in 'rl':
@@ -777,9 +741,7 @@ def placeholder():
         b[120:150, 20:180] = (200, 200, 200, 255)     # the arm (skin grey 200)
         b[100:170, 20:70] = (150, 150, 150, 255)      # the fist (skin grey 150)
         b[0:4, :] = (128, 128, 129, 255)              # a grey-looking cloth row (nudged blue: not skin)
-        h = np.zeros_like(b)
-        h[100:170, 20:70] = b[100:170, 20:70]
-        entries += [(f'body_{pose}.png', png_bytes(b)), (f'hand_{pose}.png', png_bytes(h))]
+        entries.append((f'body_{pose}.png', png_bytes(b)))
         disk = {'cx': 300, 'cy': 430, 'angle': 10 if pose == 'r' else 0, 'scale': 1 if pose == 'r' else 1.1,
                 'dx': 6 if pose == 'r' else 0, 'dy': -4 if pose == 'r' else 0}
         poses[pose] = ((284, 300, 200, 300), {'neck': [NECK_BASE[0] + (3 if pose == 'l' else 0), NECK_BASE[1]],
@@ -884,7 +846,7 @@ def render(wu, look, pose, pak=None, sex_prefix=None):
     """The bust of a 16-byte look (768 x 768 RGBA): the original part loop, or, when `pak` (a new-style pack's
     entries) is given, the new-style composition the engine and the HTML UI draw:
       the head steps at the neck offset, the bare body only above the head cut, the item's body (skin swapped) in
-      the clothes step, the disk through its transform, the front hand over it."""
+      the clothes step, the disk (last) through its transform."""
     np = _np()
     pre = sex_prefix or ('ww' if look[0] else 'wm')
     rows = parse_csv(os.path.join(wu, f'{pre}_data.csv'))
@@ -909,9 +871,6 @@ def render(wu, look, pose, pak=None, sex_prefix=None):
             blend(canvas, swap_skin(body, {'stops': wu_txt['stops'], 'tones': wu_txt['tones']}, tone), bx, by)
         elif step == 12:
             blend(canvas, warp_disk(pic, x, y, a['disk']), 0, 0)
-            bx, by = int(a['box'][0]), int(a['box'][1])
-            hand = load_png_bytes(pak[f'hand_{pose}.png'])
-            blend(canvas, swap_skin(hand, {'stops': wu_txt['stops'], 'tones': wu_txt['tones']}, tone), bx, by)
     return canvas
 
 
@@ -957,12 +916,8 @@ def main():
     elif a.cmd == 'calibrate':
         body = load_rgba(a.body)
         ov = json.load(open(a.override)) if a.override else None
-        anchors, hand = calibrate(a.wu, body, a.pose, ov, sex)
+        anchors = calibrate(a.wu, body, a.pose, ov, sex)
         json.dump(anchors, open(a.out, 'w'), indent=1)
-        h = _np().zeros_like(body)
-        h[hand] = body[hand]
-        from PIL import Image
-        Image.fromarray(h, 'RGBA').save(os.path.join(os.path.dirname(os.path.abspath(a.out)), f'hand_{a.pose}.png'))
         print(json.dumps(anchors))
     elif a.cmd == 'pack':
         blob = pack(a.dir)

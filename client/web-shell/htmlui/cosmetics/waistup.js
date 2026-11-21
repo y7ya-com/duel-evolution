@@ -42,7 +42,7 @@
 //  - The blend is the TexMaker's (blendPixel): colour = dst * (1 - a) + src * a, alpha = the larger of the two.
 // New-style items (cosmetics/waistup-newstyle.js, the engine's ovr/newstylewu.c): an outfit listed in
 // data/avatar/wu/newstyle.txt draws its own body picture (skin in the player's tone), the head layers at its neck
-// anchor, the disk through its transform and the fist over it; a missing or broken pack draws the original layers.
+// anchor, the disk last through its transform; a missing or broken pack draws the original layers.
 // One deviation: a byte with no row (the exe's avatarValidate puts the whole look back to the default) takes the
 // default part of its slot here (CAvatarData::setDefault), so one bad byte changes one part.
 import { gameFile, pictureUrl, WAISTUP } from './art.js';
@@ -221,7 +221,7 @@ async function compose(layers) {
   const img = g.createImageData(CANVAS, CANVAS);
   layers.forEach((l, i) => {
     if (!pics[i]) return;
-    if (l.nw === 'body' || l.nw === 'hand') blendSkin(img.data, CANVAS, pics[i], l.x, l.y, l.lut);
+    if (l.nw === 'body') blendSkin(img.data, CANVAS, pics[i], l.x, l.y, l.lut);
     else if (l.nw === 'disk') blendDisk(img.data, CANVAS, pics[i], l.x, l.y, l.w, l.h, l.disk);
     else blendInto(img.data, CANVAS, pics[i], l);
   });

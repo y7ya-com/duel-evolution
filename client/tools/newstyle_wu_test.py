@@ -81,11 +81,10 @@ class CalibrateTest(unittest.TestCase):
             wx, wy = N.BASE_ARM[pose]['wrist']
             M = N.similarity(wx, wy, 8, 1, 12, -7)
             moved = cv2.warpAffine(body, M, (N.CANVAS, N.CANVAS), flags=cv2.INTER_NEAREST)
-            a, hand = N.calibrate(None, moved, pose)
+            a = N.calibrate(None, moved, pose)
             d = a['disk']
             self.assertLessEqual(abs(d['angle'] - 8), 1.0, (pose, d))
             self.assertLessEqual(abs(d['dx'] - 12) + abs(d['dy'] + 7), 3, (pose, d))
-            self.assertTrue(hand.any(), 'a front hand')
 
 
 if __name__ == '__main__':

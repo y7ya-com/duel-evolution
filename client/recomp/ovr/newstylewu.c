@@ -1,8 +1,9 @@
 // New-style waist-up items (2026-11-21): an outfit listed in data/avatar/wu/newstyle.txt is drawn in the waist-up
 // (the avatar editor, Select Player, the player card, the duel) from its own pack instead of the 2008 layers:
 // one picture of the whole figure below the head per pose, its skin in neutral greys turned into the player's skin
-// tone here, the player's own head over it at the pose's neck anchor, the duel disk moved / turned / scaled to the
-// drawn forearm, and the disk arm's fist drawn over the disk. Everything else, and any outfit not listed, keeps the
+// tone here, the player's own head over it at the pose's neck anchor, and the duel disk, last as in 2008, moved /
+// turned / scaled to the drawn forearm (the original strips hold no hand: the fist is behind the disk wherever they
+// overlap, so the deck holder, the console and the zones stay on top). Everything else, and any outfit not listed, keeps the
 // original layers; a missing or broken pack logs one line and the outfit stays original (ovr/nwpak.h checks it all).
 //
 // How the exe draws a waist-up (src/Game/Avatar/yo2AvatarTexMaker.*, htmlui cosmetics/waistup.js): CWaistUpAvatar's
@@ -19,8 +20,7 @@
 //     - the clothes layer and the disk layer (the last one, after the clothes and not front hair) are TAGGED: their
 //       srcX becomes 0x4e570000 | op (no real picture is that wide), op an entry of a fixed table saying what to draw.
 //   blendLayer: an untagged layer is the original's. A tagged clothes layer draws the item's body, skin swapped; a
-//   tagged disk layer draws its strip (the texture the maker loaded) through the pose's transform, then the front
-//   hand, skin swapped. The surfaces are locked through their own vtables, as the original does.
+//   tagged disk layer draws its strip (the texture the maker loaded) through the pose's transform. The surfaces are locked through their own vtables, as the original does.
 // The table: lines "<m|f> <clothes hex> <code> <clothes picture stem>" (custom_assets.py writes it from the packs),
 // pack data/avatar/wu/<wm|ww>_nw_<code>.pak. RC_NEWSTYLE_WU=0 turns the path off.
 #include <stdio.h>
@@ -46,7 +46,7 @@ typedef struct {
 static Style styles[MAX_STYLES];
 static int nstyles = -1, off;
 
-// disk 0: the body, 1: the disk + the front hand; ox, oy: the caller's shift of the whole bust (a tile of it)
+// disk 0: the body, 1: the disk; ox, oy: the caller's shift of the whole bust (a tile of it)
 typedef struct { uint16_t style; uint8_t pose, skin, disk; int16_t ox, oy; } Op;
 static Op ops[MAX_OPS];
 static int nops;   // read by the worker threads after the tag is set (append only)
@@ -228,7 +228,6 @@ void f_009c0d80(CPU *restrict c) {
                 uint32_t z[1] = {0};
                 com(&t, src, 0x44, 1, z);   // UnlockRect(0)
             }
-            nw_blend_rgba(px, pitch, dw, dh, p->hand, p->w, p->h, p->x, p->y, lut);
         }
         com(&t, dst, 0x28, 0, NULL);   // UnlockRect
     }

@@ -52,9 +52,9 @@ function pak(entries) {
   return new Uint8Array([...head, ...entries.flatMap(([, d]) => [...d])]);
 }
 const enc = s => new Uint8Array(Buffer.from(s));
-const ENTRIES = [['body_r.png', enc('BR')], ['hand_r.png', enc('HR')], ['body_l.png', enc('BL')], ['hand_l.png', enc('HL')], ['wu.txt', enc(TXT)]];
+const ENTRIES = [['body_r.png', enc('BR')], ['body_l.png', enc('BL')], ['wu.txt', enc(TXT)]];
 const good = pak(ENTRIES);
-assert.deepEqual(Object.keys(readPak(good)), ['body_r.png', 'hand_r.png', 'body_l.png', 'hand_l.png', 'wu.txt']);
+assert.deepEqual(Object.keys(readPak(good)), ['body_r.png', 'body_l.png', 'wu.txt']);
 const flipped = good.slice(); flipped[flipped.length - 20] ^= 0x40;
 assert.throws(() => readPak(flipped), /CRC/);
 assert.throws(() => readPak(good.slice(0, -5)), /truncated/);
@@ -65,8 +65,7 @@ assert.throws(() => readPak(bad), /not a pack/);
 // synthetic pictures: a 200 x 300 coat with a grey (skin) band, the fist grey 150
 const img = (w, h, f) => { const data = new Uint8ClampedArray(w * h * 4); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) data.set(f(x, y), (y * w + x) * 4); return { width: w, height: h, data }; };
 const body = img(200, 300, (x, y) => (y >= 120 && y < 150 ? [200, 200, 200, 255] : y < 4 ? [128, 128, 129, 255] : [40, 60, 160, 255]));
-const hand = img(200, 300, (x, y) => (y >= 100 && y < 170 && x >= 20 && x < 70 ? [150, 150, 150, 255] : [0, 0, 0, 0]));
-const pics = { BR: body, HR: hand, BL: body, HL: hand };
+const pics = { BR: body, BL: body };
 const decode = async b => pics[Buffer.from(b).toString()];
 const style = { pre: 'wm', code: '01', stem: 'wm_dc_03_c01', clothes: 0x77 };
 
@@ -80,7 +79,9 @@ const read = async name => { reads.push(name); return good; };
 const ns = await newstyleWaistUp(L, { tableOf: async () => [style], load: s => loadPack(s, { read, decode }) });
 assert.deepEqual(reads, ['data/avatar/wu/wm_nw_01.pak']);
 assert.deepEqual(ns.map(l => l.nw || l.image.replace(/\.png$/, '')), ['wm_h2_11_c01', 'wm_bo_01_c03_l', 'wm_hs_11_c03', 'wm_es_01_01_c03',
-  'wm_mo_01_01_c03', 'wm_ey_01_01_c01', 'wm_no_01_c03', 'wm_eb_01_01_c01', 'wm_a2_01_c01', 'body', 'wm_h1_11_c01', 'disk', 'hand']);
+  'wm_mo_01_01_c03', 'wm_ey_01_01_c01', 'wm_no_01_c03', 'wm_eb_01_01_c01', 'wm_a2_01_c01', 'body', 'wm_h1_11_c01', 'disk']);
+// the disk is the last layer: nothing of the figure goes over it (the deck holder and the zones stay on top)
+assert.equal(ns.at(-1).nw, 'disk');
 const bo = ns.find(l => l.step === 1);
 assert.deepEqual([bo.x, bo.y, bo.h], [3, 112, 306 - 112], 'the bare body: its head rows only, at the neck offset');
 assert.equal(ns.find(l => l.step === 11).x, 3, 'front hair at the neck offset');

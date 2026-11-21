@@ -6,7 +6,6 @@
 //   "YO2NSPK1", u32 count, per entry u8 name length, name, u8 method (0), u32 stored, u32 size, u32 CRC-32; the data.
 //   body_r.png, body_l.png   the item's whole figure below the head per pose (the avatar editor's r, Select
 //                            Player's l), its skin in neutral greys: R = G = B = v marks skin, v the ramp position
-//   hand_r.png, hand_l.png   the disk arm's fist cut from the body (drawn over the disk); same box as the body
 //   wu.txt                   records, one per line ('#' comments):
 //     bare <x> <y>                         the bare body's row origin on the canvas the records are measured on (a
 //                                          caller that draws the bust shifted, in 256 px tiles, moves every layer
@@ -19,7 +18,7 @@
 //     disk <r|l> <cx> <cy> <angle> <scale> <dx> <dy>
 //                                          the disk strip rotated (degrees, clockwise on screen) and scaled about
 //                                          (cx, cy), then moved by (dx, dy)
-// nwpak_load accepts a pack only if all of it holds (layout, CRCs, both PNGs per pose decode at the box's size,
+// nwpak_load accepts a pack only if all of it holds (layout, CRCs, each pose's PNG decodes at its box's size,
 // every record present and in range); otherwise it says why and the item stays on its original art.
 #ifndef NWPAK_H
 #define NWPAK_H
@@ -36,7 +35,7 @@ typedef struct {
     int x, y, w, h;           // the box
     int ndx, ndy, headcut;
     double cx, cy, angle, scale, dx, dy;
-    uint8_t *body, *hand;     // RGBA, w x h
+    uint8_t *body;            // RGBA, w x h
 } NwPose;
 
 typedef struct {
@@ -50,8 +49,8 @@ typedef struct {
 
 static void nwpak_free(NwItem *it) {
     for (int p = 0; p < 2; p++) {
-        free(it->pose[p].body), free(it->pose[p].hand);
-        it->pose[p].body = it->pose[p].hand = NULL;
+        free(it->pose[p].body);
+        it->pose[p].body = NULL;
     }
 }
 
@@ -186,13 +185,13 @@ static int nwpak_load(const uint8_t *blob, size_t len, NwItem *it, char *err, si
         if (!strcmp(d[i].name, "wu.txt")) k = (int)i;
     if (k < 0) return snprintf(err, errn, "wu.txt missing"), 0;
     if (!nwpak_parse_text((const char *)base + d[k].off, d[k].size, it, err, errn)) return 0;
-    static const char *pics[4] = {"body_r.png", "hand_r.png", "body_l.png", "hand_l.png"};
-    for (int q = 0; q < 4; q++) {
+    static const char *pics[2] = {"body_r.png", "body_l.png"};
+    for (int q = 0; q < 2; q++) {
         int f = -1;
         for (uint32_t i = 0; i < n; i++)
             if (!strcmp(d[i].name, pics[q])) f = (int)i;
         if (f < 0) return nwpak_free(it), snprintf(err, errn, "%s missing", pics[q]), 0;
-        NwPose *p = &it->pose[q / 2];
+        NwPose *p = &it->pose[q];
         int w = 0, h = 0, ch = 0;
 #ifndef NSPAK_NO_STB
         stbi_uc *px = stbi_load_from_memory(base + d[f].off, (int)d[f].size, &w, &h, &ch, 4);
@@ -204,8 +203,7 @@ static int nwpak_load(const uint8_t *blob, size_t len, NwItem *it, char *err, si
             nwpak_free(it);
             return snprintf(err, errn, "%s: not a %d x %d PNG", pics[q], p->w, p->h), 0;
         }
-        if (q % 2) p->hand = px;
-        else p->body = px;
+        p->body = px;
     }
     return 1;
 }

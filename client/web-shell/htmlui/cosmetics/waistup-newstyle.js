@@ -4,11 +4,12 @@
 // An outfit listed in data/avatar/wu/newstyle.txt ("<m|f> <clothes hex> <code> <clothes picture stem>", written by
 // client/tools/custom_assets.py) is drawn from its pack data/avatar/wu/<wm|ww>_nw_<code>.pak
 // (client/tools/newstyle_wu.py): per pose one picture of the whole figure below the head (body_<pose>.png, its skin
-// in neutral greys: R = G = B = v), the disk arm's fist (hand_<pose>.png) and wu.txt (the skin ramp, the pictures'
+// in neutral greys: R = G = B = v) and wu.txt (the skin ramp, the picture's
 // box, the neck offset, the head cut, the disk transform). In the part loop's layers (waistup.js waistUpLayers):
 //   - the bare body keeps only its rows above the head cut; it and every head layer move by the neck offset;
 //   - the clothes layer becomes the item's body, its greys in the player's skin tone (the ramp, 256 steps);
-//   - the disk layer is drawn through the pose's transform (bilinear on premultiplied colour), then the front hand.
+//   - the disk layer, last as in 2008, is drawn through the pose's transform (bilinear on premultiplied colour); no
+//     hand goes over it (the original strips hold none: the deck holder and the zones always stay on top).
 // Keyed on the layers' picture names, as the engine is: the clothes picture <stem>_<r|l>.png and the bare body
 // <pre>_bo_01_c0<S>_<pose>.png (S the skin tone). A missing or broken pack (layout, CRC, a picture of the wrong size,
 // a record missing or out of range: the engine's checks) leaves the layers as they were: the original look.
@@ -142,7 +143,7 @@ export function readPak(bytes) {
 }
 
 const STEP = { BODY: 1, CLOTHES: 10, FRONT: 11, DISK: 12 };
-/** The layers to draw for pack `pack` ({ wu, pics: { body_r, hand_r, body_l, hand_l } ImageData-like }) in pose
+/** The layers to draw for pack `pack` ({ wu, pics: { body_r, body_l } ImageData-like }) in pose
  *  index `pose` (0 r, 1 l) and skin tone `skin` (1..): see the header. Pure. */
 export function newstyleLayers(layers, pack, pose, skin) {
   const P = pack.wu.pose[pose ? 'l' : 'r'], key = pose ? 'l' : 'r';
@@ -155,11 +156,8 @@ export function newstyleLayers(layers, pack, pose, skin) {
   for (const l of layers) {
     if (l.step === STEP.CLOTHES) out.push({ ...l, nw: 'body', image: `nw_body_${key}.png`, pixels: pack.pics[`body_${key}`], lut, x: bx, y: by,
       w: P.box[2], h: P.box[3], tone: skin });
-    else if (l.step === STEP.DISK) {
-      out.push({ ...l, nw: 'disk', disk });
-      out.push({ step: 13, kind: 13, nw: 'hand', image: `nw_hand_${key}.png`, path: l.path + '#hand', pixels: pack.pics[`hand_${key}`], lut,
-        x: bx, y: by, w: P.box[2], h: P.box[3], tone: skin });
-    } else if (l.step === STEP.BODY) out.push({ ...l, x: l.x + nx, y: l.y + ny, h: Math.max(0, Math.min(l.h, P.headcut + oy - l.y)) });
+    else if (l.step === STEP.DISK) out.push({ ...l, nw: 'disk', disk });
+    else if (l.step === STEP.BODY) out.push({ ...l, x: l.x + nx, y: l.y + ny, h: Math.max(0, Math.min(l.h, P.headcut + oy - l.y)) });
     else out.push({ ...l, x: l.x + nx, y: l.y + ny });
   }
   return out;
@@ -247,7 +245,7 @@ export function loadPack(style, { read = gameFile, decode = decodePng } = {}) {
     if (!e['wu.txt']) throw new Error('wu.txt missing');
     const wu = parseWuText(new TextDecoder().decode(e['wu.txt']));
     const pics = {};
-    for (const p of ['r', 'l']) for (const k of ['body', 'hand']) {
+    for (const p of ['r', 'l']) for (const k of ['body']) {
       const n = `${k}_${p}.png`;
       if (!e[n]) throw new Error(`${n} missing`);
       const img = await decode(e[n]);
