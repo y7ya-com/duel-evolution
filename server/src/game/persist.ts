@@ -989,6 +989,13 @@ const XP_LOSE_LOWER = -16, XP_LOSE_SAME = -1, XP_LOSE_HIGHER = -1;
 const XP_LEVEL_FLOORS = [0, 50, 150, 300, 500, 800, 1200, 1700, 2400, 3300, 4500, 6000, 8000, 10500, 13500, 17500, 22500,
   29500, 40000, 55000, 75000, 105000, 150000, 200000, 260000, 330000, 470000, 650000, 900000];
 
+/** The highest LV a score reaches (the last floor's). */
+export const XP_MAX_LEVEL = XP_LEVEL_FLOORS.length + 1;
+/** The scores that are LV `lv` (2..XP_MAX_LEVEL) by xpLevelForScore: [its floor, the next floor - 1]. */
+export function xpScoreRange(lv: number): [number, number] {
+  return [XP_LEVEL_FLOORS[lv - 2], lv < XP_MAX_LEVEL ? XP_LEVEL_FLOORS[lv - 1] - 1 : 0xffffffff];
+}
+
 export function xpLevelForScore(score: number): number {
   let lv = 2;
   XP_LEVEL_FLOORS.forEach((floor, i) => { if (int(score) >= floor) lv = i + 2; });

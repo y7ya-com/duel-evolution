@@ -118,6 +118,21 @@ export class Admin {
     return { removed, pushed: r.pushed };
   }
 
+  /** One character's LV set (a gift or a correction: POST /__admin/level { acct, slot?, level }, 2..XP_MAX_LEVEL), its
+   *  score moved just into that LV's range (persist.ts xpScoreRange), so the next game neither undoes nor jumps it.
+   *  Saved and pushed like grant (0x4140); nothing else changes (MP, records, graduation, the look). */
+  setLevel(acct: string, slot: number | null, level: number) {
+    if (!Number.isInteger(level) || level < 2 || level > PP.XP_MAX_LEVEL) throw new Error(`level must be 2-${PP.XP_MAX_LEVEL}`);
+    let out = { lv_old: 1, lv: level, score_old: 0, score: 0 };
+    const r = this.trunkEdit(acct, slot, (p) => {
+      const rec = (p.rec ??= {}), [lo, hi] = PP.xpScoreRange(level);
+      out = { lv_old: PP.int(rec.lv ?? 1) || 1, lv: level, score_old: PP.int(rec.score ?? 0), score: 0 };
+      rec.lv = level; rec.score = out.score = Math.min(Math.max(out.score_old, lo), hi);
+    });
+    this.g.log(`[economia] admin level ${acct.slice(0, 8)}/${slot ?? "active"}: LV ${out.lv_old} -> ${level}, score ${out.score_old} -> ${out.score}`);
+    return { ...out, pushed: r.pushed };
+  }
+
   /** One character's profile edited by fn and saved: in its session's context when it is the active one (and the
    *  connected client gets its trunk and player data at once), else in the stored state. */
   private trunkEdit(acct: string, slot: number | null, fn: (p: PP.P) => void): { pushed: boolean } {
@@ -223,6 +238,7 @@ export class Admin {
       case "online": return { online: this.status().players.filter((p) => p.online).length, duels: this.duels() };
       // a cosmetic item unlocked for an account (cosmetics.ts grantCosmetic): { acct, id: "outfit:yugi" }
       case "cosmetic-grant": return grantCosmetic(this.g, String(body.acct ?? ""), String(body.id ?? ""));
+      case "level": return this.setLevel(String(body.acct ?? ""), body.slot == null ? null : Number(body.slot), Number(body.level));
       case "tournament": { const t = this.g.to!.startTournament(body.serial ?? 1, body.day ?? 1, body.name ?? "CHAMPIONSHIP", body.max ?? 8); return { state: t.state }; }
       case "claim": return { result: this.claim(String(body.acct), String(body.userId)) };
       case "start": { this.data.start = body.start ?? {}; this.sink("start", "start", this.data.start); return { ok: true }; }

@@ -20,7 +20,8 @@ export { WorldDO } from "./do.ts";
 
 type E = { Bindings: Env };
 const ADMIN_HEADER = "x-de-admin";
-const DEPLOY_ACTIONS = new Set(["online", "announce", "maintenance", "prepare-restart", "shutdown", "version", "reset-dormant", "ai-rules"]);
+const DEPLOY_ACTIONS = new Set(["online", "announce", "maintenance", "prepare-restart", "shutdown", "version", "reset-dormant", "ai-rules",
+  "cosmetic-grant", "level"]);   // the owner's gifts (admin.ts), from the deploy machine
 const sha = async (s: string) => new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
 /** Compares digests, so the time does not depend on where the strings differ. */
 async function sameSecret(a: string, b: string): Promise<boolean> {

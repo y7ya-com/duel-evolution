@@ -21,7 +21,8 @@ export interface Env extends DiscordEnv {
    *  live with the switch. Must end in "/" and never be "private/". */
   CLIENT_PREFIX?: string;
   ADMIN_TOKEN?: string;
-  /** scripts/deploy.sh's token (wrangler secret, 32+ chars): /__admin/{online,announce,maintenance,prepare-restart,shutdown,version}. */
+  /** scripts/deploy.sh's token (wrangler secret, 32+ chars): /__admin/{online,announce,maintenance,prepare-restart,shutdown,version,reset-dormant,ai-rules}, and the owner's gifts
+   *  cosmetic-grant and level (worker.ts DEPLOY_ACTIONS). */
   DEPLOY_TOKEN?: string;
   /** wrangler.jsonc version_metadata: the deployed version (GET /__version). */
   CF_VERSION_METADATA?: { id: string; tag?: string; timestamp?: string };

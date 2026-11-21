@@ -271,6 +271,16 @@ describe("the admin cosmetic grant (POST /__admin/cosmetic-grant)", () => {
     // other accounts untouched
     expect(raw(f).accounts.bob.cosmetics?.owned ?? []).not.toContain("outfit:yugi");
   });
+  it("below LV 5 it is owned but not worn (Slifer Red until LV 5); POST /__admin/level 5 makes it wearable", () => {
+    const f = fixture();
+    mutate(f, st => { Object.assign(st.accounts.alice.profiles["0"].rec, { lv: 1, score: 158 }); });
+    f.game.admin.run("cosmetic-grant", { acct: "alice", id: "outfit:yugi" });
+    expect(cosmeticEquip(f.game, f.a, { id: "outfit:yugi", world: 0 })).toMatchObject({ error: "slifer-until-lv5" });
+    const lobby = f.a.lobby; f.a.lobby = null;   // the fixture's lobby is no Lobby connection (the push: notes-admin.test.ts)
+    expect(f.game.admin.run("level", { acct: "alice", level: 5 })).toMatchObject({ lv: 5, score: 300 });
+    f.a.lobby = lobby;
+    expect((cosmeticEquip(f.game, f.a, { id: "outfit:yugi", world: 0 }) as any).equipped.parts[6]).toBe(0x79);
+  });
   it("a female character can't wear it (male only: Téa's Garms is the female item)", () => {
     const f = fixture();
     mutate(f, st => { st.accounts.alice.profiles["0"].avatar = { a: "0100203040607680b020000000000000" }; });

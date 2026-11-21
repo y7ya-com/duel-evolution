@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { harness, i32, u32 } from "./notes-harness.ts";
 import { diff, stateToRows } from "../src/db/project.ts";
+import * as PP from "../src/game/persist.ts";
 
 afterEach(() => { vi.useRealTimers(); });
 
@@ -98,6 +99,31 @@ describe("admin grant (the owner's recovery)", () => {
     await h.tick(300);
     expect(trunk()).toEqual({ [GREPHER]: 1 });
     expect(A.room!.all(0x7127, n).length).toBe(1);
+  });
+
+  it("level: LV set with the score moved into its range, pushed at once (0x4140); bad levels change nothing", async () => {
+    const h = harness();
+    const A = h.client("A");
+    await A.account(0, "Alice"); await A.enterRoom();
+    const acct = Object.keys(h.state().accounts)[0];
+    const rec = () => (Object.values(h.state().accounts) as any[])[0].profiles["0"].rec;
+    const st = h.state(); Object.assign((Object.values(st.accounts) as any[])[0].profiles["0"].rec, { lv: 1, score: 158, mp: 777 }); h.game.store.saveRaw(st);
+    const n = A.room!.mark();
+    expect(h.game.admin.run("level", { acct, level: 5 })).toEqual({ lv_old: 1, lv: 5, score_old: 158, score: 300, pushed: true });
+    await h.tick(300);
+    expect([rec().lv, rec().score, rec().mp]).toEqual([5, 300, 777]);
+    expect(PP.xpLevelForScore(rec().score)).toBe(5);
+    expect(A.room!.all(0x4140, n).length).toBe(1);
+    // a score above the LV's range comes down to its top, so the next game doesn't jump it
+    expect(h.game.admin.run("level", { acct, slot: 0, level: 3 })).toMatchObject({ lv_old: 5, lv: 3, score: 149 });
+    const before = h.state();
+    for (const level of [0, 1, 31, 2.5, NaN]) expect(() => h.game.admin.run("level", { acct, level })).toThrow(/level must be/);
+    expect(() => h.game.admin.run("level", { acct, slot: 3, level: 5 })).toThrow(/no character/);
+    expect(h.state()).toEqual(before);
+    A.room!.send(0x0003); A.room!.close(); await h.tick(300);
+    h.game.hub.sessions.delete(acct);
+    expect(h.game.admin.run("level", { acct, level: 5 })).toMatchObject({ lv: 5, score: 300, pushed: false });
+    expect(rec().lv).toBe(5);
   });
 });
 
